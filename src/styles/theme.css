@@ -1,0 +1,179 @@
+/* ========================================================
+   DristiX Dynamic Accessibility Color Tokens & Focus System
+   Strict WCAG 2.1 AA & AAA Compliant Themes
+   ======================================================== */
+
+:root {
+  /* Default: High-Contrast Light Mode */
+  --bg-page: #FFFFFF;
+  --bg-surface: #F8FAFC;
+  --bg-surface-elevated: #F1F5F9;
+  --text-primary: #020617;
+  --text-secondary: #1E293B;
+  --border-color: #0F172A;
+  --border-subtle: #94A3B8;
+  --focus-ring: #0284C7;
+  --focus-offset: 3px;
+  
+  --primary: #1D4ED8;
+  --primary-hover: #1E40AF;
+  --primary-text: #FFFFFF;
+
+  --color-marked: #B45309;
+  --color-marked-text: #FFFFFF;
+  --color-answered: #15803D;
+  --color-answered-text: #FFFFFF;
+  --color-unattempted: #475569;
+  --color-unattempted-text: #FFFFFF;
+
+  --color-success: #15803D;
+  --color-danger: #B91C1C;
+  --color-warning: #B45309;
+
+  /* Font Scaling Token */
+  --font-scale: 1;
+}
+
+/* Theme 1: High-Contrast Dark Mode */
+[data-theme="dark-hc"] {
+  --bg-page: #090D16;
+  --bg-surface: #131B2E;
+  --bg-surface-elevated: #1E293B;
+  --text-primary: #F8FAFC;
+  --text-secondary: #E2E8F0;
+  --border-color: #475569;
+  --border-subtle: #334155;
+  --focus-ring: #FACC15;
+  --focus-offset: 3px;
+
+  --primary: #38BDF8;
+  --primary-hover: #7DD3FC;
+  --primary-text: #090D16;
+
+  --color-marked: #F59E0B;
+  --color-marked-text: #090D16;
+  --color-answered: #22C55E;
+  --color-answered-text: #090D16;
+  --color-unattempted: #64748B;
+  --color-unattempted-text: #F8FAFC;
+
+  --color-success: #22C55E;
+  --color-danger: #EF4444;
+  --color-warning: #F59E0B;
+}
+
+/* Theme 2: Specialty Yellow-on-Black Mode */
+[data-theme="yellow-black"] {
+  --bg-page: #000000;
+  --bg-surface: #0A0A0A;
+  --bg-surface-elevated: #171717;
+  --text-primary: #FFFF00;
+  --text-secondary: #FFFF66;
+  --border-color: #FFFF00;
+  --border-subtle: #B3B300;
+  --focus-ring: #00FFFF;
+  --focus-offset: 3px;
+
+  --primary: #FFFF00;
+  --primary-hover: #FFFFA0;
+  --primary-text: #000000;
+
+  --color-marked: #FFA500;
+  --color-marked-text: #000000;
+  --color-answered: #00FF66;
+  --color-answered-text: #000000;
+  --color-unattempted: #888888;
+  --color-unattempted-text: #000000;
+
+  --color-success: #00FF66;
+  --color-danger: #FF3333;
+  --color-warning: #FFA500;
+}
+
+/* Theme 3: High-Contrast Cream / Warm Sepia */
+[data-theme="cream-dark"] {
+  --bg-page: #FFFBEB;
+  --bg-surface: #FEF3C7;
+  --bg-surface-elevated: #FDE68A;
+  --text-primary: #451A03;
+  --text-secondary: #78350F;
+  --border-color: #92400E;
+  --border-subtle: #D97706;
+  --focus-ring: #B45309;
+  --focus-offset: 3px;
+
+  --primary: #78350F;
+  --primary-hover: #451A03;
+  --primary-text: #FFFBEB;
+
+  --color-marked: #B45309;
+  --color-marked-text: #FFFBEB;
+  --color-answered: #14532D;
+  --color-answered-text: #FFFBEB;
+  --color-unattempted: #78716C;
+  --color-unattempted-text: #FFFBEB;
+
+  --color-success: #14532D;
+  --color-danger: #991B1B;
+  --color-warning: #B45309;
+}
+
+/* ========================================================
+   UNIVERSAL NON-NEGOTIABLE FOCUS RING SYSTEM
+   WCAG 2.4.7 (Focus Visible) & WCAG 2.4.11 (Focus Appearance)
+   ======================================================== */
+
+*:focus-visible {
+  outline: 3px solid var(--focus-ring) !important;
+  outline-offset: var(--focus-offset) !important;
+  border-radius: 4px;
+}
+
+/* Eliminate hidden outline anti-pattern */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Accessible Screen Reader Only Utility */
+.sr-only:not(:focus):not(:focus-visible),
+#a11y-announcer,
+#a11y-announcer-assertive {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.sr-only-focusable:focus,
+.sr-only-focusable:focus-visible {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0.75rem 1.25rem !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  clip: auto !important;
+  white-space: normal !important;
+  z-index: 9999 !important;
+}
+
+/* Smooth high-contrast transitions */
+body {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  line-height: 1.6;
+}
+
+/* Dyslexia / Hyper-legible typography override */
+.font-accessible,
+.font-accessible * {
+  letter-spacing: 0.05em !important;
+  word-spacing: 0.1em !important;
+  line-height: 1.8 !important;
+}
