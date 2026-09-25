@@ -177,3 +177,10 @@ body {
   word-spacing: 0.1em !important;
   line-height: 1.8 !important;
 }
+
+/* Universal High-Visibility WCAG 2.1 AA Keyboard Focus Indicator */
+:focus-visible {
+  outline: 3px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
+}
+

@@ -46,9 +46,10 @@ export const DiagnosticReport: React.FC = () => {
 
   return (
     <main
-      id="main-question-content"
+      id="main-content"
       role="main"
       tabIndex={-1}
+      aria-label="Examination Diagnostic and Performance Report"
       className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 outline-none text-theme-text"
     >
       {/* Header Banner */}

@@ -3,6 +3,7 @@ import { useExamStore } from '../store/useExamStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
 import { soundEffects } from './soundEffects';
 import type { CommandProcessResult } from './voiceCommandProcessor';
+import { matchExamFromQuery } from './examMatcher';
 
 const API_KEY_STORAGE = 'dristix_gemini_api_key';
 const GROQ_API_KEY_STORAGE = 'dristix_groq_api_key';
@@ -98,6 +99,11 @@ class GeminiVoiceService {
     return cleanGemini.length > 10 || cleanGroq.length > 10;
   }
 
+  public hasValidGeminiKey(): boolean {
+    const cleanGemini = this.apiKey.trim().replace(/^["']|["']$/g, '').trim();
+    return cleanGemini.startsWith('AIzaSy') && cleanGemini.length > 25;
+  }
+
   /**
    * Validate key against Google AI Studio / Generative Language API and discover supported models
    */
@@ -130,16 +136,20 @@ class GeminiVoiceService {
                 const name = (m.name || '').toLowerCase();
                 const methods = m.supportedGenerationMethods || [];
                 if (!methods.includes('generateContent')) return false;
-                // Filter out preview TTS, deprecated 2.5, embedding, or overloaded models
+                // Only allow gemini-flash and gemini-pro models (NOT gemma — gemma doesn't support audio)
+                // Also exclude tts, preview, embedding, imagen models
                 if (
+                  name.includes('gemma') ||
                   name.includes('tts') ||
                   name.includes('preview') ||
-                  name.includes('2.5') ||
                   name.includes('embedding') ||
-                  name.includes('imagen')
+                  name.includes('imagen') ||
+                  name.includes('aqa')
                 ) {
                   return false;
                 }
+                // Must be a gemini model
+                if (!name.includes('gemini')) return false;
                 return true;
               })
               .map((m: any) => (m.name || '').replace(/^models\//, ''));
@@ -198,10 +208,16 @@ class GeminiVoiceService {
     const abortController = new AbortController();
     this.activeAbortController = abortController;
 
-    // 2. High-speed models: prioritize discovered models, including gemini-2.5-flash
-    const modelsToTry = this.discoveredModels.length > 0
-      ? this.discoveredModels
-      : ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    // 2. High-speed models: only use Gemini Flash/Pro models (NOT gemma — gemma has no audio support)
+    // Audio modality is supported ONLY by gemini-1.5-flash, gemini-2.0-flash, gemini-1.5-pro
+    const AUDIO_CAPABLE_MODELS = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+    const filteredDiscovered = this.discoveredModels.filter(m =>
+      AUDIO_CAPABLE_MODELS.some(safe => m.includes(safe.replace('gemini-', '').split('-')[0]))
+      && !m.includes('gemma')
+    );
+    const modelsToTry = filteredDiscovered.length > 0
+      ? filteredDiscovered
+      : AUDIO_CAPABLE_MODELS;
 
     for (const model of modelsToTry) {
       if (abortController.signal.aborted) return null;
@@ -283,29 +299,25 @@ User Spoken Command: "${rawText}"
 
 CRITICAL SYSTEM RULES (STRICT COMPLIANCE REQUIRED):
 
-1. MANDATORY DYNAMIC LANGUAGE AUTO-DETECTION:
-- YOU MUST STRICTLY IDENTIFY THE LANGUAGE OF WHAT THE USER SPOKE OR TYPED ("${rawText}"):
-  * If the user spoke or typed in ENGLISH (e.g. "select option 1", "read the question", "next question", "previous question", "how much time left", "submit my exam", "help me", "which page am I on", "go to mock test page"):
-    -> Your "reply" MUST BE 100% IN NATURAL, ACCURATE ENGLISH. Do NOT mix Hindi or Hinglish words when the user spoke in English!
-  * If the user spoke or typed in HINDI or HINGLISH (e.g. "pehla option chuno", "dusra option lagao", "agla sawal", "sawal padh ke sunao", "kitna time bacha hai", "exam submit karo", "main abhi kis page par hoon", "गो ऑन मॉक टेस्ट पेज", "mock test page par jao"):
-    -> Your "reply" MUST BE IN NATURAL, POLITE HINDI / HINGLISH.
-- NEVER rely on any preset language button. ALWAYS determine the reply language strictly from the user's actual spoken utterance.
+1. MANDATORY ENGLISH FOR ALL SPOKEN REPLIES AND ANNOUNCEMENTS:
+- Regardless of whether the user speaks or commands in English, Hindi, or Hinglish:
+  * Understand the user's command or intent fully (even if spoken in Hindi or Hinglish, e.g. "dusra option chuno", "sawal padho", "agla sawal", "test shuru karo", "wapas jao").
+  * ALWAYS produce your "reply" 100% IN NATURAL, ACCURATE, AND POLITE ENGLISH.
+  * NEVER output Hindi or Hinglish text in the "reply" field. All confirmations, questions, and announcements must be in clear English.
 
 2. STRICT EXAM INTEGRITY RULE (NO SOLVING, NO ANSWER DISCLOSURE):
 - When the candidate is taking an exam/mock test (Active Screen: "exam"):
   * If the user asks to SOLVE the question, REVEAL THE CORRECT ANSWER, EXPLAIN THE SOLUTION, GIVE HINTS, OR ASK WHICH OPTION IS RIGHT (e.g., "solve this question", "answer batao", "explain this question", "sahi option kaun sa hai", "what is the answer", "is question ko solve karo", "help me solve"):
     -> YOU MUST NEVER solve the question or reveal any answers or hints!
     -> Set "action": "EXAM_INTEGRITY_REFUSAL".
-    -> If the user asked in English, reply: "Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select an option, or check the time."
-    -> If the user asked in Hindi/Hinglish, reply: "Pariksha niyam ke anusaar, live mock test ke dauran main sawal ka solution ya answer nahi bata sakta. Aap option chunne, agla sawal lagane ya samay poochne ke liye bol sakte hain."
+    -> Always reply in English: "Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select an option, or check the time."
 
 3. STRICT NO-EXIT BEFORE SUBMIT RULE:
 - ONLY when taking an ACTIVE unsubmitted exam (Active Screen: "exam" AND Is Exam Submitted: "NO"):
   * If the candidate asks to go back, return to catalog, exit, close the exam, or start another exam before submitting:
     -> YOU MUST NOT exit the test or start another exam!
     -> Set "action": "SUBMIT_EXAM".
-    -> If asked in English: "You cannot leave the exam before submitting it. I have opened the submit confirmation window. Please submit your exam first."
-    -> If asked in Hindi/Hinglish: "Pariksha submit kiye bina aap wapas nahi ja sakte. Maine exam submit confirmation window open kar di hai. Kripya pehle exam submit karein."
+    -> Reply in English: "You cannot leave the exam before submitting it. I have opened the submit confirmation window. Please submit your exam first."
 - WHEN ON REPORT SCREEN (Active Screen: "report" OR Is Exam Submitted: "YES"):
   * If the candidate asks to go to mock test page, catalog, home, or choose another exam (e.g. "go on mock test page", "गो ऑन मॉक टेस्ट पेज", "mock test page par jao", "choose another exam", "wapas jao"):
     -> SET "action": "RETURN_CATALOG". They are completely allowed to return to the catalog!
@@ -318,7 +330,7 @@ CRITICAL SYSTEM RULES (STRICT COMPLIANCE REQUIRED):
 - "RETURN_CATALOG": Return to catalog or mock tests list (e.g. "go to mock test page", "गो ऑन मॉक टेस्ट पेज", "mock test page par jao", "choose another exam", "wapas jao", "catalog").
 - "READ_REPORT_SUMMARY": Read performance summary on report screen (e.g. "read summary", "summary padho", "score batao").
 - "RETAKE_EXAM": Retake the test (e.g. "retake test", "dobara test do").
-- "START_EXAM": Open or start a test (param: exam title or code)
+- "START_EXAM": Open or start a specific examination. In the "param" field, provide the exact matching exam id from Available Exams (e.g. "upsc-csat-paper2" for UPSC / Civil Services, "rrb-ntpc-general" for Railway / RRB NTPC, "ibps-po-quant-speed" for Banking / IBPS PO, or "ssc-cgl-tier1-full" for SSC CGL).
 - "SELECT_OPTION": Select option (param: 1, 2, 3, or 4)
 - "CLEAR_OPTION": Deselect option
 - "NEXT_QUESTION": Next question
@@ -510,11 +522,17 @@ Return ONLY a valid JSON object matching this schema:
    * Process raw audio recording using Gemini Multimodal for 100% accurate speech-to-intent
    */
   public async processAudioWithGemini(audioBlob: Blob): Promise<CommandProcessResult | null> {
-    if (!this.apiKey || this.apiKey.length <= 10) return null;
+    if (!this.hasValidGeminiKey()) return null;
 
     const base64Audio = await this.blobToBase64(audioBlob);
     const context = getAssistantContext();
     const systemPrompt = this.buildSystemPrompt(context, 'Spoken Audio Recording');
+
+    // IMPORTANT: Audio/multimodal input ONLY works on gemini-1.5-flash and gemini-2.0-flash.
+    // Gemma models (gemma-4-31b, gemma-4-26b, etc.) do NOT support audio — they return 400.
+    // We override discoveredModels here to ensure audio requests only go to audio-capable models.
+    const savedModels = this.discoveredModels;
+    this.discoveredModels = ['gemini-1.5-flash', 'gemini-2.0-flash'];
 
     const data = await this.executeGenerateContent({
       contents: [
@@ -535,6 +553,9 @@ Return ONLY a valid JSON object matching this schema:
         responseMimeType: 'application/json',
       },
     });
+
+    // Restore original model list
+    this.discoveredModels = savedModels;
 
     const contentText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!contentText) return null;
@@ -562,13 +583,6 @@ Return ONLY a valid JSON object matching this schema:
     const replyLower = (parsed.reply || '').toLowerCase();
     let actionExecuted: string = parsed.action;
 
-    // Detect language of user query (pure English vs Hindi/Hinglish)
-    const isPureEnglish =
-      /^[a-zA-Z0-9\s.,?!'\-—/()]+$/.test(rawQuery) &&
-      !/(karo|karna|karein|batao|bataiye|kya|hai|hain|kaun|konsa|kon|kis|sawal|uttar|samjhao|shuru|agla|pichla|dusra|teesra|choutha|pahla|chuno|lagao|kholo|chalao|kitna|kitne|samay|padho|bolo|sunao|chahiye|hal|mujhe|mera|meri|mere|main|mai|hoon|hu|ho|par|pe|kahan|yahan|wahan|pariksha|khatam|nahi|raha|rahi|rahe|liye|wapas|kaise|sakte|sakta|sakti|ek|do|teen|char|paanch|aap|tum|hum)/i.test(
-        rawQuery
-      );
-
     // =========================================================================
     // STRICT EXAM INTEGRITY INTERCEPTOR:
     // If the candidate is on the live exam screen, NEVER solve or reveal answers!
@@ -592,9 +606,7 @@ Return ONLY a valid JSON object matching this schema:
 
     if (context.activeView === 'exam' && isSolveOrAnswerIntent) {
       soundEffects.playTimerAlert();
-      const safeReply = isPureEnglish
-        ? 'Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select your chosen option, or check the time.'
-        : 'Pariksha niyam ke anusaar, live mock test ke dauran main sawal ka solution ya answer nahi bata sakta. Aap option chunne, agla sawal lagane ya bacha hua samay poochne ke liye bol sakte hain.';
+      const safeReply = 'Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select your chosen option, or check the time.';
 
       useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
       return {
@@ -606,120 +618,86 @@ Return ONLY a valid JSON object matching this schema:
       };
     }
 
-    // Detect if this is an exam start request (either via explicit action or intent in reply/query)
-    const isStartExamIntent =
-      actionUpper === 'START_EXAM' ||
-      actionUpper === 'OPEN_EXAM' ||
-      actionUpper === 'START_TEST' ||
-      actionUpper === 'OPEN_TEST' ||
-      actionUpper === 'SELECT_EXAM' ||
-      actionUpper === 'START' ||
-      actionUpper === 'OPEN' ||
-      actionUpper === 'LAUNCH_EXAM' ||
-      actionUpper === 'BEGIN_EXAM' ||
-      replyLower.includes('open kar') ||
-      replyLower.includes('start kar') ||
-      replyLower.includes('shuru kar') ||
-      replyLower.includes('khol raha') ||
-      queryLower.includes('open exam') ||
-      queryLower.includes('exam open') ||
-      queryLower.includes('start exam') ||
-      queryLower.includes('exam start') ||
-      queryLower.includes('test open') ||
-      queryLower.includes('test start') ||
-      queryLower.includes('exam kholo') ||
-      queryLower.includes('test kholo') ||
-      queryLower.includes('exam shuru') ||
-      queryLower.includes('ak exam') ||
-      queryLower.includes('ek exam');
+    const all = [...examStore.availableExams, ...examStore.availablePracticeDrills];
+    const matchedRequestedExam = matchExamFromQuery(rawQuery, parsed.param, all);
 
-    if (isStartExamIntent) {
-      // STRICT INTEGRITY: If candidate is taking a test, prevent switching exams before submitting
-      if (context.activeView === 'exam' && !examStore.isSubmitted) {
-        examStore.setSubmitModalOpen(true);
-        soundEffects.playTimerAlert();
-        const safeReply = isPureEnglish
-          ? 'An exam is already running. You cannot leave or start another test before submitting this one. Submit confirmation window opened.'
-          : 'Aapki pariksha abhi chal rahi hai. Naya test shuru karne se pehle kripya is exam ko submit karein.';
-        useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
-        return {
-          success: true,
-          intent: 'SUBMIT_EXAM',
-          userQuery: rawQuery,
-          assistantReply: safeReply,
-          actionExecuted: 'Opened Submit Modal (Exam Switch Prevented)',
-        };
-      }
-
-      const all = [...examStore.availableExams, ...examStore.availablePracticeDrills];
-      let target = all[0];
-      const searchKey = `${parsed.param || ''} ${rawQuery}`.toLowerCase();
-
-      if (searchKey.includes('ssc') || searchKey.includes('cgl')) {
-        target = all.find((e) => e.code.includes('SSC')) || target;
-      } else if (searchKey.includes('ibps') || searchKey.includes('bank') || searchKey.includes('po')) {
-        target = all.find((e) => e.code.includes('IBPS')) || target;
-      } else if (searchKey.includes('rrb') || searchKey.includes('railway') || searchKey.includes('ntpc')) {
-        target = all.find((e) => e.code.includes('RRB')) || target;
-      } else if (searchKey.includes('upsc') || searchKey.includes('csat')) {
-        target = all.find((e) => e.code.includes('CSAT')) || target;
-      } else if (searchKey.includes('practice') || searchKey.includes('drill')) {
-        target = all.find((e) => e.id.includes('practice')) || target;
-      } else if (searchKey.includes('dusra') || searchKey.includes('second') || searchKey.includes('2')) {
-        target = all[1] || target;
-      } else if (searchKey.includes('teesra') || searchKey.includes('third') || searchKey.includes('3')) {
-        target = all[2] || target;
-      }
-
-      // If user is on /admin route, ensure we navigate back to main student app
-      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
-        window.history.pushState({}, '', '/');
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      }
-
-      examStore.selectExam(target.id, target.id.includes('practice') ? 'practice' : 'exam');
-      soundEffects.playSuccess();
-      actionExecuted = `Started ${target.title}`;
-
-      // Vocalize assistant reply
-      useAnnouncerStore.getState().announce(parsed.reply, 'assertive', true);
-
-      return {
-        success: true,
-        intent: 'START_EXAM',
-        userQuery: rawQuery,
-        assistantReply: parsed.reply,
-        actionExecuted,
-      };
-    }
-
-    // Return to Catalog / Choose Another Exam Interceptor
+    // Return to Catalog / Mock Test Page / Choose Another Exam Interceptor
+    // MUST BE EVALUATED BEFORE isStartExamIntent so phrases like "open mock test page" or "go on mocktest page" navigate to catalog!
+    // BUT if the user explicitly requested a specific exam (e.g. "open UPSC mock test"), matchedRequestedExam will be defined and we should NOT intercept as catalog navigation!
     const isReturnCatalogIntent =
-      actionUpper === 'RETURN_CATALOG' ||
-      actionUpper === 'NAVIGATE_BACK' ||
-      actionUpper === 'BACK' ||
-      actionUpper === 'EXIT' ||
-      queryLower.includes('mock test page') ||
-      queryLower.includes('मॉक टेस्ट पेज') ||
-      queryLower.includes('mock test par') ||
-      queryLower.includes('मॉक टेस्ट पर') ||
-      queryLower.includes('go on mock') ||
-      queryLower.includes('go to mock') ||
-      queryLower.includes('गो ऑन') ||
-      queryLower.includes('गो टू') ||
-      queryLower.includes('choose another') ||
-      queryLower.includes('dusra exam') ||
-      queryLower.includes('test page par jao') ||
-      queryLower.includes('pehle page') ||
-      queryLower.includes('catalog par');
+      !matchedRequestedExam &&
+      (
+        actionUpper === 'RETURN_CATALOG' ||
+        actionUpper === 'RETURN' ||
+        actionUpper === 'CATALOG' ||
+        actionUpper === 'EXAM_CATALOG' ||
+        actionUpper === 'MOCK_TEST_PAGE' ||
+        actionUpper === 'MOCK_TESTS' ||
+        actionUpper === 'MOCKTEST_PAGE' ||
+        actionUpper === 'MOCKTEST' ||
+        actionUpper === 'NAVIGATE_CATALOG' ||
+        actionUpper === 'NAVIGATE_BACK' ||
+        actionUpper === 'BACK' ||
+        actionUpper === 'EXIT' ||
+        actionUpper === 'HOME' ||
+        queryLower.includes('mock test page') ||
+        queryLower.includes('mocktest page') ||
+        queryLower.includes('go on mock') ||
+        queryLower.includes('go to mock') ||
+        queryLower.includes('take me to mock') ||
+        queryLower.includes('back to mock') ||
+        queryLower.includes('return to mock') ||
+        queryLower.includes('open mock test page') ||
+        queryLower.includes('open mocktest page') ||
+        queryLower.includes('मॉक टेस्ट पेज') ||
+        queryLower.includes('मॉकटेस्ट पेज') ||
+        queryLower.includes('मॉक टेस्ट पर') ||
+        queryLower.includes('मॉकटेस्ट पर') ||
+        queryLower.includes('गो ऑन') ||
+        queryLower.includes('गो टू') ||
+        queryLower.includes('choose another') ||
+        queryLower.includes('another exam') ||
+        queryLower.includes('another test') ||
+        queryLower.includes('dusra exam') ||
+        queryLower.includes('dusra test') ||
+        queryLower.includes('test page') ||
+        queryLower.includes('tests page') ||
+        queryLower.includes('exam page') ||
+        queryLower.includes('exams page') ||
+        queryLower.includes('catalog page') ||
+        queryLower.includes('catalog par') ||
+        queryLower.includes('all exams') ||
+        queryLower.includes('all tests') ||
+        queryLower.includes('all mock') ||
+        queryLower.includes('sare test') ||
+        queryLower.includes('sare exam') ||
+        queryLower.includes('sare mock') ||
+        queryLower.includes('show mock tests') ||
+        queryLower.includes('list mock tests') ||
+        queryLower.includes('test series') ||
+        queryLower.includes('home page') ||
+        queryLower.includes('pehle page') ||
+        queryLower.includes('main page') ||
+        // When on the report screen, any request to see tests, exams, catalog, or return goes to catalog!
+        (context.activeView === 'report' && (
+          queryLower.includes('mock test') ||
+          queryLower.includes('mocktest') ||
+          queryLower.includes('test') ||
+          queryLower.includes('tests') ||
+          queryLower.includes('exam') ||
+          queryLower.includes('exams') ||
+          queryLower.includes('catalog') ||
+          queryLower.includes('home') ||
+          queryLower.includes('back') ||
+          queryLower.includes('wapas')
+        ))
+      );
 
     if (isReturnCatalogIntent) {
       if (context.activeView === 'exam' && !examStore.isSubmitted) {
         examStore.setSubmitModalOpen(true);
         soundEffects.playTimerAlert();
-        const safeReply = isPureEnglish
-          ? 'You cannot go back before submitting the exam. Submit confirmation window is open. Please submit your test first.'
-          : 'Pariksha submit kiye bina aap wapas nahi ja sakte. Exam submit confirmation window open kar di gayi hai. Pehle test submit karein.';
+        const safeReply = 'You cannot leave the exam before submitting it. The submit confirmation window is now open. Please submit your test first.';
         useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
         return {
           success: true,
@@ -731,17 +709,88 @@ Return ONLY a valid JSON object matching this schema:
       }
 
       examStore.returnToCatalog();
+      examStore.setPortalTab('exams');
       soundEffects.playSuccess();
-      const reply = isPureEnglish
-        ? 'Returned to Examination Catalog. You can choose another mock test or practice drill to begin.'
-        : 'Mock Examination Catalog page par wapas aa gaye hain. Yahan se aap koi bhi doosra test ya practice drill chun sakte hain.';
+      const reply = 'Returned to the Examination Catalog. All available mock tests are displayed on your screen. Say "Start SSC CGL" or "Start Exam 1" to begin.';
       useAnnouncerStore.getState().announce(reply, 'assertive', true);
       return {
         success: true,
         intent: 'RETURN_CATALOG',
         userQuery: rawQuery,
         assistantReply: reply,
-        actionExecuted: 'Returned to Catalog',
+        actionExecuted: 'Returned to Mock Test Catalog',
+      };
+    }
+
+    // Detect if this is an exam start request (either via explicit action, matched exam, or intent in reply/query)
+    const isStartExamIntent =
+      !isReturnCatalogIntent &&
+      (
+        !!matchedRequestedExam ||
+        actionUpper === 'START_EXAM' ||
+        actionUpper === 'OPEN_EXAM' ||
+        actionUpper === 'START_TEST' ||
+        actionUpper === 'OPEN_TEST' ||
+        actionUpper === 'SELECT_EXAM' ||
+        actionUpper === 'LAUNCH_EXAM' ||
+        actionUpper === 'BEGIN_EXAM' ||
+        (actionUpper === 'START' && !queryLower.includes('page') && !queryLower.includes('catalog')) ||
+        (actionUpper === 'OPEN' && !queryLower.includes('page') && !queryLower.includes('catalog')) ||
+        replyLower.includes('open kar') ||
+        replyLower.includes('start kar') ||
+        replyLower.includes('shuru kar') ||
+        replyLower.includes('khol raha') ||
+        queryLower.includes('open exam') ||
+        queryLower.includes('exam open') ||
+        queryLower.includes('start exam') ||
+        queryLower.includes('exam start') ||
+        queryLower.includes('exam kholo') ||
+        queryLower.includes('test kholo') ||
+        queryLower.includes('exam shuru') ||
+        queryLower.includes('ak exam') ||
+        queryLower.includes('ek exam')
+      );
+
+    if (isStartExamIntent) {
+      // STRICT INTEGRITY: If candidate is taking a test, prevent switching exams before submitting
+      if (context.activeView === 'exam' && !examStore.isSubmitted) {
+        examStore.setSubmitModalOpen(true);
+        soundEffects.playTimerAlert();
+        const safeReply = 'An exam is already running. You cannot leave or start another test before submitting this one. Submit confirmation window opened.';
+        useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'SUBMIT_EXAM',
+          userQuery: rawQuery,
+          assistantReply: safeReply,
+          actionExecuted: 'Opened Submit Modal (Exam Switch Prevented)',
+        };
+      }
+
+      const target = matchedRequestedExam || all[0];
+
+      // If user is on /admin route, ensure we navigate back to main student app
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+        window.history.pushState({}, '', '/');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
+
+      examStore.selectExam(target.id, target.id.includes('practice') ? 'practice' : 'exam');
+      soundEffects.playSuccess();
+      actionExecuted = `Started ${target.title}`;
+
+      // Build a clear confirmation reply telling user exactly what opened + Q1 info
+      const confirmReply = `"${target.title}" has been opened successfully! Question 1 is now loaded on your screen. Say "Read question" to hear the full question and options.`;
+
+      // Vocalize the confirmation reply
+      useAnnouncerStore.getState().announce(confirmReply, 'assertive', true);
+
+      return {
+        success: true,
+        intent: 'START_EXAM',
+        userQuery: rawQuery,
+        assistantReply: confirmReply,
+        actionExecuted,
       };
     }
 
@@ -828,10 +877,8 @@ Return ONLY a valid JSON object matching this schema:
       case 'READ_REPORT_SUMMARY':
       case 'SUMMARY': {
         const rep = context.diagnosticReport;
-        const sum = rep?.verbalSummary?.join(' ') || `Aapka score ${rep?.totalScore || 0}/${rep?.maxScore || 20} raha.`;
-        const reply = isPureEnglish
-          ? `Diagnostic Summary for ${rep?.examTitle || 'Exam'}: ${sum}`
-          : `${rep?.examTitle || 'Exam'} ki Summary: ${sum}`;
+        const sum = rep?.verbalSummary?.join(' ') || `Your score was ${rep?.totalScore || 0} out of ${rep?.maxScore || 20}.`;
+        const reply = `Diagnostic Summary for ${rep?.examTitle || 'Exam'}: ${sum}`;
         useAnnouncerStore.getState().announce(reply, 'assertive', true);
         return {
           success: true,
@@ -844,9 +891,7 @@ Return ONLY a valid JSON object matching this schema:
       case 'RETAKE_EXAM':
       case 'RETAKE': {
         examStore.resetExam();
-        const reply = isPureEnglish
-          ? 'Resetting examination. Question 1 has been reloaded.'
-          : 'Pariksha dobara shuru kar di gayi hai. Question 1 aapki screen par aa gaya hai.';
+        const reply = 'Exam has been reset. Question 1 is now loaded on your screen. Say "Read question" to begin.';
         useAnnouncerStore.getState().announce(reply, 'assertive', true);
         return {
           success: true,
@@ -870,9 +915,7 @@ Return ONLY a valid JSON object matching this schema:
         if (context.activeView === 'report') {
           const rep = context.diagnosticReport;
           const examTitle = rep?.examTitle || context.currentExam?.title || 'Mock Examination';
-          whereReply = isPureEnglish
-            ? `You have completed and submitted the "${examTitle}". You are currently on the Performance Diagnostic Report and Score Analysis screen. Your score is ${rep?.totalScore || 0} out of ${rep?.maxScore || 20} (${rep?.scorePercentage || 0}%). You can say "Read summary", "Retake test", or "Go to mock test page".`
-            : `Aapne "${examTitle}" pariksha submit kar di hai. Is samay aap apne Diagnostic Report aur Score Summary page par hain. Aapka score ${rep?.totalScore || 0}/${rep?.maxScore || 20} (${rep?.scorePercentage || 0}%) raha. Aap "Summary padho", "Dobara test do", ya "Mock test page par jao" bol sakte hain.`;
+          whereReply = `You have completed and submitted "${examTitle}". You are currently on the Performance Diagnostic Report and Score Analysis screen. Your score is ${rep?.totalScore || 0} out of ${rep?.maxScore || 20} (${rep?.scorePercentage || 0}%). You can say "Read summary", "Retake test", or "Go to mock test page".`;
         }
         useAnnouncerStore.getState().announce(whereReply, 'assertive', true);
         return {

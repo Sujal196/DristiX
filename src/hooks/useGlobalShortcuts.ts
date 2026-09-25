@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { useExamStore } from '../store/useExamStore';
+import { usePreferencesStore } from '../store/usePreferencesStore';
+import type { TextScale } from '../store/usePreferencesStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
-import { voiceRecognition } from '../utils/voiceRecognition';
 import { soundEffects } from '../utils/soundEffects';
 
 /**
@@ -36,7 +37,7 @@ export function useGlobalShortcuts() {
         if (store.isShortcutsOpen) { store.setShortcutsOpen(false); handledModal = true; }
         if (store.isSubmitModalOpen) { store.setSubmitModalOpen(false); handledModal = true; }
         if (handledModal) return;
-        if (store.activeView === 'analytics') { store.returnToCatalog(); return; }
+        if (store.activeView === 'analytics' || store.isSubmitted) { store.returnToCatalog(); return; }
         return;
       }
 
@@ -64,6 +65,50 @@ export function useGlobalShortcuts() {
       // If user is actively typing in a text field, let native typing happen
       if (isUserTyping(activeEl)) return;
 
+      // Global Text & UI Scaling shortcuts (+, =, -, _, Add, Subtract)
+      // Visually impaired users can quickly zoom in/out anywhere in the application
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === '+' || e.key === '=' || e.key === 'Add') {
+          e.preventDefault();
+          const fontSizes: TextScale[] = [100, 125, 150, 175, 200];
+          const currentFont = usePreferencesStore.getState().fontSize;
+          const currentIndex = fontSizes.indexOf(currentFont);
+          if (currentIndex < fontSizes.length - 1) {
+            const nextFont = fontSizes[currentIndex + 1];
+            usePreferencesStore.getState().setFontSize(nextFont);
+            soundEffects.playSelect();
+            useAnnouncerStore
+              .getState()
+              .announce(`Text scale adjusted to ${nextFont} percent.`, 'assertive', true);
+          } else {
+            useAnnouncerStore
+              .getState()
+              .announce('Maximum magnification limit of 200 percent reached.', 'polite', true);
+          }
+          return;
+        }
+
+        if (e.key === '-' || e.key === '_' || e.key === 'Subtract') {
+          e.preventDefault();
+          const fontSizes: TextScale[] = [100, 125, 150, 175, 200];
+          const currentFont = usePreferencesStore.getState().fontSize;
+          const currentIndex = fontSizes.indexOf(currentFont);
+          if (currentIndex > 0) {
+            const nextFont = fontSizes[currentIndex - 1];
+            usePreferencesStore.getState().setFontSize(nextFont);
+            soundEffects.playSelect();
+            useAnnouncerStore
+              .getState()
+              .announce(`Text scale adjusted to ${nextFont} percent.`, 'assertive', true);
+          } else {
+            useAnnouncerStore
+              .getState()
+              .announce('Minimum magnification limit of 100 percent reached.', 'polite', true);
+          }
+          return;
+        }
+      }
+
       // Toggle Student Performance & Analytics Dashboard 'd' or 'D'
       if (e.key.toLowerCase() === 'd' && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
@@ -75,11 +120,35 @@ export function useGlobalShortcuts() {
         return;
       }
 
-      // Back to Catalog 'b' or 'B' (when in Analytics view)
-      if (e.key.toLowerCase() === 'b' && store.activeView === 'analytics') {
+      // Back to Catalog 'b' or 'B' (when in Analytics view OR when viewing Diagnostic Report)
+      if (
+        e.key.toLowerCase() === 'b' &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        (store.activeView === 'analytics' || store.isSubmitted)
+      ) {
         e.preventDefault();
         store.returnToCatalog();
         return;
+      }
+
+      // On Diagnostic Report screen: 'r' to retake, 's' to read summary
+      if (store.isSubmitted) {
+        if (e.key.toLowerCase() === 'r' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          store.resetExam();
+          return;
+        }
+        if (e.key.toLowerCase() === 's' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          const report = store.getDiagnosticReport();
+          const fullSummary = report.verbalSummary.join(' ');
+          useAnnouncerStore
+            .getState()
+            .announce(`Performance Diagnostic Summary for ${report.examTitle}: ${fullSummary}`, 'assertive', true);
+          return;
+        }
       }
 
       // Toggle AI Conversational Voice Assistant 'v' or 'V' (available everywhere outside text inputs)
@@ -94,7 +163,8 @@ export function useGlobalShortcuts() {
         e.key.toLowerCase() === 's' &&
         !e.altKey &&
         !e.ctrlKey &&
-        store.activeView !== 'exam'
+        store.activeView !== 'exam' &&
+        !store.isSubmitted
       ) {
         e.preventDefault();
         useAnnouncerStore.getState().stopSpeech();

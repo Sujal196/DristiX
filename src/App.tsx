@@ -251,7 +251,7 @@ export const App: React.FC = () => {
       <Header />
 
       {/* Primary Content Container: Catalog Dashboard vs Active Exam vs Diagnostic Report vs Analytics */}
-      <main id="main-content" className="flex-1 pb-16">
+      <div id="main-content" className="flex-1 pb-16">
         {activeView === 'analytics' ? (
           <StudentAnalyticsView onReturnToCatalog={returnToCatalog} />
         ) : activeView === 'catalog' ? (
@@ -261,7 +261,7 @@ export const App: React.FC = () => {
         ) : (
           <ExamScreen />
         )}
-      </main>
+      </div>
 
       {/* Accessible Modals and Drawers (only active during Exam) */}
       {activeView === 'exam' && <QuestionPalette />}

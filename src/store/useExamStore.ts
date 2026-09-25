@@ -80,21 +80,45 @@ interface ExamState {
   submitExam: () => void;
   resetExam: () => void;
   getDiagnosticReport: () => DiagnosticReportData;
-  announceCurrentQuestion: (speakTTS?: boolean) => void;
+  announceCurrentQuestion: (speakTTS?: boolean, includeOptions?: boolean) => void;
+  readCurrentQuestion: () => void;
+  readTimer: () => void;
 }
 
-const loadStoredExams = <T>(key: string, fallback: T): T => {
+/**
+ * A stored exam is only safe to use if it actually carries a questions array.
+ * Without this guard a stale/partial record in localStorage (for example one
+ * written by an older build with a different Exam shape) would make
+ * `defaultExam.questions[0].id` throw at module-import time, which unmounts the
+ * whole React tree and leaves a blank white page.
+ */
+function isUsableExam(value: unknown): value is Exam {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<Exam>;
+  return Array.isArray(candidate.questions) && candidate.questions.length > 0;
+}
+
+/**
+ * Hydrates a list of exams from localStorage, discarding anything that does not
+ * match the expected shape. Returns the seeded fallback when storage is empty,
+ * unreadable, or entirely corrupt.
+ */
+const loadStoredExams = <T>(key: string, fallback: T[], isValid: (v: unknown) => boolean): T[] => {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    if (!raw) return fallback;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback;
+    const usable = parsed.filter(isValid);
+    return usable.length > 0 ? (usable as T[]) : fallback;
   } catch {
     return fallback;
   }
 };
 
-const initialExams = loadStoredExams<Exam[]>('dristix_exams', EXAMS_CATALOG);
-const initialDrills = loadStoredExams<Exam[]>('dristix_practice_drills', PRACTICE_DRILLS_CATALOG);
-const defaultExam = initialExams[0] || EXAMS_CATALOG[0];
+const initialExams = loadStoredExams<Exam>('dristix_exams', EXAMS_CATALOG, isUsableExam);
+const initialDrills = loadStoredExams<Exam>('dristix_practice_drills', PRACTICE_DRILLS_CATALOG, isUsableExam);
+const defaultExam = initialExams.find(isUsableExam) || initialDrills.find(isUsableExam) || EXAMS_CATALOG[0];
 
 export const useExamStore = create<ExamState>((set, get) => ({
   portalTab: 'exams',
@@ -106,7 +130,9 @@ export const useExamStore = create<ExamState>((set, get) => ({
   currentIndex: 0,
   selectedOptions: {},
   markedForReview: {},
-  visitedQuestions: { [defaultExam.questions[0].id]: true },
+  visitedQuestions: defaultExam.questions?.length
+    ? { [defaultExam.questions[0].id]: true }
+    : {},
   examMode: 'exam',
   isSubmitted: false,
   submissionTime: null,
@@ -280,11 +306,11 @@ export const useExamStore = create<ExamState>((set, get) => ({
 
     set({
       currentExam: exam,
-      questions: exam.questions,
+      questions: exam.questions || [],
       currentIndex: 0,
       selectedOptions: {},
       markedForReview: {},
-      visitedQuestions: { [exam.questions[0].id]: true },
+      visitedQuestions: exam.questions && exam.questions.length > 0 ? { [exam.questions[0].id]: true } : {},
       examMode: targetMode,
       isSubmitted: false,
       submissionTime: null,
@@ -308,7 +334,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
   },
 
   returnToCatalog: () => {
-    const { activeView, isSubmitted, portalTab } = get();
+    const { activeView, isSubmitted } = get();
 
     // STRICT INTEGRITY: Cannot leave an active mock test or practice exam before submitting it
     if (activeView === 'exam' && !isSubmitted) {
@@ -326,6 +352,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
 
     set({
       activeView: 'catalog',
+      portalTab: 'exams',
       isSubmitted: false,
       isPaletteOpen: false,
       isSubmitModalOpen: false,
@@ -336,7 +363,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
     useAnnouncerStore
       .getState()
       .announce(
-        `Returned to ${portalTab === 'practice' ? 'Practice Arena' : 'Examination Catalog'}. Choose a module to begin.`,
+        'Returned to Examination Catalog. All available mock tests are ready for you. Say "Start SSC CGL" or "Start Exam 1" to begin.',
         'polite',
         true
       );
@@ -429,7 +456,18 @@ export const useExamStore = create<ExamState>((set, get) => ({
   deleteCustomExam: (examId: string) => {
     const updatedExams = get().availableExams.filter((e) => e.id !== examId);
     const updatedDrills = get().availablePracticeDrills.filter((e) => e.id !== examId);
-    set({ availableExams: updatedExams, availablePracticeDrills: updatedDrills });
+    const { currentExam } = get();
+    const nextCurrent =
+      currentExam.id === examId
+        ? updatedExams[0] || updatedDrills[0] || EXAMS_CATALOG[0]
+        : currentExam;
+
+    set({
+      availableExams: updatedExams,
+      availablePracticeDrills: updatedDrills,
+      currentExam: nextCurrent,
+      questions: nextCurrent?.questions || [],
+    });
     try {
       localStorage.setItem('dristix_exams', JSON.stringify(updatedExams));
       localStorage.setItem('dristix_practice_drills', JSON.stringify(updatedDrills));
@@ -448,7 +486,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
       currentIndex: 0,
       selectedOptions: {},
       markedForReview: {},
-      visitedQuestions: { [currentExam.questions[0].id]: true },
+      visitedQuestions: currentExam.questions && currentExam.questions.length > 0 ? { [currentExam.questions[0].id]: true } : {},
       isSubmitted: false,
       submissionTime: null,
       timeRemaining: durationSec,
@@ -491,6 +529,44 @@ export const useExamStore = create<ExamState>((set, get) => ({
     useAnnouncerStore.getState().announce(msg, 'polite', speakTTS);
   },
 
+  /**
+   * Voice-assistant entry point for "read question". Assertive priority and TTS
+   * are forced on so the spoken answer is not swallowed by polite live regions.
+   */
+  readCurrentQuestion: () => {
+    const { currentIndex, questions } = get();
+    const currentQ = questions[currentIndex];
+    if (!currentQ) {
+      useAnnouncerStore
+        .getState()
+        .announce('There is no question loaded right now.', 'assertive', true);
+      return;
+    }
+    get().announceCurrentQuestion(true, true);
+  },
+
+  /**
+   * Voice-assistant entry point for "how much time is left".
+   */
+  readTimer: () => {
+    const { timeRemaining, formattedTime, isSubmitted } = get();
+    if (isSubmitted) {
+      useAnnouncerStore
+        .getState()
+        .announce('This test has already been submitted, so the timer is no longer running.', 'assertive', true);
+      return;
+    }
+    const minutes = Math.floor(timeRemaining / 60);
+    const seconds = timeRemaining % 60;
+    useAnnouncerStore
+      .getState()
+      .announce(
+        `Time remaining: ${minutes} minutes and ${seconds} seconds. Timer display: ${formattedTime}.`,
+        'assertive',
+        true
+      );
+  },
+
   getDiagnosticReport: (): DiagnosticReportData => {
     const { currentExam, questions, selectedOptions, markedForReview } = get();
     const totalQuestions = questions.length;
@@ -524,8 +600,8 @@ export const useExamStore = create<ExamState>((set, get) => ({
       }
     });
 
-    const unattemptedCount = totalQuestions - attemptedCount;
-    const scorePercentage = Math.round((correctCount / totalQuestions) * 100);
+    const unattemptedCount = Math.max(0, totalQuestions - attemptedCount);
+    const scorePercentage = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
     const totalScore = correctCount * 2 - incorrectCount * 0.5; // +2 for correct, -0.5 for incorrect
     const maxScore = totalQuestions * 2;
 

@@ -33,8 +33,8 @@ export const ExamScreen: React.FC = () => {
 
   const currentQ = questions[currentIndex];
   const qHeadingRef = useRef<HTMLHeadingElement>(null);
-  const selectedOptNum = selectedOptions[currentQ.id];
-  const isMarked = !!markedForReview[currentQ.id];
+  const selectedOptNum = currentQ ? selectedOptions[currentQ.id] : undefined;
+  const isMarked = currentQ ? !!markedForReview[currentQ.id] : false;
 
   // Practice mode states
   const [showHint, setShowHint] = useState(false);
@@ -53,10 +53,30 @@ export const ExamScreen: React.FC = () => {
     }
     // Auto-read question and options upon navigating if enabled
     const autoRead = usePreferencesStore.getState().autoReadOnNavigate;
-    if (autoRead) {
+    if (autoRead && currentQ) {
       announceCurrentQuestion(true);
     }
   }, [currentIndex]);
+
+  if (!currentQ) {
+    return (
+      <main className="max-w-4xl mx-auto p-8 text-center text-theme-text">
+        <div className="p-8 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-md">
+          <h2 className="text-xl font-bold mb-2">No Questions Found</h2>
+          <p className="text-sm text-theme-text/80 mb-6">
+            This examination does not contain any questions or the index is out of bounds.
+          </p>
+          <button
+            type="button"
+            onClick={() => useExamStore.getState().returnToCatalog()}
+            className="px-6 py-2.5 font-bold rounded-xl bg-theme-primary text-white hover:brightness-110 transition"
+          >
+            Return to Examination Catalog
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const handleOptionChange = (optionNumber: number) => {
     selectOption(optionNumber);

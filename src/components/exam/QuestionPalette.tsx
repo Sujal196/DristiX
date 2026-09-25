@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { X, CheckCircle, Bookmark, Filter, Volume2 } from 'lucide-react';
-import { EXAM_SECTIONS } from '../../data/questions';
 
 export const QuestionPalette: React.FC = () => {
   const {
@@ -83,11 +82,46 @@ export const QuestionPalette: React.FC = () => {
     useAnnouncerStore.getState().announce(`Filtered by status: ${label}`, 'assertive', true, true);
   };
 
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape' || e.key.toLowerCase() === 'q') {
+      e.preventDefault();
+      e.stopPropagation();
+      setPaletteOpen(false);
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      const container = modalRef.current;
+      if (!container) return;
+
+      const focusable = container.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+
+      const firstEl = focusable[0];
+      const lastEl = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstEl) {
+          e.preventDefault();
+          lastEl.focus();
+        }
+      } else {
+        if (document.activeElement === lastEl) {
+          e.preventDefault();
+          firstEl.focus();
+        }
+      }
+    }
+  };
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="palette-heading"
+      onKeyDown={handleModalKeyDown}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
     >
       <div
@@ -158,7 +192,7 @@ export const QuestionPalette: React.FC = () => {
             className="px-2.5 py-1.5 rounded border-2 border-theme-border bg-theme-bg text-theme-text font-medium"
           >
             <option value="All">All Sections</option>
-            {EXAM_SECTIONS.map((sec) => (
+            {Array.from(new Set(questions.map((q) => q.section).filter(Boolean))).map((sec) => (
               <option key={sec} value={sec}>
                 {sec}
               </option>

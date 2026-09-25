@@ -8,6 +8,7 @@ import { geminiVoiceService } from '../../utils/geminiVoiceService';
 import { GeminiLiveVoiceSession } from '../../utils/geminiLiveVoiceSession';
 import type { LiveSessionState } from '../../utils/geminiLiveVoiceSession';
 import { useExamStore } from '../../store/useExamStore';
+import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
 import {
   Mic,
@@ -19,8 +20,6 @@ import {
   User,
   Key,
   Volume2,
-  Radio,
-  CheckCircle2,
 } from 'lucide-react';
 
 interface ChatMessage {
@@ -49,7 +48,7 @@ export const VoiceAssistantOrb: React.FC = () => {
     {
       id: 'msg-welcome',
       sender: 'assistant',
-      text: 'Namaste! Main DristiX AI Voice Assistant hoon. Aap Hindi ya English kisi bhi bhasha me bol sakte hain—main automatically aapki boli gayi bhasha pehchaankar usi bhasha me jawab dunga. Mic par tap karein ya keyboard par "V" dabayein.',
+      text: 'Hello! I am the DristiX Conversational AI Voice Assistant. You can speak to me in English or Hindi—I will execute your commands and answer in English. Tap the microphone or press "V" to speak.',
       timestamp: Date.now(),
     },
   ]);
@@ -134,7 +133,10 @@ export const VoiceAssistantOrb: React.FC = () => {
           setInterimTranscript(transcript);
         } else {
           setInterimTranscript('');
-          handleExecuteQuery(transcript, alternatives);
+          // Only execute fallback directly if Gemini Live Session is not active
+          if (!liveSessionRef.current || liveSessionRef.current.getState() === 'idle') {
+            handleExecuteQuery(transcript, alternatives);
+          }
         }
       },
       onStateChange: (state: VoiceState) => {
@@ -231,6 +233,11 @@ export const VoiceAssistantOrb: React.FC = () => {
     };
 
     setMessages((prev) => [...prev, assistantMsg]);
+
+    // Ensure speech announcement is made if speechEngine is not already actively speaking (e.g. for fallback NLP or typed query)
+    if (result.assistantReply && !speechEngine.isSpeaking()) {
+      useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
+    }
   };
 
   // Primary Voice Toggle: Unified Gemini Live Voice Session with instant fallback
@@ -267,24 +274,25 @@ export const VoiceAssistantOrb: React.FC = () => {
   const suggestionChips = (() => {
     if (activeView === 'catalog') {
       return [
-        'Kitne exam available hain?',
-        'SSC CGL test shuru karo',
-        'Practice arena par jao',
-        'Mera best score kya hai?',
+        'List available exams',
+        'Start SSC CGL test',
+        'Go to Practice Arena',
+        'What is my best score?',
       ];
     } else if (activeView === 'exam') {
       return [
-        'Question padho',
-        'Option 2 select karo',
-        'Agla sawal',
-        'Time kitna bacha hai?',
-        'Is sawal ka hint do',
+        'Read question',
+        'Select Option 2',
+        'Next question',
+        'How much time is left?',
+        'Clear option',
       ];
     } else {
       return [
-        'Mera best score kya hai?',
-        'Kitne exam pass kiye?',
-        'Back to tests',
+        'Go to mock test page',
+        'Choose another exam',
+        'Read report summary',
+        'Retake test',
       ];
     }
   })();
@@ -596,7 +604,7 @@ export const VoiceAssistantOrb: React.FC = () => {
                 onClick={() => handleExecuteQuery(chip)}
                 className="px-2.5 py-1 rounded-full border border-theme-border bg-theme-bg hover:border-yellow-400 text-theme-text whitespace-nowrap transition shrink-0 focus:outline-none focus:ring-2 focus:ring-yellow-400"
               >
-                "{chip}"
+                {chip}
               </button>
             ))}
           </div>

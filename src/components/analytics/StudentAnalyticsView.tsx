@@ -198,7 +198,12 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8 space-y-6">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      aria-label="Student Performance and Score Analytics Dashboard"
+      className="max-w-7xl mx-auto px-4 py-6 sm:py-8 space-y-6 focus:outline-none"
+    >
       {/* Top Breadcrumb & Action Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b-2 border-theme-border pb-5">
         <div>
@@ -560,6 +565,6 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
           </table>
         </div>
       </section>
-    </div>
+    </main>
   );
 };

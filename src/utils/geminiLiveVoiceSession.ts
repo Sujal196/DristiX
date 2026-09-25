@@ -30,6 +30,7 @@ export class GeminiLiveVoiceSession {
   private unbindSpeechEnd: (() => void) | null = null;
   private unbindTranscript: (() => void) | null = null;
   private currentSpeechTranscript: string = '';
+  private currentAlternatives: string[] = [];
   private currentUtteranceId: number = 0;
 
   constructor(callbacks: Partial<LiveSessionCallbacks> = {}) {
@@ -103,10 +104,26 @@ export class GeminiLiveVoiceSession {
 
       // Start real-time speech recognition for live streaming words & instant zero-latency NLP fallback
       this.unbindTranscript = voiceRecognition.addListener({
-        onTranscript: (transcript: string, isFinal: boolean) => {
+        onTranscript: (transcript: string, isFinal: boolean, alternatives?: string[]) => {
           if (transcript.trim()) {
             this.currentSpeechTranscript = transcript.trim();
+            if (alternatives && alternatives.length > 0) {
+              this.currentAlternatives = alternatives;
+            }
             this.callbacks.onLiveTranscript?.(transcript.trim(), isFinal);
+
+            // If a final recognition arrives while user spoke, commit promptly after brief settle
+            if (isFinal && this.isRunning && this.hasSpokenInCurrentChunk) {
+              if (this.silenceTimer) {
+                clearTimeout(this.silenceTimer);
+                this.silenceTimer = null;
+              }
+              this.silenceTimer = setTimeout(() => {
+                if (this.isRunning && this.hasSpokenInCurrentChunk) {
+                  this.commitCurrentUtterance();
+                }
+              }, 250);
+            }
           }
         },
         onStateChange: () => {},
@@ -228,13 +245,13 @@ export class GeminiLiveVoiceSession {
             this.silenceTimer = null;
           }
         } else if (this.hasSpokenInCurrentChunk) {
-          // User was speaking and is now silent: start silence countdown (1100ms)
+          // User was speaking and is now silent: start silence countdown (1500ms)
           if (!this.silenceTimer) {
             this.silenceTimer = setTimeout(() => {
               if (this.hasSpokenInCurrentChunk && this.isRunning) {
                 this.commitCurrentUtterance();
               }
-            }, 1100);
+            }, 1500);
           }
         }
       }
@@ -270,13 +287,44 @@ export class GeminiLiveVoiceSession {
     const thisUtteranceId = ++this.currentUtteranceId;
     this.setState('processing');
 
-    const capturedTranscript = this.currentSpeechTranscript.trim();
+    // 1. Give Web Speech API up to 1400ms to deliver final transcript if user spoke
+    let capturedTranscript = this.currentSpeechTranscript.trim();
+    if (!capturedTranscript && this.hasSpokenInCurrentChunk) {
+      const waitStart = Date.now();
+      while (!this.currentSpeechTranscript.trim() && Date.now() - waitStart < 1400) {
+        await new Promise((r) => setTimeout(r, 60));
+        if (!this.isRunning || this.currentUtteranceId !== thisUtteranceId) return;
+      }
+      capturedTranscript = this.currentSpeechTranscript.trim();
+    }
+
+    const capturedAlternatives = [...this.currentAlternatives];
     this.currentSpeechTranscript = '';
+    this.currentAlternatives = [];
+
+    // If completely silent/noise with no transcript and no valid audio, resume listening smoothly
+    if (!capturedTranscript && (!audioBlob || audioBlob.size < 1000)) {
+      console.log('[Live Voice] Acoustic activity detected without words, resuming listening.');
+      this.setState('listening');
+      this.startSegmentRecording();
+      return;
+    }
 
     let result: CommandProcessResult | null = null;
 
-    // 1. If Gemini API key is configured, try multimodal audio processing
-    if (geminiVoiceService.hasApiKey() && audioBlob && audioBlob.size > 500) {
+    // 1. High-Precision Instant Local NLP (handles "Option 1-4", "Next question", "Read question", "Clear option", etc.)
+    // Local NLP runs in 0ms without waiting for slow external APIs
+    if (capturedTranscript) {
+      const candidates = [capturedTranscript, ...capturedAlternatives];
+      const localResult = processVoiceCommand(candidates);
+      if (localResult && localResult.intent !== 'UNRECOGNIZED') {
+        console.log('[Live Voice] Instantly executed via high-precision local NLP:', localResult.intent);
+        result = localResult;
+      }
+    }
+
+    // 2. Multimodal Audio via Gemini (only if a valid Google AI Studio key starting with AIzaSy is configured)
+    if (!result && geminiVoiceService.hasValidGeminiKey() && audioBlob && audioBlob.size > 1000) {
       try {
         result = await geminiVoiceService.processAudioWithGemini(audioBlob);
       } catch (err) {
@@ -290,12 +338,12 @@ export class GeminiLiveVoiceSession {
       return;
     }
 
-    // 2. If audio didn't succeed but we have spoken text, try Gemini text
+    // 3. Fallback to Gemini / Groq Text LLM for natural language queries (e.g. conversational questions)
     if (!result && capturedTranscript && geminiVoiceService.hasApiKey()) {
       try {
         result = await geminiVoiceService.processTextWithGemini(capturedTranscript);
       } catch (err) {
-        console.warn('[Live Voice] Gemini text processing failed:', err);
+        console.warn('[Live Voice] Gemini/Groq text processing failed:', err);
       }
     }
 
@@ -305,15 +353,14 @@ export class GeminiLiveVoiceSession {
       return;
     }
 
-    // 3. High-Precision Instant Fallback to built-in NLP engine
+    // 4. Final attempt with local NLP if text LLM returned null
     if (!result && capturedTranscript) {
-      console.log('[Live Voice] Executing via built-in NLP engine for:', capturedTranscript);
-      result = processVoiceCommand([capturedTranscript]);
+      result = processVoiceCommand([capturedTranscript, ...capturedAlternatives]);
     }
 
     if (this.currentUtteranceId !== thisUtteranceId || !this.isRunning) return;
 
-    if (result) {
+    if (result && result.intent !== 'UNRECOGNIZED') {
       this.callbacks.onResult?.(result);
 
       // Assistant speaking state: speech is already triggered by useAnnouncerStore
@@ -328,13 +375,23 @@ export class GeminiLiveVoiceSession {
         this.startSegmentRecording();
       }
     } else {
-      // If user spoke but no command was recognized
-      if (this.hasSpokenInCurrentChunk) {
-        const promptReply = 'Aapki awaaz sunai di. Kripya sawal ya option dobara bolein, jaise "Option 2" ya "Agla sawal".';
-        this.callbacks.onError?.(promptReply);
+      // Only announce prompt if user actually said words that were not recognized
+      if (capturedTranscript) {
+        const promptReply =
+          'I heard "' +
+          capturedTranscript +
+          '". For questions or options, say "Option 1", "Option 2", "Next question", or "Read question".';
+        this.callbacks.onResult?.({
+          success: false,
+          intent: 'UNRECOGNIZED',
+          userQuery: capturedTranscript,
+          assistantReply: promptReply,
+          actionExecuted: undefined,
+        });
         this.setState('assistant_speaking');
         speechEngine.speak(promptReply, true);
       } else {
+        // Acoustic noise only: resume listening silently
         this.setState('listening');
         this.startSegmentRecording();
       }
