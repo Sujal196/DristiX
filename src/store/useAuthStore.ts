@@ -109,6 +109,8 @@ interface AuthState {
   // Admin Actions
   loginAdmin: (username: string, pass: string) => Promise<boolean>;
   logoutAdmin: () => void;
+  fetchStudents: () => Promise<void>;
+  deleteStudent: (studentId: string) => Promise<boolean>;
 
   // Submissions Actions
   /**
@@ -255,6 +257,31 @@ export const useAuthStore = create<AuthState>((set, get) => {
       sessionStorage.removeItem('dristix_admin_auth');
       soundEffects.playNavigate();
       useAnnouncerStore.getState().announce('Logged out of Admin Studio.', 'polite', true);
+    },
+
+    fetchStudents: async () => {
+      try {
+        const students = await getDataSource().auth.listStudents();
+        set({ students });
+      } catch (err) {
+        console.error('[dristix] fetchStudents error', err);
+      }
+    },
+
+    deleteStudent: async (studentId: string) => {
+      try {
+        await getDataSource().auth.deleteStudent(studentId);
+        set((state) => ({
+          students: state.students.filter((s) => s.id !== studentId),
+        }));
+        soundEffects.playSuccess();
+        useAnnouncerStore.getState().announce('Student account successfully removed.', 'assertive', true);
+        return true;
+      } catch (err) {
+        console.error('[dristix] deleteStudent error', err);
+        useAnnouncerStore.getState().announce('Could not delete student account.', 'assertive', true);
+        return false;
+      }
     },
 
     syncSubmissions: async () => {

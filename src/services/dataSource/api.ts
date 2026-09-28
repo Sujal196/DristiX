@@ -148,6 +148,10 @@ const apiAuth: AuthDataSource = {
     const { students } = await request<{ students: UserProfile[] }>('/admin/students');
     return students;
   },
+
+  async deleteStudent(studentId: string): Promise<void> {
+    await request(`/admin/students/${studentId}`, { method: 'DELETE' });
+  },
 };
 
 const apiExams: ExamDataSource = {
@@ -161,23 +165,19 @@ const apiExams: ExamDataSource = {
         category: exam.category,
         durationMinutes: exam.durationMinutes,
         totalMarks: exam.totalMarks,
-        // The server stores the penalty as a positive magnitude — grading
-        // subtracts it, and every display path re-attaches the minus sign
-        // itself (`-${exam.negativeMarking} marks per incorrect response`).
-        //
-        // The authoring form, though, hands it over exactly as an examiner
-        // reads it: "-0.25 marks". Sending that verbatim failed the server's
-        // `min(0)` on the number, so every publish attempt was rejected and the
-        // UI could only report that "the server rejected it". Taking the
-        // magnitude at this boundary keeps both conventions true.
         negativeMarking:
           mode === 'practice' ? 0 : Math.abs(Number.parseFloat(exam.negativeMarking)) || 0,
         difficulty: exam.difficulty,
         published: true,
         questions: (exam.questions ?? []).map((q) => ({
+          id: q.id,
           section: q.section,
           questionText: q.questionText,
           mathLatex: q.mathLatex,
+          diagramUrl: q.diagramUrl,
+          diagramType: q.diagramType,
+          diagramDescription: q.diagramDescription,
+          diagramAiExplanation: q.diagramAiExplanation,
           options: q.options,
           correctOption: q.correctOption,
           explanation: q.explanation ?? '',
@@ -186,6 +186,44 @@ const apiExams: ExamDataSource = {
       }),
     });
     return created;
+  },
+
+  async updateExam(examId: string, exam: Exam, mode: 'exam' | 'practice'): Promise<ExamSummary> {
+    const { exam: updated } = await request<{ exam: ExamSummary }>(`/admin/exams/${examId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        code: exam.code,
+        title: exam.title,
+        description: exam.description,
+        category: exam.category,
+        durationMinutes: exam.durationMinutes,
+        totalMarks: exam.totalMarks,
+        negativeMarking:
+          mode === 'practice' ? 0 : Math.abs(Number.parseFloat(exam.negativeMarking)) || 0,
+        difficulty: exam.difficulty,
+        published: true,
+        questions: (exam.questions ?? []).map((q) => ({
+          id: q.id,
+          section: q.section,
+          questionText: q.questionText,
+          mathLatex: q.mathLatex,
+          diagramUrl: q.diagramUrl,
+          diagramType: q.diagramType,
+          diagramDescription: q.diagramDescription,
+          diagramAiExplanation: q.diagramAiExplanation,
+          options: q.options,
+          correctOption: q.correctOption,
+          explanation: q.explanation ?? '',
+          hint: q.hint ?? '',
+        })),
+      }),
+    });
+    return updated;
+  },
+
+  async getExamForEdit(examId: string): Promise<Exam> {
+    const { exam } = await request<{ exam: Exam }>(`/admin/exams/${examId}`);
+    return exam;
   },
 
   async deleteExam(examId: string): Promise<void> {

@@ -49,24 +49,13 @@ export interface AuthDataSource {
    * locally seeded profiles.
    */
   listStudents(): Promise<UserProfile[]>;
+  deleteStudent(studentId: string): Promise<void>;
 }
 
 export interface ExamDataSource {
-  /**
-   * The full catalog, split into mock tests and practice drills, for the
-   * listing screen.
-   *
-   * In offline mode each entry carries its questions, because that is the only
-   * copy that exists. In api mode `questions` is empty by design — the server
-   * withholds them until an attempt starts, so the answer key never reaches the
-   * browser outside a live attempt.
-   */
-  /**
-   * Creates an exam. In api mode this is the only path that publishes an exam
-   * for students, so the server must be the one told about it.
-   */
   createExam(exam: Exam, mode: 'exam' | 'practice'): Promise<ExamSummary>;
-  /** Removes an exam and, on the server, its attempts. */
+  updateExam(examId: string, exam: Exam, mode: 'exam' | 'practice'): Promise<ExamSummary>;
+  getExamForEdit(examId: string): Promise<Exam>;
   deleteExam(examId: string): Promise<void>;
 
   /**

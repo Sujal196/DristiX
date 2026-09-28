@@ -24,6 +24,9 @@ import {
   Sparkles,
   Image,
   Loader2,
+  Edit3,
+  UserCheck,
+  Search,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -31,28 +34,43 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => {
-  const { students, submissions, logoutAdmin, deleteSubmission, syncSubmissions } = useAuthStore();
+  const {
+    students,
+    submissions,
+    logoutAdmin,
+    deleteSubmission,
+    syncSubmissions,
+    fetchStudents,
+    deleteStudent,
+  } = useAuthStore();
 
   const {
     availableExams,
     availablePracticeDrills,
     addNewExam,
+    updateExistingExam,
+    loadExamForEdit,
     deleteCustomExam,
     selectExam,
   } = useExamStore();
   const { announce } = useAnnouncerStore();
 
-  const [activeAdminTab, setActiveAdminTab] = useState<'analytics' | 'manage' | 'create'>('analytics');
+  const [activeAdminTab, setActiveAdminTab] = useState<'analytics' | 'students' | 'manage' | 'create'>('analytics');
 
-  // Refresh the cohort's results from the server on mount and whenever the
-  // admin switches tabs, so a submission made moments ago is visible.
+  // Refresh the cohort's results & student roster from the server on mount / tab change
   useEffect(() => {
     void syncSubmissions();
-  }, [syncSubmissions, activeAdminTab]);
-  const [submissionSearch, setSubmissionSearch] = useState('');
-  const [selectedExamFilter, setSelectedExamFilter] = useState('All');
+    void fetchStudents();
+  }, [syncSubmissions, fetchStudents, activeAdminTab]);
 
-  // Exam Creator Form State
+  const [submissionSearch, setSubmissionSearch] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [selectedExamFilter, setSelectedExamFilter] = useState('All');
+  const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
+
+  // Exam Creator / Editor Form State
+  const [editingExamId, setEditingExamId] = useState<string | null>(null);
+  const [isLoadingExamForEdit, setIsLoadingExamForEdit] = useState<boolean>(false);
   const [examType, setExamType] = useState<'exam' | 'practice'>('exam');
   const [title, setTitle] = useState('');
   const [code, setCode] = useState('');
@@ -260,6 +278,75 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
     return matchesSearch && matchesExam;
   });
 
+  // Filtered Registered Students
+  const filteredStudents = students.filter((std) => {
+    if (!studentSearch.trim()) return true;
+    const q = studentSearch.toLowerCase();
+    return (
+      std.name.toLowerCase().includes(q) ||
+      std.rollNumber.toLowerCase().includes(q) ||
+      std.email.toLowerCase().includes(q)
+    );
+  });
+
+  const handleDeleteStudent = async (studentId: string, studentName: string) => {
+    if (
+      window.confirm(
+        `Are you sure you want to remove student "${studentName}"? All their test attempts will also be permanently deleted.`
+      )
+    ) {
+      setDeletingStudentId(studentId);
+      await deleteStudent(studentId);
+      setDeletingStudentId(null);
+    }
+  };
+
+  const handleStartEditExam = async (examId: string) => {
+    setFormError('');
+    setFormSuccess('');
+    setIsLoadingExamForEdit(true);
+
+    try {
+      const fullExam = await loadExamForEdit(examId);
+      if (!fullExam) {
+        setFormError('Could not load examination details for editing.');
+        return;
+      }
+
+      setEditingExamId(fullExam.id);
+      setTitle(fullExam.title);
+      setCode(fullExam.code);
+      setDescription(fullExam.description || '');
+      setCategory((fullExam.category as ExamCategory) || 'Staff Selection');
+      setDurationMinutes(fullExam.durationMinutes);
+      setTotalMarks(fullExam.totalMarks);
+      const isPractice = fullExam.negativeMarking.startsWith('No negative');
+      setExamType(isPractice ? 'practice' : 'exam');
+      setNegativeMarking(fullExam.negativeMarking);
+      setDifficulty(fullExam.difficulty || 'Moderate');
+
+      if (fullExam.questions && fullExam.questions.length > 0) {
+        setQuestions(fullExam.questions);
+      }
+
+      setActiveAdminTab('create');
+      soundEffects.playSelect();
+      announce(`Loaded examination ${fullExam.code} for editing.`, 'assertive', true);
+    } catch (err) {
+      setFormError('Failed to load examination for editing.');
+    } finally {
+      setIsLoadingExamForEdit(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingExamId(null);
+    setTitle('');
+    setCode('');
+    setDescription('');
+    setActiveAdminTab('manage');
+  };
+
   const handleSpeakResult = (sub: (typeof submissions)[0]) => {
     soundEffects.playSelect();
     const msg = `Candidate ${sub.studentName}, Roll Number ${sub.studentRoll}, completed ${sub.examTitle} on ${new Date(
@@ -334,8 +421,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       }
     }
 
-    const newExam: Exam = {
-      id: `exam-${Date.now()}`,
+    const examPayload: Exam = {
+      id: editingExamId || `exam-${Date.now()}`,
       code: code.trim().toUpperCase(),
       title: title.trim(),
       description: description.trim(),
@@ -349,23 +436,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       questions,
     };
 
-    // Awaited: publishing can fail on the server (duplicate code, invalid
-    // answer key, no permission), and the success banner must not claim an exam
-    // was published when it was not.
-    const result = await addNewExam(newExam, examType);
+    let result: { ok: boolean; message?: string };
+    if (editingExamId) {
+      result = await updateExistingExam(editingExamId, examPayload, examType);
+    } else {
+      result = await addNewExam(examPayload, examType);
+    }
+
     if (!result.ok) {
       setFormError(
-        result.message ?? 'Could not publish the examination. Please try again.'
+        result.message ?? 'Could not save the examination. Please try again.'
       );
       return;
     }
-    setFormSuccess(`"${newExam.title}" was published successfully! Students can now take it.`);
+
+    setFormSuccess(
+      editingExamId
+        ? `"${examPayload.title}" was updated successfully!`
+        : `"${examPayload.title}" was published successfully! Students can now take it.`
+    );
     soundEffects.playSuccess();
 
-    // Reset creator form
+    // Reset creator form and exit edit mode
+    setEditingExamId(null);
     setTitle('');
     setCode('');
     setDescription('');
+    setActiveAdminTab('manage');
   };
 
   const handleTestAsStudent = (exam: Exam, type: 'exam' | 'practice') => {
@@ -424,14 +521,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             setActiveAdminTab('analytics');
             soundEffects.playSelect();
           }}
-          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
+          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
             activeAdminTab === 'analytics'
               ? 'bg-indigo-600 text-white shadow-md'
               : 'text-theme-text hover:bg-theme-border/30'
           }`}
         >
+          <Award className="w-5 h-5" aria-hidden="true" />
+          <span>Submissions & Results ({totalSubmissions})</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeAdminTab === 'students'}
+          onClick={() => {
+            setActiveAdminTab('students');
+            soundEffects.playSelect();
+          }}
+          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
+            activeAdminTab === 'students'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'text-theme-text hover:bg-theme-border/30'
+          }`}
+        >
           <Users className="w-5 h-5" aria-hidden="true" />
-          <span>Students & Exam Submissions ({totalSubmissions})</span>
+          <span>Registered Students ({students.length})</span>
         </button>
 
         <button
@@ -442,14 +557,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             setActiveAdminTab('manage');
             soundEffects.playSelect();
           }}
-          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
+          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
             activeAdminTab === 'manage'
               ? 'bg-indigo-600 text-white shadow-md'
               : 'text-theme-text hover:bg-theme-border/30'
           }`}
         >
           <FileText className="w-5 h-5" aria-hidden="true" />
-          <span>Manage Tests & Drills ({availableExams.length + availablePracticeDrills.length})</span>
+          <span>Manage Tests ({availableExams.length + availablePracticeDrills.length})</span>
         </button>
 
         <button
@@ -460,14 +575,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             setActiveAdminTab('create');
             soundEffects.playSelect();
           }}
-          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
+          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
             activeAdminTab === 'create'
               ? 'bg-indigo-600 text-white shadow-md'
               : 'text-theme-text hover:bg-theme-border/30'
           }`}
         >
-          <PlusCircle className="w-5 h-5" aria-hidden="true" />
-          <span>Create New Test / Drill</span>
+          {editingExamId ? (
+            <Edit3 className="w-5 h-5" aria-hidden="true" />
+          ) : (
+            <PlusCircle className="w-5 h-5" aria-hidden="true" />
+          )}
+          <span>{editingExamId ? 'Edit Test' : 'Create New Test'}</span>
         </button>
       </nav>
 
@@ -648,31 +767,102 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             </div>
           </div>
 
-          {/* Registered Students Directory */}
-          <div className="p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-4">
-            <h2 className="text-xl font-bold text-theme-text">Registered Candidates Directory</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {students.map((std) => {
-                const stdSubs = submissions.filter((s) => s.studentId === std.id);
-                return (
-                  <div key={std.id} className="p-4 rounded-xl border-2 border-theme-border bg-theme-bg space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono font-bold text-theme-primary">{std.rollNumber}</span>
-                      <span className="text-[11px] px-2 py-0.5 rounded bg-theme-border text-theme-text font-medium">
-                        {std.accessibilityPreference}
-                      </span>
-                    </div>
-                    <div className="font-bold text-theme-text text-base">{std.name}</div>
-                    <div className="text-xs text-theme-text/60">{std.email}</div>
-                    <div className="pt-2 border-t border-theme-border text-xs flex justify-between font-medium">
-                      <span>Exams Attempted:</span>
-                      <strong className="text-theme-text">{stdSubs.length}</strong>
-                    </div>
-                  </div>
-                );
-              })}
+        </section>
+      )}
+
+      {/* TAB 2: REGISTERED STUDENTS ROSTER */}
+      {activeAdminTab === 'students' && (
+        <section aria-labelledby="students-roster-heading" className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
+            <div>
+              <h2 id="students-roster-heading" className="text-xl font-bold text-theme-text flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-500" aria-hidden="true" />
+                Registered Students Directory ({students.length} Candidates)
+              </h2>
+              <p className="text-xs text-theme-text/60 mt-0.5">
+                View all candidates registered on DristiX, monitor their roll numbers and accessibility options, or remove candidate accounts.
+              </p>
+            </div>
+
+            <div className="w-full sm:w-80 relative">
+              <Search className="w-4 h-4 text-theme-text/40 absolute left-3 top-3" aria-hidden="true" />
+              <input
+                type="text"
+                placeholder="Search name, roll number, or email..."
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                className="w-full h-10 pl-9 pr-3 rounded-xl border-2 border-theme-border bg-theme-bg text-sm text-theme-text focus:outline-none focus:ring-4 focus:ring-theme-focus-ring"
+              />
             </div>
           </div>
+
+          {filteredStudents.length === 0 ? (
+            <div className="p-10 text-center rounded-2xl bg-theme-surface border-2 border-theme-border">
+              <p className="text-base font-bold text-theme-text">No registered candidates match your search query.</p>
+              <p className="text-xs text-theme-text/60 mt-1">Try clearing the search box to view all registered students.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border-2 border-theme-border bg-theme-surface shadow-sm">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-theme-border bg-theme-bg/60 text-xs font-black uppercase text-theme-text/70">
+                    <th className="py-3.5 px-4">Student Name</th>
+                    <th className="py-3.5 px-4">Roll Number / ID</th>
+                    <th className="py-3.5 px-4">Email Address</th>
+                    <th className="py-3.5 px-4">Accessibility Preference</th>
+                    <th className="py-3.5 px-4 text-center">Tests Attempted</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-theme-border">
+                  {filteredStudents.map((std) => {
+                    const stdSubs = submissions.filter((s) => s.studentId === std.id || s.studentRoll === std.rollNumber);
+                    const isDeleting = deletingStudentId === std.id;
+
+                    return (
+                      <tr key={std.id} className="hover:bg-theme-bg/40 transition">
+                        <td className="py-3.5 px-4 font-bold text-theme-text">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-8 h-8 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                              {std.name.charAt(0).toUpperCase()}
+                            </span>
+                            <span className="truncate">{std.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                          {std.rollNumber}
+                        </td>
+                        <td className="py-3.5 px-4 text-theme-text/80">{std.email}</td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-theme-border/50 text-theme-text">
+                            {std.accessibilityPreference || 'Standard'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-bold text-theme-text">
+                          {stdSubs.length}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            type="button"
+                            disabled={isDeleting}
+                            onClick={() => handleDeleteStudent(std.id, std.name)}
+                            className="px-3.5 py-1.5 rounded-lg border-2 border-red-500/40 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold text-xs flex items-center gap-1.5 transition ml-auto focus:ring-4 focus:ring-red-500/30 disabled:opacity-50"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                            )}
+                            <span>Remove Account</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
 
@@ -718,20 +908,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-theme-border">
-                  <button
-                    type="button"
-                    onClick={() => handleTestAsStudent(exam, 'exam')}
-                    className="px-3.5 py-1.5 rounded-lg bg-theme-primary text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
-                  >
-                    <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Test as Student</span>
-                  </button>
+                <div className="flex items-center justify-between gap-2 pt-3 border-t border-theme-border flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleTestAsStudent(exam, 'exam')}
+                      className="px-3 py-1.5 rounded-lg bg-theme-primary text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
+                    >
+                      <Play className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Test as Student</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleStartEditExam(exam.id)}
+                      className="px-3 py-1.5 rounded-lg border-2 border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Edit Test</span>
+                    </button>
+                  </div>
 
                   <button
                     type="button"
                     onClick={() => void deleteCustomExam(exam.id)}
-                    className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition"
+                    className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition ml-auto"
                     title="Delete Exam"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />
@@ -766,20 +967,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-theme-border">
-                  <button
-                    type="button"
-                    onClick={() => handleTestAsStudent(drill, 'practice')}
-                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
-                  >
-                    <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Test as Student</span>
-                  </button>
+                <div className="flex items-center justify-between gap-2 pt-3 border-t border-theme-border flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleTestAsStudent(drill, 'practice')}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
+                    >
+                      <Play className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Test as Student</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleStartEditExam(drill.id)}
+                      className="px-3 py-1.5 rounded-lg border-2 border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Edit Drill</span>
+                    </button>
+                  </div>
 
                   <button
                     type="button"
                     onClick={() => void deleteCustomExam(drill.id)}
-                    className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition"
+                    className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition ml-auto"
                     title="Delete Practice Drill"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />

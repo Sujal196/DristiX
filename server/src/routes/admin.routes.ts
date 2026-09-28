@@ -18,9 +18,21 @@ const optionSchema = z.object({
 });
 
 const questionSchema = z.object({
+  id: z.string().optional(),
   section: z.string().min(1),
   questionText: z.string().min(1),
   mathLatex: z.string().optional(),
+  diagramUrl: z.string().optional(),
+  diagramType: z.enum(['image', 'svg', 'chart', 'geometry']).optional(),
+  diagramDescription: z.string().optional(),
+  diagramAiExplanation: z
+    .object({
+      visualBreakdown: z.array(z.string()).default([]),
+      educationalContext: z.string().default(''),
+      keyPoints: z.array(z.string()).default([]),
+      audioNarration: z.string().default(''),
+    })
+    .optional(),
   options: z.array(optionSchema).min(2),
   correctOption: z.number().int().min(1).max(9),
   explanation: z.string().default(''),
@@ -54,7 +66,47 @@ adminRouter.get(
   })
 );
 
-/** POST /api/admin/exams — the only place the answer key enters the system. */
+/** GET /api/admin/exams/:id — full details with answer keys for admin editing. */
+adminRouter.get(
+  '/exams/:id',
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    const exam = await Exam.findById(id).exec();
+    if (!exam) throw new HttpError(404, 'not_found', 'Exam not found.');
+
+    res.json({
+      exam: {
+        id: String(exam._id),
+        code: exam.code,
+        title: exam.title,
+        description: exam.description,
+        category: exam.category,
+        durationMinutes: exam.durationMinutes,
+        totalMarks: exam.totalMarks,
+        negativeMarking: String(exam.negativeMarking),
+        difficulty: exam.difficulty,
+        questionCount: exam.questions.length,
+        questions: exam.questions.map((q, i) => ({
+          id: q.id || `q-${i + 1}`,
+          section: q.section,
+          questionNumber: q.questionNumber || i + 1,
+          questionText: q.questionText,
+          mathLatex: q.mathLatex,
+          diagramUrl: q.diagramUrl,
+          diagramType: q.diagramType,
+          diagramDescription: q.diagramDescription,
+          diagramAiExplanation: q.diagramAiExplanation,
+          options: q.options,
+          correctOption: q.correctOption,
+          explanation: q.explanation,
+          hint: q.hint,
+        })),
+      },
+    });
+  })
+);
+
+/** POST /api/admin/exams — create new exam with answer key. */
 adminRouter.post(
   '/exams',
   asyncHandler(async (req, res) => {
@@ -68,8 +120,6 @@ adminRouter.post(
       throw new HttpError(409, 'duplicate_code', 'An exam with that code already exists.');
     }
 
-    // Reject a question whose declared correct option is not among its options,
-    // otherwise grading would silently always mark it wrong.
     for (const [i, q] of body.questions.entries()) {
       if (!q.options.some((o) => o.number === q.correctOption)) {
         throw new HttpError(
@@ -91,13 +141,67 @@ adminRouter.post(
       difficulty: body.difficulty,
       published: body.published,
       questions: body.questions.map((q, i) => ({
-        id: `q-${i + 1}-${Date.now().toString(36)}`,
+        id: q.id || `q-${i + 1}-${Date.now().toString(36)}`,
         questionNumber: i + 1,
         ...q,
       })),
     });
 
     res.status(201).json({ exam: toExamSummary(exam) });
+  })
+);
+
+/** PUT /api/admin/exams/:id — update existing exam & its questions/answer key. */
+adminRouter.put(
+  '/exams/:id',
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    const body = examSchema.parse(req.body);
+
+    const exam = await Exam.findById(id).exec();
+    if (!exam) throw new HttpError(404, 'not_found', 'Exam not found.');
+
+    // Check code collision only if code changed
+    if (exam.code !== body.code.toUpperCase()) {
+      const duplicate = await Exam.findOne({
+        code: body.code.toUpperCase(),
+        _id: { $ne: exam._id },
+      })
+        .select('_id')
+        .lean()
+        .exec();
+      if (duplicate) {
+        throw new HttpError(409, 'duplicate_code', 'An exam with that code already exists.');
+      }
+    }
+
+    for (const [i, q] of body.questions.entries()) {
+      if (!q.options.some((o) => o.number === q.correctOption)) {
+        throw new HttpError(
+          400,
+          'invalid_answer_key',
+          `Question ${i + 1}: correctOption ${q.correctOption} is not one of its options.`
+        );
+      }
+    }
+
+    exam.code = body.code.toUpperCase();
+    exam.title = body.title;
+    exam.description = body.description;
+    exam.category = body.category;
+    exam.durationMinutes = body.durationMinutes;
+    exam.totalMarks = body.totalMarks;
+    exam.negativeMarking = body.negativeMarking;
+    exam.difficulty = body.difficulty;
+    exam.published = body.published;
+    exam.questions = body.questions.map((q, i) => ({
+      id: q.id || `q-${i + 1}-${Date.now().toString(36)}`,
+      questionNumber: i + 1,
+      ...q,
+    })) as any;
+
+    await exam.save();
+    res.json({ exam: toExamSummary(exam) });
   })
 );
 
@@ -141,6 +245,20 @@ adminRouter.get(
         registeredAt: s.createdAt ? new Date(s.createdAt).toISOString() : null,
       })),
     });
+  })
+);
+
+/** DELETE /api/admin/students/:id — remove a registered student and their attempts. */
+adminRouter.delete(
+  '/students/:id',
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+
+    const user = await User.findByIdAndDelete(id).exec();
+    if (!user) throw new HttpError(404, 'not_found', 'Student account not found.');
+
+    const attempts = await Attempt.deleteMany({ studentId: user._id }).exec();
+    res.json({ ok: true, attemptsRemoved: attempts.deletedCount });
   })
 );
 

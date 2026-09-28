@@ -105,6 +105,12 @@ interface ExamState {
     newExam: Exam,
     mode: 'exam' | 'practice'
   ) => Promise<{ ok: boolean; message?: string }>;
+  updateExistingExam: (
+    examId: string,
+    updatedExam: Exam,
+    mode: 'exam' | 'practice'
+  ) => Promise<{ ok: boolean; message?: string }>;
+  loadExamForEdit: (examId: string) => Promise<Exam | null>;
   deleteCustomExam: (examId: string) => Promise<void>;
 
   // Question navigation actions
@@ -645,6 +651,36 @@ export const useExamStore = create<ExamState>((set, get) => ({
     useAnnouncerStore
       .getState()
       .announce(`New examination "${newExam.title}" published successfully.`, 'assertive', true);
+    return { ok: true };
+  },
+
+  loadExamForEdit: async (examId: string) => {
+    try {
+      const exam = await getDataSource().exams.getExamForEdit(examId);
+      return exam;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not fetch exam for editing.';
+      useAnnouncerStore.getState().announce(message, 'assertive', true);
+      return null;
+    }
+  },
+
+  updateExistingExam: async (examId: string, updatedExam: Exam, mode: 'exam' | 'practice') => {
+    try {
+      await getDataSource().exams.updateExam(examId, updatedExam, mode);
+      await get().loadCatalog();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'The server rejected the examination update.';
+      useAnnouncerStore
+        .getState()
+        .announce(`Could not update the examination: ${message}`, 'assertive', true);
+      return { ok: false, message };
+    }
+
+    soundEffects.playSuccess();
+    useAnnouncerStore
+      .getState()
+      .announce(`Examination "${updatedExam.title}" updated successfully.`, 'assertive', true);
     return { ok: true };
   },
 
