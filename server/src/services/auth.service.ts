@@ -31,6 +31,17 @@ export function signAccessToken(user: {
   );
 }
 
+export function signRefreshToken(user: {
+  _id: unknown;
+  role?: string | null;
+}): string {
+  return jwt.sign(
+    { sub: String(user._id), role: user.role ?? 'STUDENT', type: 'refresh' },
+    env.JWT_SECRET,
+    { expiresIn: `${env.REFRESH_TOKEN_TTL_DAYS}d` }
+  );
+}
+
 export function verifyAccessToken(token: string): AccessTokenPayload | null {
   try {
     return jwt.verify(token, env.JWT_SECRET) as AccessTokenPayload;
@@ -39,9 +50,19 @@ export function verifyAccessToken(token: string): AccessTokenPayload | null {
   }
 }
 
+export function verifyRefreshToken(token: string): AccessTokenPayload | null {
+  try {
+    const payload = jwt.verify(token, env.JWT_SECRET) as AccessTokenPayload;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 export const REFRESH_COOKIE = 'dristix_refresh';
 
-export function setRefreshCookie(res: Response, token: string): void {
+export function setRefreshCookie(res: Response, user: { _id: unknown; role?: string | null }): void {
+  const token = signRefreshToken(user);
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     secure: env.isProd,

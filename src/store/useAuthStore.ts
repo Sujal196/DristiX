@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { soundEffects } from '../utils/soundEffects';
 import { useAnnouncerStore } from './useAnnouncerStore';
+import { useBootstrapStore } from '../stores/useBootstrapStore';
 import { getDataSource } from '../services/dataSource';
 import { onSessionExpired } from '../services/dataSource/apiToken';
 import type {
@@ -8,6 +9,21 @@ import type {
   AttemptSummary,
   UserProfile,
 } from '../../shared/types';
+
+export const authBroadcastChannel =
+  typeof window !== 'undefined' && 'BroadcastChannel' in window
+    ? new BroadcastChannel('dristix_auth_sync')
+    : null;
+
+if (authBroadcastChannel) {
+  authBroadcastChannel.onmessage = (event) => {
+    if (event.data === 'LOGIN') {
+      void useBootstrapStore.getState().run();
+    } else if (event.data === 'LOGOUT') {
+      useAuthStore.getState().setSession(null);
+    }
+  };
+}
 
 /**
  * Maps a server AttemptSummary onto the local ExamSubmission shape so every
@@ -151,6 +167,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       try {
         const { user } = await getDataSource().auth.login(identifier, pass);
         set({ currentStudent: user });
+        authBroadcastChannel?.postMessage('LOGIN');
         soundEffects.playSuccess();
         useAnnouncerStore
           .getState()
@@ -179,6 +196,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           accessibilityPreference: preference ?? undefined,
         });
         set({ currentStudent: user });
+        authBroadcastChannel?.postMessage('LOGIN');
         // Keep the roster fresh so admin views and the demo list stay accurate.
         void getDataSource().auth
           .listStudents()
@@ -209,6 +227,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         // Clearing local state matters more than the server round trip.
       }
       set({ currentStudent: null, submissions: [], students: [] });
+      authBroadcastChannel?.postMessage('LOGOUT');
       soundEffects.playNavigate();
       useAnnouncerStore.getState().announce('Signed out of student account.', 'polite', true);
     },

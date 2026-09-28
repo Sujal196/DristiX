@@ -13,6 +13,7 @@ import {
   signAccessToken,
   toUserProfile,
   verifyAccessToken,
+  verifyRefreshToken,
   verifyPassword,
 } from '../services/auth.service.js';
 import type { AuthResult } from '../../../shared/types.js';
@@ -40,7 +41,7 @@ function issue(res: import('express').Response, user: Parameters<typeof toUserPr
     user: toUserProfile(user),
     tokens: { accessToken: signAccessToken(user), expiresIn: env.ACCESS_TOKEN_TTL },
   };
-  setRefreshCookie(res, result.tokens.accessToken);
+  setRefreshCookie(res, user);
   res.json(result);
 }
 
@@ -126,7 +127,7 @@ authRouter.post(
       throw new HttpError(401, 'no_session', 'No active session.');
     }
 
-    const payload = verifyAccessToken(token);
+    const payload = verifyRefreshToken(token);
     if (!payload) {
       clearRefreshCookie(res);
       throw new HttpError(401, 'session_expired', 'Session expired. Please sign in again.');
@@ -139,7 +140,7 @@ authRouter.post(
     }
 
     const accessToken = signAccessToken(user);
-    setRefreshCookie(res, accessToken);
+    setRefreshCookie(res, user);
     res.json({
       user: toUserProfile(user),
       tokens: { accessToken, expiresIn: env.ACCESS_TOKEN_TTL },
