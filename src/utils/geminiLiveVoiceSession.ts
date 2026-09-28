@@ -2,10 +2,20 @@ import { geminiVoiceService } from './geminiVoiceService';
 import { processVoiceCommand } from './voiceCommandProcessor';
 import type { CommandProcessResult } from './voiceCommandProcessor';
 import { speechEngine } from './speechEngine';
+import { useAnnouncerStore } from '../store/useAnnouncerStore';
 import { soundEffects } from './soundEffects';
 import { voiceRecognition } from './voiceRecognition';
+import { getDataSource } from '../services/dataSource';
 
 export type LiveSessionState = 'idle' | 'listening' | 'user_speaking' | 'processing' | 'assistant_speaking' | 'error';
+
+/**
+ * Longest single audio clip handed to transcription.
+ *
+ * Long clips cost more, transcribe worse, and are the only way a segment could
+ * grow without bound if voice activity is never detected.
+ */
+const MAX_SEGMENT_MS = 12_000;
 
 export interface LiveSessionCallbacks {
   onStateChange: (state: LiveSessionState) => void;
@@ -17,6 +27,12 @@ export interface LiveSessionCallbacks {
 
 export class GeminiLiveVoiceSession {
   private state: LiveSessionState = 'idle';
+  /** Guards setState() against being re-entered through the voice service. */
+  private isSettingState = false;
+  /** Guards against reporting the same failure more than once. */
+  private hasReportedError = false;
+  /** Whether the browser SpeechRecognition fallback is usable. */
+  private browserRecogniserAvailable = false;
   private mediaStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
@@ -24,12 +40,23 @@ export class GeminiLiveVoiceSession {
   private audioChunks: Blob[] = [];
   private animFrameId: number | null = null;
   private silenceTimer: any = null;
+  /**
+   * Hard cap on one recording segment.
+   *
+   * The segment is normally closed by the voice-activity detector once the user
+   * stops talking. But a noisy room can hold the average volume above the
+   * speech threshold permanently, in which case the detector never releases and
+   * the recorder would run unbounded. Capping it also keeps clips inside the
+   * window where transcription is accurate.
+   */
+  private segmentTimeout: any = null;
   private hasSpokenInCurrentChunk = false;
   private isRunning = false;
   private callbacks: Partial<LiveSessionCallbacks> = {};
   private unbindSpeechEnd: (() => void) | null = null;
   private unbindTranscript: (() => void) | null = null;
   private currentSpeechTranscript: string = '';
+  private currentAlternatives: string[] = [];
   private currentUtteranceId: number = 0;
 
   constructor(callbacks: Partial<LiveSessionCallbacks> = {}) {
@@ -45,21 +72,54 @@ export class GeminiLiveVoiceSession {
   }
 
   private setState(newState: LiveSessionState) {
-    this.state = newState;
-    this.callbacks.onStateChange?.(newState);
+    if (this.state === newState) return;
 
-    // Sync with global voice state for Header and Accessibility indicators
-    if (newState === 'listening' || newState === 'user_speaking') {
-      voiceRecognition.setState('listening');
-    } else if (newState === 'assistant_speaking') {
-      voiceRecognition.setState('speaking');
-    } else if (newState === 'processing') {
-      voiceRecognition.setState('processing');
-    } else if (newState === 'error') {
-      voiceRecognition.setState('error');
-    } else {
-      voiceRecognition.setState('idle');
+    // Re-entrancy guard.
+    //
+    // This method writes through to voiceRecognition.setState(), which notifies
+    // every registered listener — including the one added in start() that reacts
+    // to an 'error' state by calling this.setState() again. The two would bounce
+    // off each other until the stack overflowed, so the state is published to
+    // the voice service exactly once per change.
+    if (this.isSettingState) return;
+    this.isSettingState = true;
+    try {
+      this.state = newState;
+      this.callbacks.onStateChange?.(newState);
+
+      // Sync with global voice state for Header and Accessibility indicators
+      if (newState === 'listening' || newState === 'user_speaking') {
+        voiceRecognition.setState('listening');
+      } else if (newState === 'assistant_speaking') {
+        voiceRecognition.setState('speaking');
+      } else if (newState === 'processing') {
+        voiceRecognition.setState('processing');
+      } else if (newState === 'error') {
+        voiceRecognition.setState('error');
+      } else {
+        voiceRecognition.setState('idle');
+      }
+    } finally {
+      this.isSettingState = false;
     }
+  }
+
+  /**
+   * Single place a live session failure is reported.
+   *
+   * Idempotent, because recognition can report the same problem more than once
+   * (a denied microphone triggers both onStateChange('error') and onError).
+   * Sets the state directly rather than through setState(), since the voice
+   * service is the thing that is failing — writing back to it would re-enter.
+   */
+  private fail(message: string): void {
+    if (this.hasReportedError) return;
+    this.hasReportedError = true;
+
+    this.state = 'error';
+    this.callbacks.onStateChange?.('error');
+    this.callbacks.onError?.(message);
+    this.stop();
   }
 
   /**
@@ -68,51 +128,97 @@ export class GeminiLiveVoiceSession {
   public async start(): Promise<boolean> {
     if (this.isRunning) return true;
 
+    this.hasReportedError = false;
+
+    // The browser recogniser is only a fallback now — transcription happens on
+    // the server via Whisper. So its availability is deliberately NOT a
+    // precondition: refusing to start because SpeechRecognition is missing
+    // would block a path that works perfectly well without it.
+    this.browserRecogniserAvailable = voiceRecognition.isSupported();
+
     try {
       soundEffects.playMicStart();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
 
+      // Hold the microphone ourselves and transcribe on the server.
+      //
+      // The browser's SpeechRecognition streams audio to Google's own speech
+      // service. Where that is unreachable it fires onstart and then dies with
+      // "aborted" having received no audio at all — while getUserMedia on the
+      // very same machine peaks at 245/255, proving the microphone is fine.
+      // Recording locally and running Whisper through our backend removes that
+      // entire failure mode, and handles Hindi and English in one pass.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       this.mediaStream = stream;
       this.isRunning = true;
 
-      // Initialize Web Audio Analyser for real-time visual waveform
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioCtx();
-      this.audioContext = ctx;
+      this.audioContext = new AudioCtx();
 
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
+      const source = this.audioContext.createMediaStreamSource(stream);
+      const analyser = this.audioContext.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.4;
       source.connect(analyser);
       this.analyser = analyser;
 
-      // Start volume monitor loop
       this.startVolumeMonitoring();
-
-      // Start recording the first speech segment
       this.startSegmentRecording();
 
       // Start real-time speech recognition for live streaming words & instant zero-latency NLP fallback
       this.unbindTranscript = voiceRecognition.addListener({
-        onTranscript: (transcript: string, isFinal: boolean) => {
+        onTranscript: (transcript: string, isFinal: boolean, alternatives?: string[]) => {
           if (transcript.trim()) {
             this.currentSpeechTranscript = transcript.trim();
+            if (alternatives && alternatives.length > 0) {
+              this.currentAlternatives = alternatives;
+            }
             this.callbacks.onLiveTranscript?.(transcript.trim(), isFinal);
+
+            // Speech activity is now derived from the transcript, because the
+            // microphone is no longer held open for volume analysis — doing so
+            // starved the recogniser of audio. Any recognised text means the
+            // student is talking.
+            this.hasSpokenInCurrentChunk = true;
+            if (this.state === 'listening') this.setState('user_speaking');
+
+            // If a final recognition arrives while user spoke, commit promptly after brief settle
+            if (isFinal && this.isRunning) {
+              if (this.silenceTimer) {
+                clearTimeout(this.silenceTimer);
+                this.silenceTimer = null;
+              }
+              this.silenceTimer = setTimeout(() => {
+                if (this.isRunning && this.hasSpokenInCurrentChunk) {
+                  this.commitCurrentUtterance();
+                }
+              }, 250);
+            }
           }
         },
-        onStateChange: () => {},
-        onError: () => {},
+        onStateChange: (state) => {
+          // The browser recogniser is a fallback only, so its errors are logged
+          // rather than treated as a session failure — the microphone stream
+          // and server transcription are the real path and are unaffected.
+          if (state === 'error') {
+            console.warn('[VoiceLive] browser recogniser error; server transcription still active');
+          }
+        },
+        onError: (message) => {
+          console.warn('[VoiceLive] browser recogniser error:', message);
+        },
       });
-      voiceRecognition.start();
+
+      // The browser recogniser is a best-effort fallback. If it refuses to
+      // start, that is NOT a failure: the microphone stream and the server-side
+      // transcription are what actually carry voice input now.
+      if (this.browserRecogniserAvailable && !voiceRecognition.start()) {
+        console.warn('[VoiceLive] browser recogniser unavailable, continuing with server transcription');
+        voiceRecognition.stop();
+      }
 
       // Listen for assistant speech completion to resume listening
       this.unbindSpeechEnd = speechEngine.onSpeechEnd(() => {
@@ -130,15 +236,22 @@ export class GeminiLiveVoiceSession {
       this.setState('listening');
       return true;
     } catch (err: any) {
+      // Reached when getUserMedia is refused. This IS a real failure: without a
+      // microphone stream there is nothing to record and nothing to transcribe.
       console.error('Failed to start Gemini Live voice session:', err);
-      this.callbacks.onError?.('Microphone access denied. Please allow microphone access in your browser.');
-      this.stop();
+      this.fail(
+        'Microphone access denied. Allow the microphone in your browser address bar, then try again.'
+      );
       return false;
     }
   }
 
   private startSegmentRecording() {
     if (!this.mediaStream || !this.isRunning) return;
+    if (this.segmentTimeout) {
+      clearTimeout(this.segmentTimeout);
+      this.segmentTimeout = null;
+    }
 
     try {
       this.audioChunks = [];
@@ -159,6 +272,10 @@ export class GeminiLiveVoiceSession {
       };
 
       recorder.onstop = () => {
+        if (this.segmentTimeout) {
+          clearTimeout(this.segmentTimeout);
+          this.segmentTimeout = null;
+        }
         if (this.hasSpokenInCurrentChunk && this.audioChunks.length > 0 && this.isRunning) {
           const blobType = recorder.mimeType || 'audio/webm';
           const fullAudioBlob = new Blob(this.audioChunks, { type: blobType });
@@ -172,6 +289,14 @@ export class GeminiLiveVoiceSession {
 
       recorder.start(100);
       this.mediaRecorder = recorder;
+
+      // Close the segment even if the voice-activity detector never sees a pause.
+      this.segmentTimeout = setTimeout(() => {
+        if (this.isRunning && recorder.state !== 'inactive') {
+          this.hasSpokenInCurrentChunk = true;
+          this.commitCurrentUtterance();
+        }
+      }, MAX_SEGMENT_MS);
     } catch (err) {
       console.warn('Failed to start MediaRecorder segment:', err);
     }
@@ -228,13 +353,13 @@ export class GeminiLiveVoiceSession {
             this.silenceTimer = null;
           }
         } else if (this.hasSpokenInCurrentChunk) {
-          // User was speaking and is now silent: start silence countdown (1100ms)
+          // User was speaking and is now silent: start silence countdown (1500ms)
           if (!this.silenceTimer) {
             this.silenceTimer = setTimeout(() => {
               if (this.hasSpokenInCurrentChunk && this.isRunning) {
                 this.commitCurrentUtterance();
               }
-            }, 1100);
+            }, 1500);
           }
         }
       }
@@ -270,13 +395,74 @@ export class GeminiLiveVoiceSession {
     const thisUtteranceId = ++this.currentUtteranceId;
     this.setState('processing');
 
-    const capturedTranscript = this.currentSpeechTranscript.trim();
+    // 1. Transcribe the recorded clip on the server. This is the primary path
+    //    and the one that works: the browser recogniser is kept only as a
+    //    fallback below, because it receives no audio when Google's speech
+    //    service is unreachable.
+    let capturedTranscript = this.currentSpeechTranscript.trim();
+
+    if (!capturedTranscript && audioBlob && audioBlob.size > 1000) {
+      try {
+        const result = await getDataSource().ai.transcribe(audioBlob, 'clip.webm');
+        if (this.currentUtteranceId !== thisUtteranceId || !this.isRunning) return;
+        capturedTranscript = result.text.trim();
+        console.log('[Live Voice] server transcription:', capturedTranscript);
+        if (capturedTranscript) {
+          this.callbacks.onLiveTranscript?.(capturedTranscript, true);
+        }
+      } catch (err) {
+        console.warn('[Live Voice] server transcription failed:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (
+          errMsg.includes('Session expired') ||
+          errMsg.includes('Authentication required') ||
+          errMsg.includes('401')
+        ) {
+          this.stop();
+          this.callbacks.onError?.('Session expired. Voice assistant stopped.');
+          return;
+        }
+      }
+    }
+
+    // Fallback: if the server could not transcribe, give the browser recogniser
+    // a brief chance before giving up.
+    if (!capturedTranscript && this.hasSpokenInCurrentChunk) {
+      const waitStart = Date.now();
+      while (!this.currentSpeechTranscript.trim() && Date.now() - waitStart < 1200) {
+        await new Promise((r) => setTimeout(r, 60));
+        if (!this.isRunning || this.currentUtteranceId !== thisUtteranceId) return;
+      }
+      capturedTranscript = this.currentSpeechTranscript.trim();
+    }
+
+    const capturedAlternatives = [...this.currentAlternatives];
     this.currentSpeechTranscript = '';
+    this.currentAlternatives = [];
+
+    // If completely silent/noise with no transcript and no valid audio, resume listening smoothly
+    if (!capturedTranscript && (!audioBlob || audioBlob.size < 1000)) {
+      console.log('[Live Voice] Acoustic activity detected without words, resuming listening.');
+      this.setState('listening');
+      this.startSegmentRecording();
+      return;
+    }
 
     let result: CommandProcessResult | null = null;
 
-    // 1. If Gemini API key is configured, try multimodal audio processing
-    if (geminiVoiceService.hasApiKey() && audioBlob && audioBlob.size > 500) {
+    // 1. High-Precision Instant Local NLP (handles "Option 1-4", "Next question", "Read question", "Clear option", etc.)
+    // Local NLP runs in 0ms without waiting for slow external APIs
+    if (capturedTranscript) {
+      const candidates = [capturedTranscript, ...capturedAlternatives];
+      const localResult = processVoiceCommand(candidates);
+      if (localResult && localResult.intent !== 'UNRECOGNIZED') {
+        console.log('[Live Voice] Instantly executed via high-precision local NLP:', localResult.intent);
+        result = localResult;
+      }
+    }
+
+    // 2. Multimodal Audio via Gemini (only if a valid Google AI Studio key starting with AIzaSy is configured)
+    if (!result && geminiVoiceService.hasValidGeminiKey() && audioBlob && audioBlob.size > 1000) {
       try {
         result = await geminiVoiceService.processAudioWithGemini(audioBlob);
       } catch (err) {
@@ -290,12 +476,12 @@ export class GeminiLiveVoiceSession {
       return;
     }
 
-    // 2. If audio didn't succeed but we have spoken text, try Gemini text
+    // 3. Fallback to Gemini / Groq Text LLM for natural language queries (e.g. conversational questions)
     if (!result && capturedTranscript && geminiVoiceService.hasApiKey()) {
       try {
         result = await geminiVoiceService.processTextWithGemini(capturedTranscript);
       } catch (err) {
-        console.warn('[Live Voice] Gemini text processing failed:', err);
+        console.warn('[Live Voice] Gemini/Groq text processing failed:', err);
       }
     }
 
@@ -305,36 +491,48 @@ export class GeminiLiveVoiceSession {
       return;
     }
 
-    // 3. High-Precision Instant Fallback to built-in NLP engine
+    // 4. Final attempt with local NLP if text LLM returned null
     if (!result && capturedTranscript) {
-      console.log('[Live Voice] Executing via built-in NLP engine for:', capturedTranscript);
-      result = processVoiceCommand([capturedTranscript]);
+      result = processVoiceCommand([capturedTranscript, ...capturedAlternatives]);
     }
 
     if (this.currentUtteranceId !== thisUtteranceId || !this.isRunning) return;
 
-    if (result) {
+    if (result && result.intent !== 'UNRECOGNIZED') {
       this.callbacks.onResult?.(result);
 
-      // Assistant speaking state: speech is already triggered by useAnnouncerStore
+      // Assistant speaking state: for a locally recognised command the reply is
+      // already being spoken, and this must not restart it. When the answer
+      // came from the LLM instead, nothing has spoken yet — announce it so both
+      // the candidate and the ARIA live region get the same text.
       if (result.assistantReply) {
         this.setState('assistant_speaking');
         this.currentSpeechTranscript = '';
         if (!speechEngine.isSpeaking()) {
-          speechEngine.speak(result.assistantReply, true);
+          useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
         }
       } else {
         this.setState('listening');
         this.startSegmentRecording();
       }
     } else {
-      // If user spoke but no command was recognized
-      if (this.hasSpokenInCurrentChunk) {
-        const promptReply = 'Aapki awaaz sunai di. Kripya sawal ya option dobara bolein, jaise "Option 2" ya "Agla sawal".';
-        this.callbacks.onError?.(promptReply);
+      // Only announce prompt if user actually said words that were not recognized
+      if (capturedTranscript) {
+        const promptReply =
+          'I heard "' +
+          capturedTranscript +
+          '". For questions or options, say "Option 1", "Option 2", "Next question", or "Read question".';
+        this.callbacks.onResult?.({
+          success: false,
+          intent: 'UNRECOGNIZED',
+          userQuery: capturedTranscript,
+          assistantReply: promptReply,
+          actionExecuted: undefined,
+        });
         this.setState('assistant_speaking');
-        speechEngine.speak(promptReply, true);
+        useAnnouncerStore.getState().announce(promptReply, 'assertive', true);
       } else {
+        // Acoustic noise only: resume listening silently
         this.setState('listening');
         this.startSegmentRecording();
       }
@@ -351,6 +549,11 @@ export class GeminiLiveVoiceSession {
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = null;
+    }
+
+    if (this.segmentTimeout) {
+      clearTimeout(this.segmentTimeout);
+      this.segmentTimeout = null;
     }
 
     if (this.animFrameId) {

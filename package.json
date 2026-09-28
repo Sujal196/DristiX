@@ -5,9 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "concurrently -n web,api -c cyan,magenta \"npm:dev\" \"npm:dev:api\"",
+    "dev:api": "npm --prefix server run dev",
     "build": "tsc -b && vite build",
+    "build:api": "npm --prefix server run build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:seed": "npm --prefix server run db:seed",
+    "db:shell": "mongosh mongodb://127.0.0.1:27017/dristix"
   },
   "dependencies": {
     "axe-core": "^4.13.0",
@@ -26,6 +31,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.6.1",
+    "concurrently": "^9.1.2",
     "oxlint": "^1.81.0",
     "postcss": "^8.5.28",
     "tailwindcss": "^3.4.19",

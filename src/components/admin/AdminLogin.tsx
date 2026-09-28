@@ -8,17 +8,26 @@ interface AdminLoginProps {
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => {
   const { loginAdmin } = useAuthStore();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  // Deliberately empty. These fields used to be prefilled with the real admin
+  // credentials, which shipped the password inside the JavaScript bundle where
+  // anyone could read it in DevTools. The server now decides.
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
-    const success = loginAdmin(username, password);
-    if (!success) {
-      setErrorMessage('Invalid administrator credentials. Please check your username and password.');
+    setIsSubmitting(true);
+    try {
+      const success = await loginAdmin(username, password);
+      if (!success) {
+        setErrorMessage('Invalid administrator credentials. Please check your username and password.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -51,16 +60,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
           <div className="flex items-center gap-2 font-bold text-indigo-500 text-sm">
             <KeyRound className="w-4 h-4" aria-hidden="true" />
             <span>Default Administrator Credentials:</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-1 font-mono">
-            <div>
-              <span className="text-theme-text/60">Username: </span>
-              <strong className="text-theme-text">admin</strong>
-            </div>
-            <div>
-              <span className="text-theme-text/60">Password: </span>
-              <strong className="text-theme-text">admin123</strong>
-            </div>
           </div>
         </div>
 
@@ -125,9 +124,10 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
 
           <button
             type="submit"
-            className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-base shadow-md transition focus:ring-4 focus:ring-indigo-500/50"
+            disabled={isSubmitting || !username.trim() || !password.trim()}
+            className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-base shadow-md transition focus:ring-4 focus:ring-indigo-500/50 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Authenticate & Enter Admin Studio
+            {isSubmitting ? 'Authenticating…' : 'Authenticate & Enter Admin Studio'}
           </button>
         </form>
 

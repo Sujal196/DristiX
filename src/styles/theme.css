@@ -1,34 +1,42 @@
 /* ========================================================
    DristiX Dynamic Accessibility Color Tokens & Focus System
-   Strict WCAG 2.1 AA & AAA Compliant Themes
+   Strict WCAG 2.1 AA & AAA Compliant Themes + Premium Aesthetics
    ======================================================== */
 
 :root {
-  /* Default: High-Contrast Light Mode */
-  --bg-page: #FFFFFF;
-  --bg-surface: #F8FAFC;
+  /* Default: High-Contrast Light Mode with Premium Glass & Glow Accents */
+  --bg-page: #F8FAFC;
+  --bg-surface: #FFFFFF;
   --bg-surface-elevated: #F1F5F9;
-  --text-primary: #020617;
-  --text-secondary: #1E293B;
-  --border-color: #0F172A;
-  --border-subtle: #94A3B8;
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --border-color: #CBD5E1;
+  --border-subtle: #E2E8F0;
   --focus-ring: #0284C7;
   --focus-offset: 3px;
   
-  --primary: #1D4ED8;
-  --primary-hover: #1E40AF;
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
   --primary-text: #FFFFFF;
+  --primary-gradient: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%);
+  --primary-glow: rgba(37, 99, 235, 0.25);
 
-  --color-marked: #B45309;
+  --color-marked: #D97706;
   --color-marked-text: #FFFFFF;
-  --color-answered: #15803D;
+  --color-answered: #16A34A;
   --color-answered-text: #FFFFFF;
-  --color-unattempted: #475569;
+  --color-unattempted: #64748B;
   --color-unattempted-text: #FFFFFF;
 
-  --color-success: #15803D;
-  --color-danger: #B91C1C;
-  --color-warning: #B45309;
+  --color-success: #16A34A;
+  --color-danger: #DC2626;
+  --color-warning: #D97706;
+
+  /* Shadows & Glass Tokens */
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 24px -4px rgba(15, 23, 42, 0.12), 0 4px 12px -2px rgba(15, 23, 42, 0.06);
+  --shadow-xl: 0 20px 32px -6px rgba(15, 23, 42, 0.16), 0 8px 16px -4px rgba(15, 23, 42, 0.08);
 
   /* Font Scaling Token */
   --font-scale: 1;
@@ -36,19 +44,21 @@
 
 /* Theme 1: High-Contrast Dark Mode */
 [data-theme="dark-hc"] {
-  --bg-page: #090D16;
-  --bg-surface: #131B2E;
-  --bg-surface-elevated: #1E293B;
-  --text-primary: #F8FAFC;
-  --text-secondary: #E2E8F0;
-  --border-color: #475569;
-  --border-subtle: #334155;
+  --bg-page: #0B0F19;
+  --bg-surface: #111827;
+  --bg-surface-elevated: #1F2937;
+  --text-primary: #F9FAFB;
+  --text-secondary: #E5E7EB;
+  --border-color: #374151;
+  --border-subtle: #1F2937;
   --focus-ring: #FACC15;
   --focus-offset: 3px;
 
   --primary: #38BDF8;
   --primary-hover: #7DD3FC;
   --primary-text: #090D16;
+  --primary-gradient: linear-gradient(135deg, #38BDF8 0%, #818CF8 100%);
+  --primary-glow: rgba(56, 189, 248, 0.3);
 
   --color-marked: #F59E0B;
   --color-marked-text: #090D16;
@@ -60,6 +70,11 @@
   --color-success: #22C55E;
   --color-danger: #EF4444;
   --color-warning: #F59E0B;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px 0 rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 28px 0 rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 40px 0 rgba(0, 0, 0, 0.6);
 }
 
 /* Theme 2: Specialty Yellow-on-Black Mode */
@@ -77,6 +92,8 @@
   --primary: #FFFF00;
   --primary-hover: #FFFFA0;
   --primary-text: #000000;
+  --primary-gradient: #FFFF00;
+  --primary-glow: rgba(255, 255, 0, 0.3);
 
   --color-marked: #FFA500;
   --color-marked-text: #000000;
@@ -88,6 +105,11 @@
   --color-success: #00FF66;
   --color-danger: #FF3333;
   --color-warning: #FFA500;
+
+  --shadow-sm: 0 0 4px rgba(255, 255, 0, 0.2);
+  --shadow-md: 0 0 10px rgba(255, 255, 0, 0.3);
+  --shadow-lg: 0 0 20px rgba(255, 255, 0, 0.4);
+  --shadow-xl: 0 0 30px rgba(255, 255, 0, 0.5);
 }
 
 /* Theme 3: High-Contrast Cream / Warm Sepia */
@@ -105,6 +127,8 @@
   --primary: #78350F;
   --primary-hover: #451A03;
   --primary-text: #FFFBEB;
+  --primary-gradient: linear-gradient(135deg, #78350F 0%, #92400E 100%);
+  --primary-glow: rgba(120, 53, 15, 0.25);
 
   --color-marked: #B45309;
   --color-marked-text: #FFFBEB;
@@ -116,6 +140,11 @@
   --color-success: #14532D;
   --color-danger: #991B1B;
   --color-warning: #B45309;
+
+  --shadow-sm: 0 1px 2px rgba(120, 53, 15, 0.08);
+  --shadow-md: 0 4px 12px rgba(120, 53, 15, 0.12);
+  --shadow-lg: 0 12px 24px rgba(120, 53, 15, 0.16);
+  --shadow-xl: 0 20px 32px rgba(120, 53, 15, 0.2);
 }
 
 /* ========================================================
@@ -126,7 +155,7 @@
 *:focus-visible {
   outline: 3px solid var(--focus-ring) !important;
   outline-offset: var(--focus-offset) !important;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 /* Eliminate hidden outline anti-pattern */
@@ -166,8 +195,10 @@
 body {
   background-color: var(--bg-page);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Dyslexia / Hyper-legible typography override */
@@ -177,3 +208,55 @@ body {
   word-spacing: 0.1em !important;
   line-height: 1.8 !important;
 }
+
+/* Universal High-Visibility WCAG 2.1 AA Keyboard Focus Indicator */
+:focus-visible {
+  outline: 3px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
+}
+
+/* Custom Glass & Aesthetic Helper Utilities */
+.dx-glass {
+  background: color-mix(in srgb, var(--bg-surface) 65%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.dx-glass-card {
+  background: color-mix(in srgb, var(--bg-surface) 60%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  border: 1.5px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25), inset 0 1px 0 0 color-mix(in srgb, #ffffff 15%, transparent);
+}
+
+.dx-glass-card-subtle {
+  background: color-mix(in srgb, var(--bg-surface) 50%, transparent) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  box-shadow: var(--shadow-md);
+}
+
+.dx-card-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
+}
+
+.dx-card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg), 0 0 20px var(--primary-glow);
+}
+
+.dx-glow-button {
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 16px var(--primary-glow);
+}
+
+.dx-glow-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px var(--primary-glow);
+  filter: brightness(1.08);
+}
+
+

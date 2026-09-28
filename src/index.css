@@ -12,6 +12,13 @@ html {
   text-size-adjust: 100%;
 }
 
+/* Smooth scrolling is motion too: honour the system setting. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 /* Ensure no elements cause accidental horizontal overflow on zoom */
 * {
   box-sizing: border-box;

@@ -78,6 +78,8 @@ export const ShortcutsHelpModal: React.FC = () => {
     { key: 'R', desc: 'Read question, equation, and options aloud via TTS' },
     { key: 'S', desc: 'Stop / Silence ongoing voice reading immediately' },
     { key: 'Q', desc: 'Toggle Question Palette / Navigation Drawer' },
+    { key: '+ or -', desc: 'Increase (+) or Decrease (-) UI & Text Magnification Scale globally' },
+    { key: '1 to 5', desc: 'In Accessibility modal: jump directly to 100%, 125%, 150%, 175%, 200%' },
     { key: 'Alt + S', desc: 'Submit Examination Session' },
     { key: 'Escape', desc: 'Close any open dialog or stop voice reading' },
   ];

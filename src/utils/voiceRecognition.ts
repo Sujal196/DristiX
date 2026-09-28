@@ -2,6 +2,15 @@ import { speechEngine } from './speechEngine';
 
 export type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
+/**
+ * Speech recognition language.
+ *
+ * Only used by the browser-SpeechRecognition fallback. The primary path
+ * transcribes on the server, where the Whisper models handle Hindi and English
+ * in a single pass and no browser locale negotiation is needed.
+ */
+export type VoiceLangMode = 'auto' | 'hi-IN' | 'en-IN' | 'en-US';
+
 export interface VoiceRecognitionCallbacks {
   onTranscript: (transcript: string, isFinal: boolean, alternatives?: string[]) => void;
   onStateChange: (state: VoiceState) => void;
@@ -13,9 +22,16 @@ class VoiceRecognitionService {
   private isListeningActive: boolean = false;
   private shouldAutoRestart: boolean = false;
   private currentLanguage: 'hi-IN' | 'en-IN' | 'en-US' = 'hi-IN';
+  /** 'auto' follows the browser locale and falls back if it yields nothing. */
+  private languageMode: VoiceLangMode = 'auto';
+  /** Set once auto-mode has tried the other language, to avoid flip-flopping. */
+  private hasTriedFallback = false;
   private listeners: Set<VoiceRecognitionCallbacks> = new Set();
   private currentState: VoiceState = 'idle';
   private restartTimeout: any = null;
+  /** Last time a word was actually recognised, used to detect a dead mic. */
+  private lastTranscriptAt = 0;
+  private consecutiveSilentRestarts = 0;
 
   // MediaRecorder audio capture for 100% reliable direct recording
   private mediaRecorder: MediaRecorder | null = null;
@@ -48,6 +64,53 @@ class VoiceRecognitionService {
     });
   }
 
+  /**
+   * Whether this browser exposes the Web Speech API.
+   *
+   * Exposed so the UI can refuse up front with a clear reason. Previously an
+   * unsupported browser logged a console warning and then let the UI sit on
+   * "Listening…" forever, which looks exactly like a broken microphone.
+   */
+  public isSupported(): boolean {
+    if (typeof window === 'undefined') return false;
+    return Boolean(
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    );
+  }
+
+  /**
+   * Android Chrome's speech service is unreliable with continuous recognition.
+   *
+   * With `continuous = true` it commonly produces one utterance, then raises a
+   * 'network' error and stops, which left the orb sitting on "Listening…" with
+   * nothing ever arriving. Restarting on `onend` is the documented workaround,
+   * and the restart path below already exists, so continuous mode is turned off
+   * on mobile and each utterance is picked up by that restart instead.
+   */
+  /**
+   * The language actually sent to the speech service.
+   *
+   * In 'auto' mode this follows the browser locale, so an English laptop gets
+   * 'en-US' instead of a hardcoded 'hi-IN' that its speech service may not
+   * support at all.
+   */
+  private get effectiveLanguage(): 'hi-IN' | 'en-IN' | 'en-US' {
+    if (this.languageMode !== 'auto') return this.languageMode;
+    const nav = (typeof navigator !== 'undefined' ? navigator.language : 'en-US') || 'en-US';
+    if (nav.toLowerCase().startsWith('hi')) return 'hi-IN';
+    return nav.toLowerCase().startsWith('en-in') ? 'en-IN' : 'en-US';
+  }
+
+  /** The other language to retry when auto mode hears nothing. */
+  private get fallbackLanguage(): 'hi-IN' | 'en-US' {
+    return this.currentLanguage === 'hi-IN' ? 'en-US' : 'hi-IN';
+  }
+
+  private isMobile(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  }
+
   private initRecognition() {
     if (typeof window === 'undefined') return;
 
@@ -66,16 +129,24 @@ class VoiceRecognitionService {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognitionAPI) {
-      console.warn('SpeechRecognition API not available in this browser environment.');
+      // This used to be a silent console.warn, so the voice orb would show
+      // "Listening…" with nothing ever arriving. Fail loudly instead.
+      this.shouldAutoRestart = false;
+      this.isListeningActive = false;
+      this.setState('error');
+      this.notifyError(
+        'Speech recognition is not available in this browser. Live voice input needs Chrome, Edge or another Chromium-based browser.'
+      );
       return;
     }
 
     try {
       const rec = new SpeechRecognitionAPI();
-      // Using continuous mode with clean seamless restart
-      rec.continuous = true;
+      // Desktop handles continuous mode well. Mobile relies on the restart
+      // loop in scheduleRestart(), which fires from onend after each utterance.
+      rec.continuous = !this.isMobile();
       rec.interimResults = true;
-      rec.lang = this.currentLanguage;
+      rec.lang = this.effectiveLanguage;
       rec.maxAlternatives = 5;
 
       rec.onstart = () => {
@@ -84,6 +155,11 @@ class VoiceRecognitionService {
       };
 
       rec.onresult = (event: any) => {
+        // Any recognised text proves the mic is live, which resets the silent
+        // restart counter that guards against a dead microphone.
+        this.lastTranscriptAt = Date.now();
+        this.consecutiveSilentRestarts = 0;
+
         let interimTranscript = '';
         let finalTranscript = '';
         const alternatives: string[] = [];
@@ -174,6 +250,42 @@ class VoiceRecognitionService {
         return;
       }
 
+      // Restarting is only useful if recognition has worked at least once. A
+      // loop of restarts that never produces a word is indistinguishable from a
+      // frozen microphone, so try the other language first, then give up.
+      if (Date.now() - this.lastTranscriptAt > 12000) {
+        this.consecutiveSilentRestarts++;
+
+        // In auto mode, one retry in the other language is often enough: the
+        // speech service may simply not support the locale we guessed.
+        if (
+          this.languageMode === 'auto' &&
+          !this.hasTriedFallback &&
+          this.consecutiveSilentRestarts >= 2
+        ) {
+          this.currentLanguage = this.fallbackLanguage;
+          this.hasTriedFallback = true;
+          this.consecutiveSilentRestarts = 0;
+          this.initRecognition();
+          this.scheduleRestart(200);
+          return;
+        }
+
+        if (this.consecutiveSilentRestarts >= 4) {
+          this.shouldAutoRestart = false;
+          this.isListeningActive = false;
+          this.setState('error');
+          this.notifyError(
+            this.hasTriedFallback
+              ? `No speech detected in ${this.currentLanguage} or ${this.fallbackLanguage}. Check that nothing else is using the microphone, or type your command in the box below.`
+              : 'The microphone is not producing any speech. Check that nothing else is using it, or type your command in the box below.'
+          );
+          return;
+        }
+      } else {
+        this.consecutiveSilentRestarts = 0;
+      }
+
       try {
         if (!this.recognition) {
           this.initRecognition();
@@ -249,25 +361,50 @@ class VoiceRecognitionService {
     );
   }
 
+  /** The language the speech service is currently being asked for. */
   public getLanguage(): 'hi-IN' | 'en-IN' | 'en-US' {
     return this.currentLanguage;
   }
 
-  public setLanguage(lang: 'hi-IN' | 'en-IN' | 'en-US') {
-    if (this.currentLanguage === lang) return;
-    this.currentLanguage = lang;
-    if (this.recognition) {
-      this.recognition.lang = lang;
-      if (this.isListeningActive) {
-        try {
-          this.recognition.stop();
-        } catch {}
-        this.scheduleRestart(200);
-      }
-    }
+  public getLanguageMode(): VoiceLangMode {
+    return this.languageMode;
   }
 
-  public start() {
+  /**
+   * Selects the recognition language. Accepts 'auto', which follows the browser
+   * locale and retries the other language if nothing is heard.
+   *
+   * This was never called from anywhere, so the language stayed pinned to the
+   * initial 'hi-IN' no matter what the user picked in the UI.
+   */
+  public setLanguage(lang: VoiceLangMode) {
+    const next = lang === 'auto' ? this.effectiveLanguageOf() : lang;
+    if (this.languageMode === lang && this.currentLanguage === next) return;
+
+    this.languageMode = lang;
+    this.currentLanguage = next;
+    this.hasTriedFallback = false;
+    this.consecutiveSilentRestarts = 0;
+    this.lastTranscriptAt = Date.now();
+
+    // `lang` is only fixed at construction time, so a live session needs a new
+    // recognition instance rather than a property assignment.
+    this.initRecognition();
+    if (this.isListeningActive) this.scheduleRestart(200);
+  }
+
+  private effectiveLanguageOf(): 'hi-IN' | 'en-IN' | 'en-US' {
+    const nav = (typeof navigator !== 'undefined' ? navigator.language : 'en-US') || 'en-US';
+    if (nav.toLowerCase().startsWith('hi')) return 'hi-IN';
+    return nav.toLowerCase().startsWith('en-in') ? 'en-IN' : 'en-US';
+  }
+
+  /**
+   * Begins listening. Returns false when recognition could not be started, so
+   * callers can surface the reason instead of showing a listening state that
+   * will never receive a word.
+   */
+  public start(): boolean {
     this.shouldAutoRestart = true;
     this.isListeningActive = true;
 
@@ -276,26 +413,38 @@ class VoiceRecognitionService {
     }
 
     if (!this.recognition) {
+      this.shouldAutoRestart = false;
+      this.isListeningActive = false;
       this.notifyError(
-        'Speech recognition is not supported in this browser. Please use Chrome, Edge, or a WebSpeech-enabled browser.'
+        'Speech recognition is not available in this browser. Live voice input needs Chrome, Edge or another Chromium-based browser.'
       );
-      return;
+      return false;
     }
 
     try {
       this.recognition.start();
       this.setState('listening');
+      return true;
     } catch (err: any) {
       if (err?.name === 'InvalidStateError') {
+        // Already running, which is fine.
         this.setState('listening');
-      } else {
-        this.initRecognition();
-        try {
-          this.recognition.start();
-          this.setState('listening');
-        } catch {
-          this.scheduleRestart(250);
-        }
+        return true;
+      }
+      this.initRecognition();
+      if (!this.recognition) return false;
+      try {
+        this.recognition.start();
+        this.setState('listening');
+        return true;
+      } catch (retryErr: any) {
+        this.scheduleRestart(250);
+        this.notifyError(
+          retryErr?.name === 'NotAllowedError'
+            ? 'Microphone access was denied. Allow microphone permission for this site, then try again.'
+            : 'Could not start the microphone. Please try again.'
+        );
+        return false;
       }
     }
   }

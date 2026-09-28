@@ -15,6 +15,7 @@ export const SubmitConfirmModal: React.FC = () => {
   } = useExamStore();
 
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
+  const modalContainerRef = useRef<HTMLDivElement>(null);
 
   const total = questions.length;
   const attempted = Object.keys(selectedOptions).length;
@@ -23,7 +24,9 @@ export const SubmitConfirmModal: React.FC = () => {
 
   useEffect(() => {
     if (isSubmitModalOpen) {
-      confirmBtnRef.current?.focus();
+      setTimeout(() => {
+        confirmBtnRef.current?.focus();
+      }, 50);
       useAnnouncerStore
         .getState()
         .announce(
@@ -35,6 +38,40 @@ export const SubmitConfirmModal: React.FC = () => {
     }
   }, [isSubmitModalOpen, attempted, total, unattempted, marked]);
 
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setSubmitModalOpen(false);
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      const container = modalContainerRef.current;
+      if (!container) return;
+
+      const focusable = container.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+
+      const firstEl = focusable[0];
+      const lastEl = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstEl) {
+          e.preventDefault();
+          lastEl.focus();
+        }
+      } else {
+        if (document.activeElement === lastEl) {
+          e.preventDefault();
+          firstEl.focus();
+        }
+      }
+    }
+  };
+
   if (!isSubmitModalOpen) return null;
 
   return (
@@ -43,9 +80,13 @@ export const SubmitConfirmModal: React.FC = () => {
       aria-modal="true"
       aria-labelledby="submit-dialog-title"
       aria-describedby="submit-dialog-desc"
+      onKeyDown={handleModalKeyDown}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs"
     >
-      <div className="w-full max-w-lg bg-theme-surface border-2 border-theme-border rounded-xl shadow-2xl overflow-hidden text-theme-text">
+      <div
+        ref={modalContainerRef}
+        className="w-full max-w-lg bg-theme-surface border-2 border-theme-border rounded-xl shadow-2xl overflow-hidden text-theme-text"
+      >
         <div className="p-4 sm:p-5 border-b-2 border-theme-border flex justify-between items-center bg-theme-bg">
           <div className="flex items-center gap-2 text-amber-500">
             <AlertTriangle className="w-6 h-6" aria-hidden="true" />

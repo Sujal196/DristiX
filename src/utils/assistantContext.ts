@@ -1,6 +1,6 @@
 import { useExamStore } from '../store/useExamStore';
 import { useAuthStore } from '../store/useAuthStore';
-import type { QuestionItem } from '../data/questions';
+import type { QuestionItem } from '../../shared/types';
 
 export interface PageContextSnapshot {
   activeView: 'catalog' | 'exam' | 'analytics' | 'report';
@@ -122,48 +122,30 @@ export function getAssistantContext(): PageContextSnapshot {
   }));
 
   let activeView: 'catalog' | 'exam' | 'analytics' | 'report' = examStore.activeView;
+  const portalTab = examStore.portalTab;
 
-  // Ground truth check from DOM: what is ACTUALLY rendered in front of the user's eyes?
-  let portalTab = examStore.portalTab;
-  if (typeof document !== 'undefined') {
-    const catalogHeadingEl = document.getElementById('catalog-heading');
-    const isCatalogInDOM = !!catalogHeadingEl || !!document.querySelector('input[placeholder*="Search"]');
-    const isReportInDOM = !!document.getElementById('report-main-title') || (examStore.activeView === 'exam' && examStore.isSubmitted);
-    const isExamInDOM = !isReportInDOM && (!!document.getElementById('q-heading') || !!document.querySelector('[role="radiogroup"]'));
-    const isAnalyticsInDOM = !!document.getElementById('student-analytics-view');
-
-    if (isReportInDOM) {
-      activeView = 'report';
-    } else if (isCatalogInDOM && !isExamInDOM) {
-      activeView = 'catalog';
-      if (examStore.activeView !== 'catalog') {
-        useExamStore.setState({ activeView: 'catalog' });
-      }
-      if (catalogHeadingEl) {
-        const headingText = catalogHeadingEl.textContent || '';
-        if (headingText.includes('Practice')) {
-          portalTab = 'practice';
-          if (examStore.portalTab !== 'practice') {
-            useExamStore.setState({ portalTab: 'practice' });
-          }
-        } else if (headingText.includes('Examination') || headingText.includes('Mock')) {
-          portalTab = 'exams';
-          if (examStore.portalTab !== 'exams') {
-            useExamStore.setState({ portalTab: 'exams' });
-          }
-        }
-      }
-    } else if (isExamInDOM) {
-      activeView = 'exam';
-      if (examStore.activeView !== 'exam') {
-        useExamStore.setState({ activeView: 'exam' });
-      }
-    } else if (isAnalyticsInDOM) {
-      activeView = 'analytics';
-      if (examStore.activeView !== 'analytics') {
-        useExamStore.setState({ activeView: 'analytics' });
-      }
-    }
+  // What is on screen is decided by exactly two values: App.tsx renders
+  // analytics → catalog → report → exam from `activeView` and `isSubmitted`,
+  // in that order, so that is exactly what the snapshot should describe.
+  //
+  // This used to be re-derived by sniffing the DOM instead, and every probe in
+  // that sniffing was wrong in a way that MOVED the user rather than described
+  // them:
+  //
+  //   * any [role="radiogroup"] counted as an open exam — but the catalog's own
+  //     category-filter pills render one, and so does the header. So a single
+  //     voice command wrote activeView:'exam' into the store and dropped the
+  //     catalog behind the empty "No Questions Found" screen, recoverable only
+  //     by reloading the page.
+  //   * the catalog probe matched any input whose placeholder contains
+  //     "Search", which the analytics view has — dragging analytics back to the
+  //     catalog the moment the assistant read context.
+  //   * the analytics marker it was compared against, `#student-analytics-view`,
+  //     does not exist anywhere in the codebase, so that branch never ran.
+  //
+  // Reading context has to describe the screen, never navigate it.
+  if (examStore.isSubmitted && examStore.activeView === 'exam') {
+    activeView = 'report';
   }
 
   const snapshot: PageContextSnapshot = {

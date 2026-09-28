@@ -14,6 +14,8 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
+import { speechEngine } from '../../utils/speechEngine';
+import { AiDiagramViewer } from '../common/AiDiagramViewer';
 
 export const ExamScreen: React.FC = () => {
   const {
@@ -33,8 +35,8 @@ export const ExamScreen: React.FC = () => {
 
   const currentQ = questions[currentIndex];
   const qHeadingRef = useRef<HTMLHeadingElement>(null);
-  const selectedOptNum = selectedOptions[currentQ.id];
-  const isMarked = !!markedForReview[currentQ.id];
+  const selectedOptNum = currentQ ? selectedOptions[currentQ.id] : undefined;
+  const isMarked = currentQ ? !!markedForReview[currentQ.id] : false;
 
   // Practice mode states
   const [showHint, setShowHint] = useState(false);
@@ -51,12 +53,71 @@ export const ExamScreen: React.FC = () => {
     if (qHeadingRef.current) {
       qHeadingRef.current.focus({ preventScroll: false });
     }
+
     // Auto-read question and options upon navigating if enabled
     const autoRead = usePreferencesStore.getState().autoReadOnNavigate;
-    if (autoRead) {
+    if (!autoRead || !currentQ) return;
+
+    // Queue behind whatever is being said.
+    //
+    // Opening an exam speaks a confirmation first. Every announcement
+    // interrupts the last, so reading question 1 straight away cut that
+    // confirmation off part-way through — and with the confirmation re-firing
+    // as well, the candidate heard fragments of both, repeated. Waiting for the
+    // engine to go quiet gives one message, then the next.
+    let finished = false;
+    let unbind: (() => void) | null = null;
+
+    const read = (afterWaiting: boolean) => {
+      if (finished) return;
+      finished = true;
+      if (unbind) {
+        unbind();
+        unbind = null;
+      }
+      // Ended because it was stopped, not because it finished: the candidate
+      // asked for silence, and reading question 1 anyway would ignore that.
+      if (afterWaiting && speechEngine.wasInterrupted()) return;
       announceCurrentQuestion(true);
+    };
+
+    if (speechEngine.isSpeaking()) {
+      unbind = speechEngine.onSpeechEnd(() => read(true));
+      // Backstop: a synthesiser that never reports an end must not leave the
+      // question unread forever.
+      const fallback = window.setTimeout(() => read(true), 15000);
+      return () => {
+        window.clearTimeout(fallback);
+        finished = true;
+        if (unbind) unbind();
+      };
     }
+
+    read(false);
+    return () => {
+      finished = true;
+    };
   }, [currentIndex]);
+
+  if (!currentQ) {
+    return (
+      <main className="max-w-4xl mx-auto p-8 text-center text-theme-text">
+        <div className="p-8 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-md">
+          <h2 className="text-xl font-bold mb-2">No Questions Found</h2>
+          <p className="text-sm text-theme-text/80 mb-6">
+            This examination does not contain any questions or the index is out of bounds.
+          </p>
+          <button
+            type="button"
+            onClick={() => useExamStore.getState().returnToCatalog()}
+            className="px-6 py-2.5 font-bold rounded-xl bg-theme-primary text-white hover:brightness-110 transition"
+          >
+            Return to Examination Catalog
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const handleOptionChange = (optionNumber: number) => {
     selectOption(optionNumber);
@@ -181,6 +242,9 @@ export const ExamScreen: React.FC = () => {
               />
             </div>
           )}
+
+          {/* AI Diagram Viewer if diagram exists */}
+          <AiDiagramViewer question={currentQ} />
         </div>
 
         {/* Semantic Option Group */}
@@ -342,7 +406,7 @@ export const ExamScreen: React.FC = () => {
             <button
               id="btn-clear"
               type="button"
-              onClick={clearOption}
+              onClick={() => clearOption()}
               className="px-3.5 py-3 font-bold rounded-lg border-2 border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg transition text-sm sm:text-base flex items-center gap-1.5"
             >
               <RotateCcw className="w-4 h-4 text-theme-text-secondary" aria-hidden="true" />

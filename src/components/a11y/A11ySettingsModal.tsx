@@ -90,7 +90,39 @@ export const A11ySettingsModal: React.FC = () => {
     }
   }, [isSettingsOpen]);
 
-  // Full Keyboard Trap & Navigation Handler (Tab, Shift+Tab, Escape)
+  // Magnification Step Helper (Increases or Decreases scale and announces status)
+  const stepFontSize = (direction: 'increase' | 'decrease') => {
+    const currentIndex = fontSizes.indexOf(fontSize);
+    let nextIndex = currentIndex;
+
+    if (direction === 'increase') {
+      nextIndex = Math.min(currentIndex + 1, fontSizes.length - 1);
+    } else {
+      nextIndex = Math.max(currentIndex - 1, 0);
+    }
+
+    if (nextIndex !== currentIndex) {
+      const newScale = fontSizes[nextIndex];
+      setFontSize(newScale);
+      fontButtonRefs.current[nextIndex]?.focus();
+      soundEffects.playSelect();
+      useAnnouncerStore
+        .getState()
+        .announce(`Text scale adjusted to ${newScale} percent.`, 'assertive', true);
+    } else {
+      useAnnouncerStore
+        .getState()
+        .announce(
+          direction === 'increase'
+            ? 'Maximum magnification limit of 200 percent reached.'
+            : 'Minimum magnification limit of 100 percent reached.',
+          'polite',
+          true
+        );
+    }
+  };
+
+  // Full Keyboard Trap & Navigation Handler (Tab, Shift+Tab, Escape, Magnification Shortcuts)
   const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -98,6 +130,32 @@ export const A11ySettingsModal: React.FC = () => {
       setSettingsOpen(false);
       soundEffects.playSelect();
       return;
+    }
+
+    // Modal-wide Magnification / Zoom shortcuts (+, =, -, _)
+    // Works from anywhere inside the modal unless user is actively typing in a text field
+    const activeEl = document.activeElement;
+    const isTextInput =
+      activeEl &&
+      (activeEl.tagName === 'TEXTAREA' ||
+        (activeEl.tagName === 'INPUT' &&
+          ['text', 'search', 'number', 'password', 'email'].includes(
+            (activeEl as HTMLInputElement).type || 'text'
+          )));
+
+    if (!isTextInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key === '+' || e.key === '=' || e.key === 'Add') {
+        e.preventDefault();
+        e.stopPropagation();
+        stepFontSize('increase');
+        return;
+      }
+      if (e.key === '-' || e.key === '_' || e.key === 'Subtract') {
+        e.preventDefault();
+        e.stopPropagation();
+        stepFontSize('decrease');
+        return;
+      }
     }
 
     if (e.key === 'Tab') {
@@ -154,28 +212,51 @@ export const A11ySettingsModal: React.FC = () => {
     }
   };
 
-  // Arrow Key Navigation for Text Scaling
-  const handleFontKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+  // Keyboard Navigation for Text Scaling (Arrows, + / -, Home, End, and Numbers 1-5)
+  const handleFontKeyDown = (e: React.KeyboardEvent<HTMLDivElement | HTMLButtonElement>) => {
     e.stopPropagation();
     const currentIndex = fontSizes.indexOf(fontSize);
     let nextIndex = -1;
 
-    if (e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === '+') {
+    if (
+      e.key === 'ArrowRight' ||
+      e.key === 'ArrowDown' ||
+      e.key === '+' ||
+      e.key === '=' ||
+      e.key === 'Add'
+    ) {
       e.preventDefault();
-      nextIndex = Math.min(currentIndex + 1, fontSizes.length - 1);
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown' || e.key === '-') {
+      stepFontSize('increase');
+      return;
+    } else if (
+      e.key === 'ArrowLeft' ||
+      e.key === 'ArrowUp' ||
+      e.key === '-' ||
+      e.key === '_' ||
+      e.key === 'Subtract'
+    ) {
       e.preventDefault();
-      nextIndex = Math.max(currentIndex - 1, 0);
+      stepFontSize('decrease');
+      return;
+    } else if (e.key >= '1' && e.key <= '5') {
+      e.preventDefault();
+      nextIndex = parseInt(e.key, 10) - 1;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      nextIndex = fontSizes.length - 1;
     }
 
-    if (nextIndex >= 0 && nextIndex !== currentIndex) {
+    if (nextIndex >= 0 && nextIndex < fontSizes.length && nextIndex !== currentIndex) {
       const newScale = fontSizes[nextIndex];
       setFontSize(newScale);
       fontButtonRefs.current[nextIndex]?.focus();
       soundEffects.playSelect();
       useAnnouncerStore
         .getState()
-        .announce(`Text scale adjusted to ${newScale} percent.`, 'assertive', true);
+        .announce(`Text scale set to ${newScale} percent.`, 'assertive', true);
     }
   };
 
@@ -319,7 +400,7 @@ export const A11ySettingsModal: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-theme-text/70 mb-3">
-              Use Arrow keys (Left/Right) or + / - keys to increase or decrease magnification.
+              Use Arrow keys (Left/Right), + / - keys, or number keys 1–5 to change magnification.
             </p>
 
             <div
@@ -339,6 +420,7 @@ export const A11ySettingsModal: React.FC = () => {
                     type="button"
                     role="radio"
                     aria-checked={isSelected}
+                    aria-label={`${scale} percent magnification (Press ${idx + 1})`}
                     tabIndex={0}
                     onClick={() => {
                       setFontSize(scale);
@@ -347,6 +429,7 @@ export const A11ySettingsModal: React.FC = () => {
                         .getState()
                         .announce(`Text scale set to ${scale} percent.`, 'assertive', true);
                     }}
+                    onKeyDown={handleFontKeyDown}
                     className={`py-2 px-1 text-center rounded-xl border-2 text-sm sm:text-base font-bold transition focus:outline-none focus:ring-4 focus:ring-yellow-400 focus:border-yellow-400 ${
                       isSelected
                         ? 'border-yellow-400 bg-yellow-400 text-black shadow-md'

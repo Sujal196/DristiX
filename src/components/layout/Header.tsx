@@ -69,25 +69,25 @@ export const Header: React.FC = () => {
   return (
     <header
       role="banner"
-      className="p-3 sm:p-4 border-b-2 border-theme-border bg-theme-surface transition-colors sticky top-0 z-30 shadow-sm"
+      className="p-3 sm:p-4 border-b-2 border-theme-border/80 dx-glass transition-colors sticky top-0 z-30 shadow-md backdrop-blur-md"
     >
       <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-3">
         {/* Portal Branding and Exam Switcher */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <span
-              className="w-8 h-8 rounded-full border-2 border-theme-border bg-theme-primary text-white flex items-center justify-center font-black text-sm shrink-0"
+              className="w-9 h-9 rounded-xl border-2 border-theme-border bg-theme-primary text-theme-primary-text flex items-center justify-center font-black text-sm shrink-0 shadow-sm"
               aria-hidden="true"
             >
               DX
             </span>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-bold text-theme-text leading-tight tracking-tight">
+                <h1 className="text-base sm:text-lg font-black text-theme-text leading-tight tracking-tight">
                   DristiX
                 </h1>
                 {activeView === 'exam' && (
-                  <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-bold bg-theme-border/50 text-theme-text border border-theme-border">
+                  <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-theme-border/50 text-theme-text border border-theme-border">
                     <span
                       className={`font-mono ${
                         examMode === 'practice' ? 'text-emerald-500' : 'text-theme-primary'
@@ -102,7 +102,7 @@ export const Header: React.FC = () => {
                   </span>
                 )}
               </div>
-              <span className="text-xs text-theme-text/70 font-medium hidden sm:inline">
+              <span className="text-xs text-theme-text/70 font-semibold hidden sm:inline">
                 {activeView === 'analytics'
                   ? 'Student Performance & Score Analytics'
                   : activeView === 'catalog'
@@ -141,7 +141,7 @@ export const Header: React.FC = () => {
                   ? 'Submit test before exiting'
                   : `Return to catalog`
               }
-              className="px-2.5 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text text-xs font-bold flex items-center gap-1.5 transition ml-1"
+              className="px-3 py-1.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-xs ml-1"
             >
               <span>{isSubmitted ? '📚' : '📝'}</span>
               <span className="hidden sm:inline">
@@ -159,16 +159,16 @@ export const Header: React.FC = () => {
             <div
               role="radiogroup"
               aria-label="Portal Mode"
-              className="hidden lg:flex items-center p-0.5 border-2 border-theme-border rounded-lg bg-theme-bg ml-1"
+              className="hidden lg:flex items-center p-1 border-2 border-theme-border rounded-xl bg-theme-bg/80 ml-1 shadow-xs"
             >
               <button
                 type="button"
                 role="radio"
                 aria-checked={examMode === 'exam'}
                 onClick={() => setExamMode('exam')}
-                className={`px-2 py-1 text-xs font-bold rounded flex items-center gap-1 transition ${
+                className={`px-2.5 py-1 text-xs font-extrabold rounded-lg flex items-center gap-1.5 transition-all ${
                   examMode === 'exam'
-                    ? 'bg-theme-primary text-white shadow-sm'
+                    ? 'bg-theme-primary text-theme-primary-text shadow-xs'
                     : 'text-theme-text hover:bg-theme-surface'
                 }`}
               >
@@ -180,9 +180,9 @@ export const Header: React.FC = () => {
                 role="radio"
                 aria-checked={examMode === 'practice'}
                 onClick={() => setExamMode('practice')}
-                className={`px-2 py-1 text-xs font-bold rounded flex items-center gap-1 transition ${
+                className={`px-2.5 py-1 text-xs font-extrabold rounded-lg flex items-center gap-1.5 transition-all ${
                   examMode === 'practice'
-                    ? 'bg-theme-primary text-white shadow-sm'
+                    ? 'bg-theme-primary text-theme-primary-text shadow-xs'
                     : 'text-theme-text hover:bg-theme-surface'
                 }`}
               >
@@ -235,7 +235,7 @@ export const Header: React.FC = () => {
               </span>
               <button
                 type="button"
-                onClick={logoutStudent}
+                onClick={() => void logoutStudent()}
                 className="ml-1 text-[11px] font-bold text-red-600 hover:text-red-700 underline cursor-pointer"
                 title="Sign out of student account"
                 aria-label={`Sign out candidate ${currentStudent.name}`}
