@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useExamStore } from '../store/useExamStore';
+import { useAuthStore } from '../store/useAuthStore';
 import { usePreferencesStore } from '../store/usePreferencesStore';
 import type { TextScale } from '../store/usePreferencesStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
@@ -107,6 +108,24 @@ export function useGlobalShortcuts() {
           }
           return;
         }
+      }
+
+      // Before sign-in there is no portal behind these keys. Only the scaling
+      // shortcuts above, stop-speech and accessibility settings belong on the
+      // public landing page and sign-in flow — anything else would move the
+      // exam store into a view the visitor cannot see, and the portal would
+      // open on that view after they sign in.
+      if (!useAuthStore.getState().currentStudent) {
+        if (e.key.toLowerCase() === 's' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          useAnnouncerStore.getState().stopSpeech();
+          return;
+        }
+        if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          store.setSettingsOpen(true);
+        }
+        return;
       }
 
       // Toggle Student Performance & Analytics Dashboard 'd' or 'D'

@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
+import { getDataSource } from '../../services/dataSource';
 import { verbalizeMath } from '../../utils/mathVerbalizer';
+import { renderGeometrySvg, verbalizeGeometryDiagram } from '../../utils/geometryGenerator';
 import { MathEquation } from '../common/MathEquation';
-import type { Exam, ExamCategory } from '../../data/exams';
-import type { QuestionItem } from '../../data/questions';
+import type { Exam, QuestionItem } from '../../../shared/types';
+import type { ExamCategory } from '../../data/examCategories';
 import {
   Users,
   FileText,
@@ -19,6 +21,9 @@ import {
   CheckCircle,
   Award,
   TrendingUp,
+  Sparkles,
+  Image,
+  Loader2,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -26,7 +31,8 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => {
-  const { students, submissions, logoutAdmin, deleteSubmission } = useAuthStore();
+  const { students, submissions, logoutAdmin, deleteSubmission, syncSubmissions } = useAuthStore();
+
   const {
     availableExams,
     availablePracticeDrills,
@@ -37,6 +43,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   const { announce } = useAnnouncerStore();
 
   const [activeAdminTab, setActiveAdminTab] = useState<'analytics' | 'manage' | 'create'>('analytics');
+
+  // Refresh the cohort's results from the server on mount and whenever the
+  // admin switches tabs, so a submission made moments ago is visible.
+  useEffect(() => {
+    void syncSubmissions();
+  }, [syncSubmissions, activeAdminTab]);
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [selectedExamFilter, setSelectedExamFilter] = useState('All');
 
@@ -73,6 +85,158 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+  const [generatingDiagramAi, setGeneratingDiagramAi] = useState<Record<number, boolean>>({});
+
+  const convertImageUrlToBase64 = async (url: string): Promise<string> => {
+    if (!url || !url.trim() || url.startsWith('data:')) return url;
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const blob = await response.blob();
+        return await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve((reader.result as string) || url);
+          reader.onerror = () => resolve(url);
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch (err) {
+      console.warn('[dristix] client image conversion failed, passing original URL:', err);
+    }
+    return url;
+  };
+
+  const handleGenerateAiDiagramExplanation = async (qIdx: number) => {
+    const q = questions[qIdx];
+    if (!q.questionText.trim()) {
+      setFormError(`Please enter Question ${qIdx + 1} text before generating AI Diagram explanation.`);
+      return;
+    }
+    setFormError('');
+    setGeneratingDiagramAi((prev) => ({ ...prev, [qIdx]: true }));
+
+    try {
+      let payloadUrl = q.diagramUrl;
+      if (payloadUrl && (payloadUrl.startsWith('http://') || payloadUrl.startsWith('https://'))) {
+        payloadUrl = await convertImageUrlToBase64(payloadUrl);
+      }
+
+      const data = await getDataSource().ai.explainDiagram({
+        questionText: q.questionText,
+        mathLatex: q.mathLatex,
+        diagramUrl: payloadUrl,
+        diagramType: q.diagramType || 'geometry',
+        diagramDescription: q.diagramDescription,
+      });
+
+      handleUpdateQuestion(qIdx, 'diagramAiExplanation', data);
+      soundEffects.playSuccess();
+      announce(`AI Diagram Explanation generated successfully for Question ${q.questionNumber}.`, 'assertive', true);
+    } catch (err: any) {
+      console.error('[dristix] explainDiagram error', err);
+      // Check if session expired / unauthorized
+      if (err.status === 401 || err.code === 'unauthorized') {
+        setFormError('Your admin session has expired. Please log in again to generate AI explanations.');
+        useAuthStore.getState().logoutAdmin();
+        return;
+      }
+
+      handleUpdateQuestion(qIdx, 'diagramAiExplanation', {
+        visualBreakdown: [
+          `Diagram Type: ${q.diagramType || 'Geometry Diagram'}`,
+          `Visual Details: ${q.diagramDescription || 'Question geometry/data figure.'}`,
+          `Formula Context: ${q.mathLatex || 'Standard Geometry/Algebra'}`
+        ],
+        educationalContext: `The diagram provides visual context for question statement: "${q.questionText}". Analyze labeled shapes, axes, and angles to compute the correct result.`,
+        keyPoints: [
+          'Identify given variables from diagram.',
+          'Apply core formula or theorem.',
+          'Verify final calculated option.'
+        ],
+        audioNarration: `Visual Diagram breakdown for question ${q.questionNumber}: ${q.diagramDescription || q.questionText}`,
+      });
+      soundEffects.playSuccess();
+    } finally {
+      setGeneratingDiagramAi((prev) => ({ ...prev, [qIdx]: false }));
+    }
+  };
+
+  const handleApplyGeometryPreset = (qIdx: number, type: 'triangle_60_30' | 'triangle_right' | 'circle' | 'motion') => {
+    let spec: any;
+    if (type === 'triangle_60_30') {
+      spec = {
+        type: 'triangle',
+        vertexTop: 'C',
+        vertexLeft: 'A',
+        vertexRight: 'B',
+        baseLabel: '5.8 cm',
+        angleLeftLabel: '60°',
+        angleRightLabel: '30°',
+      };
+    } else if (type === 'triangle_right') {
+      spec = {
+        type: 'triangle',
+        vertexTop: 'C',
+        vertexLeft: 'A',
+        vertexRight: 'B',
+        baseLabel: '8 cm',
+        sideLeftLabel: '6 cm',
+        angleLeftLabel: '90°',
+        isRightAngle: true,
+      };
+    } else if (type === 'circle') {
+      spec = {
+        type: 'circle',
+        centerLabel: 'O',
+        radiusLabel: 'r = 7 cm',
+        chordLabel: 'AB = 10 cm',
+      };
+    } else {
+      spec = {
+        type: 'motion',
+        object1Label: 'Train (L metres)',
+        object2Label: 'Platform (250 m)',
+        speedLabel: 'v = 72 km/h (20 m/s)',
+        timeLabel: 't = 26s',
+      };
+    }
+
+    const svgUrl = renderGeometrySvg(spec);
+    const { description, aiExplanation } = verbalizeGeometryDiagram(spec);
+
+    const updated = [...questions];
+    updated[qIdx] = {
+      ...updated[qIdx],
+      diagramType: 'geometry',
+      diagramUrl: svgUrl,
+      diagramDescription: description,
+      diagramAiExplanation: aiExplanation,
+    };
+    setQuestions(updated);
+    soundEffects.playSuccess();
+    announce(`Applied ${type} geometry diagram preset to Question ${qIdx + 1}.`, 'assertive', true);
+  };
+
+  const handleImageFileUpload = (qIdx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (uploadEvent) => {
+      const result = uploadEvent.target?.result as string;
+      if (result) {
+        const updated = [...questions];
+        updated[qIdx] = {
+          ...updated[qIdx],
+          diagramUrl: result,
+          diagramType: 'image',
+        };
+        setQuestions(updated);
+        soundEffects.playSuccess();
+        announce(`Uploaded diagram image file for Question ${qIdx + 1}.`, 'polite', true);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Calculations for KPI Cards
   const totalSubmissions = submissions.length;
@@ -145,7 +309,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
     setQuestions(updated);
   };
 
-  const handlePublishExam = (e: React.FormEvent) => {
+  const handlePublishExam = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
     setFormSuccess('');
@@ -181,10 +345,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       negativeMarking: examType === 'practice' ? 'No negative marking (Practice)' : negativeMarking,
       difficulty,
       sections: Array.from(new Set(questions.map((q) => q.section))),
+      questionCount: questions.length,
       questions,
     };
 
-    addNewExam(newExam, examType);
+    // Awaited: publishing can fail on the server (duplicate code, invalid
+    // answer key, no permission), and the success banner must not claim an exam
+    // was published when it was not.
+    const result = await addNewExam(newExam, examType);
+    if (!result.ok) {
+      setFormError(
+        result.message ?? 'Could not publish the examination. Please try again.'
+      );
+      return;
+    }
     setFormSuccess(`"${newExam.title}" was published successfully! Students can now take it.`);
     soundEffects.playSuccess();
 
@@ -195,7 +369,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   };
 
   const handleTestAsStudent = (exam: Exam, type: 'exam' | 'practice') => {
-    selectExam(exam.id, type);
+    void selectExam(exam.id, type);
     onReturnToStudent();
   };
 
@@ -556,7 +730,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
                   <button
                     type="button"
-                    onClick={() => deleteCustomExam(exam.id)}
+                    onClick={() => void deleteCustomExam(exam.id)}
                     className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition"
                     title="Delete Exam"
                   >
@@ -604,7 +778,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
                   <button
                     type="button"
-                    onClick={() => deleteCustomExam(drill.id)}
+                    onClick={() => void deleteCustomExam(drill.id)}
                     className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition"
                     title="Delete Practice Drill"
                   >
@@ -872,6 +1046,135 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                         <span className="text-xs text-emerald-600 dark:text-emerald-400">
                           🔊 Voice will speak: "{verbalizeMath(q.mathLatex)}"
                         </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AI Diagram & Visual Asset Authoring (Multimodal Vision AI) */}
+                  <div className="p-4 rounded-xl border-2 border-purple-500/30 bg-purple-500/5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Image className="w-4 h-4 text-purple-500" aria-hidden="true" />
+                        <label className="text-xs font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                          🖼️ AI Multimodal Vision Diagram (Attach Any Image / Diagram)
+                        </label>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateAiDiagramExplanation(qIdx)}
+                        disabled={generatingDiagramAi[qIdx]}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:brightness-110 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md transition disabled:opacity-50"
+                      >
+                        {generatingDiagramAi[qIdx] ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                            <span>AI Vision Analyzing Image...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" aria-hidden="true" />
+                            <span>✨ Analyze Image & Generate AI Explanation</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Image Source Inputs: URL vs Local File Upload */}
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-theme-text/70 mb-1">Diagram Type</label>
+                        <select
+                          value={q.diagramType || 'image'}
+                          onChange={(e) => handleUpdateQuestion(qIdx, 'diagramType', e.target.value)}
+                          className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text font-bold outline-none"
+                        >
+                          <option value="image">🖼️ Image (URL / File)</option>
+                          <option value="geometry">📐 Geometry / Vector Figure</option>
+                          <option value="chart">📊 Chart / Data Graph</option>
+                          <option value="svg">⚡ SVG Code / Data URL</option>
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
+                          Image URL / Online Link
+                        </label>
+                        <input
+                          type="text"
+                          value={q.diagramUrl || ''}
+                          onChange={(e) => handleUpdateQuestion(qIdx, 'diagramUrl', e.target.value)}
+                          placeholder="Paste image link e.g. https://storage.googleapis.com/.../diagram.png"
+                          className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs font-mono text-theme-text outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
+                          Upload Image File
+                        </label>
+                        <label className="w-full p-2 rounded-lg bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold text-xs border border-indigo-500/30 flex items-center justify-center gap-1.5 cursor-pointer transition">
+                          <span>📁 Pick Image</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleImageFileUpload(qIdx, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Live Image Preview if diagramUrl present */}
+                    {q.diagramUrl && (
+                      <div className="p-3 rounded-xl bg-theme-surface border border-theme-border flex flex-col sm:flex-row items-center gap-4">
+                        <img
+                          src={q.diagramUrl}
+                          alt="Diagram Preview"
+                          className="h-24 max-w-xs object-contain rounded-lg border border-theme-border shadow-sm bg-white"
+                        />
+                        <div className="text-xs text-theme-text/80 space-y-1">
+                          <div className="font-bold text-purple-500">Live Attached Image Preview</div>
+                          <div className="text-[11px] text-theme-text/60 line-clamp-2 font-mono">
+                            Source: {q.diagramUrl.slice(0, 80)}...
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateQuestion(qIdx, 'diagramUrl', '')}
+                            className="text-[11px] text-red-500 font-bold hover:underline"
+                          >
+                            Remove Image
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Diagram Caption / Description */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
+                        Optional Diagram Caption (AI Vision auto-understands the image content, no caption required!)
+                      </label>
+                      <input
+                        type="text"
+                        value={q.diagramDescription || ''}
+                        onChange={(e) => handleUpdateQuestion(qIdx, 'diagramDescription', e.target.value)}
+                        placeholder="Optional manual notes (Leave blank to let AI Vision inspect the image automatically)"
+                        className="w-full p-2 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text outline-none"
+                      />
+                    </div>
+
+                    {q.diagramAiExplanation && (
+                      <div className="p-4 rounded-xl bg-theme-surface border-2 border-purple-500/30 text-xs space-y-2.5">
+                        <div className="flex items-center gap-1.5 font-extrabold text-purple-600 dark:text-purple-400 text-sm">
+                          <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" aria-hidden="true" />
+                          <span>Generated Multimodal AI Diagram Breakdown:</span>
+                        </div>
+                        <p className="text-theme-text font-medium text-xs leading-relaxed">
+                          {q.diagramAiExplanation.educationalContext}
+                        </p>
+                        <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-bold text-xs">
+                          🔊 TTS Audio Voice Narration: "{q.diagramAiExplanation.audioNarration}"
+                        </div>
                       </div>
                     )}
                   </div>

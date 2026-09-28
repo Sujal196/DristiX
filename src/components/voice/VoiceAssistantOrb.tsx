@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { voiceRecognition } from '../../utils/voiceRecognition';
+import type { VoiceLangMode } from '../../utils/voiceRecognition';
+
+/**
+ * Monotonic id for chat messages.
+ *
+ * `Date.now()` collides whenever two messages land in the same millisecond —
+ * which happens routinely because StrictMode double-invokes effects, so the
+ * error listener can fire twice. Duplicate React keys then break reconciliation
+ * for the whole list.
+ */
+let messageCounter = 0;
+const messageId = (prefix: string) => `${prefix}-${Date.now()}-${++messageCounter}`;
 import type { VoiceState } from '../../utils/voiceRecognition';
 import { speechEngine } from '../../utils/speechEngine';
 import { processVoiceCommand } from '../../utils/voiceCommandProcessor';
@@ -20,6 +32,7 @@ import {
   User,
   Key,
   Volume2,
+  AlertCircle,
 } from 'lucide-react';
 
 interface ChatMessage {
@@ -35,6 +48,35 @@ export const VoiceAssistantOrb: React.FC = () => {
 
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [liveState, setLiveState] = useState<LiveSessionState>('idle');
+  /** Reason the live session failed, shown in the status bar. */
+  const [liveError, setLiveError] = useState<string | null>(null);
+
+  /**
+   * Recognition language, in the order it is cycled.
+   *
+   * 'auto' follows the browser locale and retries the other language if it
+   * hears nothing. This was previously a static label while the underlying
+   * language was hardcoded to Hindi, so the badge was decorative only.
+   */
+  const [langMode, setLangMode] = useState<VoiceLangMode>('auto');
+  const langLabel =
+    langMode === 'auto' ? 'Auto' : langMode === 'hi-IN' ? 'हिन्दी' : 'English';
+
+  const cycleLanguage = () => {
+    const order: VoiceLangMode[] = ['auto', 'en-US', 'hi-IN'];
+    const next = order[(order.indexOf(langMode) + 1) % order.length];
+    setLangMode(next);
+    voiceRecognition.setLanguage(next);
+    useAnnouncerStore
+      .getState()
+      .announce(
+        `Recognition language set to ${
+          next === 'auto' ? 'auto detect' : next === 'hi-IN' ? 'Hindi' : 'English'
+        }.`,
+        'polite',
+        true
+      );
+  };
   const [liveVolume, setLiveVolume] = useState<number>(0);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
@@ -84,13 +126,13 @@ export const VoiceAssistantOrb: React.FC = () => {
         setMessages((prev) => [
           ...prev,
           {
-            id: `user-${Date.now()}`,
+            id: messageId('user'),
             sender: 'user',
             text: result.userQuery,
             timestamp: Date.now(),
           },
           {
-            id: `asst-${Date.now()}`,
+            id: messageId('asst'),
             sender: 'assistant',
             text: result.assistantReply,
             action: result.actionExecuted,
@@ -99,10 +141,18 @@ export const VoiceAssistantOrb: React.FC = () => {
         ]);
       },
       onError: (errMsg) => {
+        // Reset the indicators too. Previously only a chat message was added,
+        // so the orb kept showing "Live / Hearing you" after recognition had
+        // already failed, which reads as a frozen microphone.
+        setLiveState('error');
+        setVoiceState('error');
+        setLiveError(errMsg);
+        setLiveVolume(0);
+        setInterimTranscript('');
         setMessages((prev) => [
           ...prev,
           {
-            id: `err-${Date.now()}`,
+            id: messageId('err'),
             sender: 'assistant',
             text: `⚠️ ${errMsg}`,
             timestamp: Date.now(),
@@ -146,7 +196,7 @@ export const VoiceAssistantOrb: React.FC = () => {
         setMessages((prev) => [
           ...prev,
           {
-            id: `err-${Date.now()}`,
+            id: messageId('err'),
             sender: 'assistant',
             text: `⚠️ ${errMsg}`,
             timestamp: Date.now(),
@@ -194,7 +244,7 @@ export const VoiceAssistantOrb: React.FC = () => {
 
     // 1. Append user message
     const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: messageId('user'),
       sender: 'user',
       text: cleanQuery,
       timestamp: Date.now(),
@@ -225,7 +275,7 @@ export const VoiceAssistantOrb: React.FC = () => {
 
     // 4. Append assistant reply
     const assistantMsg: ChatMessage = {
-      id: `assistant-${Date.now()}`,
+      id: messageId('assistant'),
       sender: 'assistant',
       text: result.assistantReply,
       action: result.actionExecuted,
@@ -248,7 +298,14 @@ export const VoiceAssistantOrb: React.FC = () => {
         session.stop();
       } else {
         setIsExpanded(true);
-        await session.start();
+        // start() returns false when recognition is unavailable; it has already
+        // reported why through onError, so the panel must not keep implying the
+        // microphone is live.
+        const started = await session.start();
+        if (!started) {
+          setIsExpanded(true);
+          return;
+        }
       }
       return;
     }
@@ -348,14 +405,16 @@ export const VoiceAssistantOrb: React.FC = () => {
                 <span>{geminiVoiceService.hasApiKey() ? 'Gemini 100%' : 'API Key'}</span>
               </button>
 
-              <div
-                title="Bilingual Auto-Detection: Hindi aur English dono bhashayein automatically detect hoti hain aur boli gayi bhasha ke anusaar hi answer milta hai."
-                aria-label="Automatic Language Detection Active: Hindi and English both supported automatically."
-                className="px-2 py-1 rounded-lg border border-theme-border bg-theme-bg/90 text-[11px] font-bold flex items-center gap-1.5 text-theme-text shadow-xs select-none"
+              <button
+                type="button"
+                onClick={cycleLanguage}
+                title="Recognition language. Click to switch between Auto, English and Hindi."
+                aria-label={`Recognition language: ${langLabel}. Activate to change.`}
+                className="px-2 py-1 rounded-lg border border-theme-border bg-theme-bg/90 text-[11px] font-bold flex items-center gap-1.5 text-theme-text shadow-xs hover:border-theme-primary transition focus:ring-2 focus:ring-theme-focus-ring"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>🌐 Auto (HI / EN)</span>
-              </div>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                <span>🌐 {langLabel}</span>
+              </button>
 
               <button
                 type="button"
@@ -516,6 +575,14 @@ export const VoiceAssistantOrb: React.FC = () => {
                     <span className="text-purple-300 flex items-center gap-1">
                       <Volume2 className="w-3.5 h-3.5 animate-bounce shrink-0" />
                       <span className="truncate">Assistant bol raha hai (Speaking)...</span>
+                    </span>
+                  )}
+                  {liveState === 'error' && (
+                    <span className="text-red-300 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">
+                        {liveError ?? 'Microphone unavailable. Use the text box below instead.'}
+                      </span>
                     </span>
                   )}
                 </div>

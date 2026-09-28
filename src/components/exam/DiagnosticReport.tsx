@@ -3,6 +3,7 @@ import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
 import { MathEquation } from '../common/MathEquation';
+import { AiDiagramViewer } from '../common/AiDiagramViewer';
 import {
   Award,
   CheckCircle2,
@@ -347,6 +348,9 @@ export const DiagnosticReport: React.FC = () => {
                         <MathEquation latex={q.mathLatex} displayMode={true} />
                       </div>
                     )}
+
+                    {/* AI Diagram Viewer in Review Mode */}
+                    <AiDiagramViewer question={q} />
                   </div>
 
                   <button

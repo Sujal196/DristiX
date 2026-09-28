@@ -19,10 +19,14 @@ import { ShortcutsHelpModal } from './components/a11y/ShortcutsHelpModal';
 import { SubmitConfirmModal } from './components/exam/SubmitConfirmModal';
 import { A11yInspector } from './components/a11y/A11yInspector';
 import { StudentAuthScreen } from './components/auth/StudentAuthScreen';
+import { LandingPage } from './components/landing/LandingPage';
 import { AdminLogin } from './components/admin/AdminLogin';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { StudentAnalyticsView } from './components/analytics/StudentAnalyticsView';
 import { VoiceAssistantOrb } from './components/voice/VoiceAssistantOrb';
+import { useBootstrapStore } from './stores/useBootstrapStore';
+import { getDataSource } from './services/dataSource';
+import { formatDuration } from './utils/formatDuration';
 
 export const App: React.FC = () => {
   const { applyToDOM } = usePreferencesStore();
@@ -33,8 +37,12 @@ export const App: React.FC = () => {
     setTimer,
     submitExam,
     returnToCatalog,
+    timeRemaining,
+    attemptId,
   } = useExamStore();
   const { currentStudent, isAdminAuthenticated } = useAuthStore();
+  const bootstrapStatus = useBootstrapStore((s) => s.status);
+  const bootstrapError = useBootstrapStore((s) => s.error);
   const [currentRoute, setCurrentRoute] = useState<string>(() => window.location.pathname);
   const workerRef = useRef<Worker | null>(null);
 
@@ -84,6 +92,48 @@ export const App: React.FC = () => {
   // Initialize global keyboard shortcuts listener
   useGlobalShortcuts();
 
+  // App startup lifecycle. In local mode this resolves immediately; with the
+  // API it covers the network round trip and renders an announced loading state.
+  useEffect(() => {
+    // One-time cleanup of state written by pre-backend builds. A stale
+    // `dristix_current_student` used to make the app render as signed in while
+    // the server had no session, so every request 401'd behind a convincing
+    // looking portal. It is no longer read, but removing it stops old copies
+    // from confusing anyone inspecting storage.
+    try {
+      for (const key of [
+        'dristix_current_student',
+        'dristix_students',
+        'dristix_submissions',
+        'dristix_exams',
+        'dristix_practice_drills',
+        'dristix_attempts_local',
+      ]) {
+        localStorage.removeItem(key);
+      }
+    } catch {
+      // Private browsing can block storage; harmless.
+    }
+
+    void useBootstrapStore.getState().run();
+  }, []);
+
+  // The catalog lives in MongoDB behind authentication, so it is read once the
+  // session is known — never at mount.
+  //
+  // Calling it unconditionally at mount raced the refresh round-trip: the
+  // access token did not exist yet, the request came back 401, and that became
+  // a sticky `catalogError` which no amount of navigating away cleared. The
+  // catalog therefore stayed empty after signing in and only a full page
+  // reload fixed it. Keying on the session covers both the restored-session
+  // path and a fresh login, and re-reads on sign-out/sign-in.
+  useEffect(() => {
+    if (!currentStudent) return;
+    void useExamStore.getState().loadCatalog();
+    // Keyed on the id, not the object: the auth store creates a new profile
+    // object on every update and reloading the catalog on each would be waste.
+  }, [currentStudent?.id]);
+
   // Apply saved theme and text scaling to DOM on mount
   useEffect(() => {
     applyToDOM();
@@ -122,7 +172,7 @@ export const App: React.FC = () => {
               'assertive',
               true
             );
-          submitExam();
+          void submitExam();
         }
       };
     } catch {
@@ -159,7 +209,10 @@ export const App: React.FC = () => {
     ) {
       workerRef.current.postMessage({ action: 'PAUSE' });
     } else if (activeView === 'exam' && !isSubmitted) {
-      const examSeconds = currentExam.durationMinutes * 60;
+      // In api mode `timeRemaining` was set by the server when the attempt
+      // started, so the worker is seeded from the authoritative deadline rather
+      // than recomputing durationMinutes from the local clock.
+      const examSeconds = timeRemaining > 0 ? timeRemaining : currentExam.durationMinutes * 60;
       workerRef.current.postMessage({ action: 'RESET', payload: { seconds: examSeconds } });
       workerRef.current.postMessage({ action: 'START', payload: { seconds: examSeconds } });
     }
@@ -168,9 +221,100 @@ export const App: React.FC = () => {
     activeView,
     currentExam.id,
     currentExam.durationMinutes,
+    timeRemaining,
     isSubmitted,
     currentStudent,
   ]);
+
+  // Server clock re-sync while an exam is running.
+  //
+  // The worker keeps the display ticking smoothly, but it counts down on the
+  // local clock, which drifts and can be changed by the student. Every minute
+  // we ask the server how much time is genuinely left and correct the worker.
+  // If the server says the deadline has passed, we submit immediately rather
+  // than waiting for a local countdown that may never reach zero.
+  useEffect(() => {
+    if (activeView !== 'exam' || isSubmitted || !attemptId) return;
+
+    const tick = async () => {
+      const attempt = useExamStore.getState().attemptId;
+      if (!attempt) return;
+      try {
+        const { heartbeat } = await getDataSource().exams;
+        const clock = await heartbeat(attempt);
+
+        const store = useExamStore.getState();
+        if (store.isSubmitted) return;
+
+        if (clock.remainingSeconds <= 0) {
+          soundEffects.playTimerAlert();
+          useAnnouncerStore
+            .getState()
+            .announce('Time has expired. Your examination is being submitted now.', 'assertive', true);
+          void store.submitExam();
+          return;
+        }
+
+        store.setTimer(clock.remainingSeconds, formatDuration(clock.remainingSeconds));
+
+        // Nudge the worker to the authoritative value.
+        const worker = workerRef.current;
+        if (worker) {
+          worker.postMessage({ action: 'RESET', payload: { seconds: clock.remainingSeconds } });
+          worker.postMessage({ action: 'START', payload: { seconds: clock.remainingSeconds } });
+        }
+      } catch {
+        // A dropped heartbeat is not fatal. The next one is 60s later, and the
+        // server re-checks the real deadline on submit regardless.
+      }
+    };
+
+    const id = setInterval(() => void tick(), 60_000);
+    return () => clearInterval(id);
+  }, [activeView, isSubmitted, attemptId]);
+
+  // Pick up newly published exams without a manual refresh.
+  //
+  // An admin publishing an exam is a rare, out-of-band event, so polling would
+  // be wasteful. Re-reading the catalog when the tab regains focus costs one
+  // request and means a student who switches away and back sees new tests.
+  useEffect(() => {
+    if (activeView !== 'catalog') return;
+
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void useExamStore.getState().loadCatalog();
+      }
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [activeView]);
+
+  // Flush in-progress answers when the tab is hidden or closed.
+  //
+  // The debounced autosave can be up to 1.2s behind, so a student who answers a
+  // question and immediately closes the tab would otherwise lose it.
+  useEffect(() => {
+    const flush = () => {
+      const store = useExamStore.getState();
+      if (store.activeView !== 'exam' || store.isSubmitted || !store.attemptId) return;
+      store.persistState();
+    };
+
+    // `pagehide` fires for tab close and navigation; `visibilitychange` covers
+    // mobile backgrounding, where pagehide may not run.
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flush);
+    };
+  }, []);
 
   // Initial welcome announcement for assistive technologies
   useEffect(() => {
@@ -192,6 +336,56 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // 0. STARTUP GATE
+  // Reachable only when the data source is the API. Local mode resolves this in
+  // the same tick, so the current offline behaviour is unchanged.
+  if (bootstrapStatus === 'loading' || bootstrapStatus === 'idle') {
+    return (
+      <div
+        className="min-h-screen bg-theme-bg text-theme-text flex items-center justify-center p-6 font-sans"
+      >
+        <div role="status" aria-live="polite" className="text-center space-y-4 max-w-md">
+          <div
+            aria-hidden="true"
+            className="w-12 h-12 mx-auto rounded-full border-4 border-theme-border border-t-theme-primary animate-spin"
+          />
+          <p className="text-lg font-bold">Loading DristiX</p>
+          <p className="text-sm text-theme-text-secondary">
+            Preparing your accessible examination portal. This will only take a moment.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (bootstrapStatus === 'error') {
+    return (
+      <div className="min-h-screen bg-theme-bg text-theme-text p-6 flex items-center justify-center font-sans">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="max-w-lg space-y-4 border-2 border-theme-danger rounded-xl p-6 bg-theme-surface"
+        >
+          <h1 className="text-xl font-black text-theme-danger">
+            Could not reach the DristiX server
+          </h1>
+          <p className="text-base">{bootstrapError}</p>
+          <p className="text-sm text-theme-text-secondary">
+            If you are working offline, set <code>VITE_DATA_SOURCE=local</code> to run the
+            app without a backend.
+          </p>
+          <button
+            type="button"
+            onClick={() => void useBootstrapStore.getState().run()}
+            className="px-4 py-2 font-bold rounded-lg border-2 border-theme-border bg-theme-primary text-theme-primary-text focus:outline-none focus:ring-4 focus:ring-theme-focus-ring"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // 1. ADMIN ROUTE: STRICTLY ACCESSIBLE ONLY AT /admin
   if (currentRoute.startsWith('/admin')) {
     return (
@@ -209,29 +403,59 @@ export const App: React.FC = () => {
     );
   }
 
-  // 2. STUDENT AUTH GATE: If no candidate is active, show Accessible Sign In / Register
+  // 2. PUBLIC GATE: no candidate is active. `/login` and `/register` show the
+  // accessible sign-in flow; every other path shows the public landing page,
+  // which is what a first-time visitor should meet instead of a password form.
   if (!currentStudent) {
+    const wantsAuth =
+      currentRoute.startsWith('/login') || currentRoute.startsWith('/register');
+
+    if (wantsAuth) {
+      return (
+        <div className="min-h-screen bg-theme-bg text-theme-text transition-colors flex flex-col font-sans">
+          <SkipLinks />
+          <LiveAnnouncer />
+          <header className="p-3 sm:p-4 border-b-2 border-theme-border bg-theme-surface">
+            <div className="max-w-7xl mx-auto flex justify-between items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full border-2 border-theme-border bg-theme-primary text-theme-primary-text flex items-center justify-center font-black text-sm">
+                  DX
+                </span>
+                <div>
+                  <h1 className="text-base sm:text-lg font-bold text-theme-text leading-tight">DristiX</h1>
+                  <p className="text-xs text-theme-text-secondary">Accessible Online Examination Platform</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigateTo('/')}
+                className="h-10 px-4 rounded-xl border-2 border-theme-border bg-theme-bg font-bold text-sm text-theme-text hover:bg-theme-surface-elevated transition"
+              >
+                ← Back to home
+              </button>
+            </div>
+          </header>
+
+          <main id="main-content" className="flex-1 pb-16 focus:outline-none">
+            <StudentAuthScreen
+              initialMode={currentRoute.startsWith('/register') ? 'register' : 'login'}
+              onAuthenticated={() => navigateTo('/')}
+            />
+          </main>
+          <A11ySettingsModal />
+          <A11yInspector />
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-theme-bg text-theme-text transition-colors flex flex-col font-sans">
         <SkipLinks />
         <LiveAnnouncer />
-        <header className="p-3 sm:p-4 border-b-2 border-theme-border bg-theme-surface">
-          <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <span className="w-8 h-8 rounded-full border-2 border-theme-border bg-theme-primary text-white flex items-center justify-center font-black text-sm">
-                DX
-              </span>
-              <div>
-                <h1 className="text-base sm:text-lg font-bold text-theme-text leading-tight">DristiX</h1>
-                <p className="text-xs text-theme-text/70">Accessible Online Examination Platform</p>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <main className="flex-1 pb-16">
-          <StudentAuthScreen onAuthenticated={() => navigateTo('/')} />
-        </main>
+        <LandingPage
+          onSignIn={() => navigateTo('/login')}
+          onRegister={() => navigateTo('/register')}
+        />
         <A11ySettingsModal />
         <A11yInspector />
       </div>

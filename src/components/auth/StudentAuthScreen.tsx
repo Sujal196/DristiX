@@ -1,58 +1,80 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
-import type { StudentProfile } from '../../store/useAuthStore';
 import { soundEffects } from '../../utils/soundEffects';
 import { UserCheck, LogIn, UserPlus, Sparkles, Eye, EyeOff } from 'lucide-react';
+import type { AccessibilityPreference } from '../../../shared/types';
 
 interface StudentAuthScreenProps {
   onAuthenticated?: () => void;
+  /** Which tab to open on. `/register` deep-links the sign-up form. */
+  initialMode?: 'login' | 'register';
 }
 
-export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenticated }) => {
-  const { students, loginStudent, quickLoginStudent, registerStudent } = useAuthStore();
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
+  onAuthenticated,
+  initialMode = 'login',
+}) => {
+  const { students, loginStudent, registerStudent } = useAuthStore();
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(initialMode);
 
   // Login form state
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('pass123');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Register form state
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regRoll, setRegRoll] = useState('');
-  const [regPref, setRegPref] = useState<StudentProfile['accessibilityPreference']>('Screen Reader');
+  // Non-null: the form always has a preference selected, even though the
+  // stored profile allows null for accounts that never set one.
+  const [regPref, setRegPref] = useState<AccessibilityPreference>('Screen Reader');
   const [regPassword, setRegPassword] = useState('');
   const [regError, setRegError] = useState('');
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     if (!loginIdentifier.trim()) {
       setLoginError('Please enter your Roll Number or Email.');
       return;
     }
-    const ok = loginStudent(loginIdentifier, loginPassword);
-    if (!ok) {
-      setLoginError('Invalid student credentials. Try one of the demo profiles below.');
-    } else {
-      onAuthenticated?.();
+    setIsSubmitting(true);
+    try {
+      const ok = await loginStudent(loginIdentifier, loginPassword);
+      if (!ok) {
+        setLoginError('Invalid student credentials. Please check your email, roll number and password.');
+      } else {
+        onAuthenticated?.();
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError('');
     if (!regName.trim() || !regEmail.trim() || !regRoll.trim() || !regPassword.trim()) {
       setRegError('Please fill in all registration fields.');
       return;
     }
-    const ok = registerStudent(regName, regEmail, regRoll, regPref, regPassword);
-    if (!ok) {
-      setRegError('Candidate with this Email or Roll Number already exists.');
-    } else {
-      onAuthenticated?.();
+    if (regPassword.length < 8) {
+      setRegError('Password must be at least 8 characters.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const ok = await registerStudent(regName, regEmail, regRoll, regPref, regPassword);
+      if (!ok) {
+        setRegError('Registration failed. That Email or Roll Number may already be registered.');
+      } else {
+        onAuthenticated?.();
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -60,19 +82,19 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
     <div
       role="region"
       aria-label="Student Portal Authentication"
-      className="min-h-[80vh] flex flex-col justify-center items-center px-4 py-8 max-w-4xl mx-auto"
+      className="min-h-[85vh] flex flex-col justify-center items-center px-4 py-10 max-w-4xl mx-auto"
     >
-      <div className="w-full max-w-xl bg-theme-surface border-2 border-theme-border rounded-3xl p-6 sm:p-10 shadow-lg">
+      <div className="w-full max-w-xl dx-glass border-2 border-theme-border/80 rounded-3xl p-6 sm:p-10 shadow-2xl backdrop-blur-md">
         {/* Header Branding */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-theme-primary text-white font-black text-2xl shadow-md mb-3">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-theme-primary text-theme-primary-text font-black text-2xl shadow-lg mb-3 hover:scale-105 transition-transform">
             DX
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-theme-text tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-black text-theme-text tracking-tight">
             DristiX Candidate Portal
           </h1>
-          <p className="text-sm text-theme-text/80 mt-1">
-            Accessible online examination platform for visually impaired candidates.
+          <p className="text-sm font-medium text-theme-text/80 mt-1.5 max-w-md mx-auto">
+            Accessible online examination &amp; practice platform designed for everyone.
           </p>
         </div>
 
@@ -80,7 +102,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
         <div
           role="tablist"
           aria-label="Student authentication options"
-          className="flex p-1.5 rounded-xl bg-theme-bg border border-theme-border mb-6"
+          className="flex p-1.5 rounded-2xl bg-theme-bg/80 border-2 border-theme-border mb-7 shadow-xs"
         >
           <button
             type="button"
@@ -90,13 +112,13 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
               setAuthMode('login');
               soundEffects.playSelect();
             }}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all focus:ring-4 focus:ring-theme-focus ${
+            className={`flex-1 py-3 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2.5 transition-all focus:ring-4 focus:ring-theme-focus ${
               authMode === 'login'
-                ? 'bg-theme-primary text-white shadow-sm'
-                : 'text-theme-text hover:bg-theme-surface'
+                ? 'bg-theme-primary text-theme-primary-text shadow-md'
+                : 'text-theme-text hover:bg-theme-surface/70'
             }`}
           >
-            <LogIn className="w-4 h-4" aria-hidden="true" />
+            <LogIn className="w-4.5 h-4.5" aria-hidden="true" />
             <span>Sign In</span>
           </button>
 
@@ -108,24 +130,24 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
               setAuthMode('register');
               soundEffects.playSelect();
             }}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all focus:ring-4 focus:ring-theme-focus ${
+            className={`flex-1 py-3 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2.5 transition-all focus:ring-4 focus:ring-theme-focus ${
               authMode === 'register'
-                ? 'bg-theme-primary text-white shadow-sm'
-                : 'text-theme-text hover:bg-theme-surface'
+                ? 'bg-theme-primary text-theme-primary-text shadow-md'
+                : 'text-theme-text hover:bg-theme-surface/70'
             }`}
           >
-            <UserPlus className="w-4 h-4" aria-hidden="true" />
+            <UserPlus className="w-4.5 h-4.5" aria-hidden="true" />
             <span>Register New Student</span>
           </button>
         </div>
 
         {/* LOGIN FORM */}
         {authMode === 'login' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <form onSubmit={handleLoginSubmit} className="space-y-5">
             {loginError && (
               <div
                 role="alert"
-                className="p-3.5 rounded-xl bg-red-500/10 border-2 border-red-500 text-red-500 text-sm font-semibold"
+                className="p-4 rounded-2xl bg-red-500/10 border-2 border-red-500 text-red-500 text-sm font-bold"
               >
                 ⚠️ {loginError}
               </div>
@@ -134,7 +156,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
             <div>
               <label
                 htmlFor="student-login-id"
-                className="block text-sm font-bold text-theme-text mb-1.5"
+                className="block text-sm font-extrabold text-theme-text mb-2"
               >
                 Roll Number or Email <span className="text-red-500">*</span>
               </label>
@@ -143,16 +165,16 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
                 type="text"
                 value={loginIdentifier}
                 onChange={(e) => setLoginIdentifier(e.target.value)}
-                placeholder="e.g. DX-101 or rohit@dristix.edu"
+                placeholder="Your registered roll number or email"
                 required
-                className="w-full px-4 py-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text placeholder-theme-text/40 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
+                className="w-full px-4 py-3.5 rounded-xl bg-theme-bg/80 border-2 border-theme-border text-theme-text placeholder-theme-text/40 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition-all shadow-xs"
               />
             </div>
 
             <div>
               <label
                 htmlFor="student-login-pass"
-                className="block text-sm font-bold text-theme-text mb-1.5"
+                className="block text-sm font-extrabold text-theme-text mb-2"
               >
                 Password <span className="text-red-500">*</span>
               </label>
@@ -164,12 +186,12 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="Enter your candidate password"
                   required
-                  className="w-full px-4 py-3 pr-12 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text placeholder-theme-text/40 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
+                  className="w-full px-4 py-3.5 pr-12 rounded-xl bg-theme-bg/80 border-2 border-theme-border text-theme-text placeholder-theme-text/40 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition-all shadow-xs"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 p-1 text-theme-text/60 hover:text-theme-text focus:ring-2 focus:ring-theme-focus rounded"
+                  className="absolute right-3.5 top-3.5 p-1 text-theme-text/60 hover:text-theme-text focus:ring-2 focus:ring-theme-focus rounded-lg transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password as plain text'}
                 >
                   {showPassword ? (
@@ -183,9 +205,11 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
 
             <button
               type="submit"
-              className="w-full py-3.5 px-4 rounded-xl bg-theme-primary text-white font-extrabold text-base shadow-md hover:brightness-110 active:scale-[0.99] transition focus:ring-4 focus:ring-theme-focus"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+              className="w-full py-4 px-5 rounded-xl bg-theme-primary text-theme-primary-text font-black text-base dx-glow-button hover:scale-[1.01] active:scale-[0.99] transition-all shadow-md focus:ring-4 focus:ring-theme-focus disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Sign In to Candidate Dashboard
+              {isSubmitting ? 'Signing in…' : 'Sign In to Candidate Dashboard'}
             </button>
           </form>
         )}
@@ -266,7 +290,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
                 id="reg-pref"
                 value={regPref}
                 onChange={(e) =>
-                  setRegPref(e.target.value as StudentProfile['accessibilityPreference'])
+                  setRegPref(e.target.value as AccessibilityPreference)
                 }
                 className="w-full px-4 py-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
               >
@@ -297,30 +321,42 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
 
             <button
               type="submit"
-              className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-base shadow-md transition focus:ring-4 focus:ring-theme-focus"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+              className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-base shadow-md transition focus:ring-4 focus:ring-theme-focus disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Complete Registration & Enter
+              {isSubmitting ? 'Creating account…' : 'Complete Registration & Enter'}
             </button>
           </form>
         )}
 
-        {/* Instant 1-Click Demo Profiles */}
+        {/* Demo credentials for a fresh local install. */}
         <div className="mt-8 pt-6 border-t-2 border-theme-border">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="w-4 h-4 text-theme-primary" aria-hidden="true" />
             <h2 className="text-xs uppercase font-extrabold tracking-wider text-theme-text/70">
-              Instant 1-Click Demo Candidate Login:
+              Demo Accounts
             </h2>
           </div>
+
+          <p className="text-sm text-theme-text/70 mb-3">
+            Passwords are verified by the server, so every account needs one. These are the
+            accounts created by <code className="font-mono">npm run db:seed</code>; each uses the
+            password <code className="font-mono font-bold">student123</code>.
+          </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {students.slice(0, 3).map((std) => (
               <button
                 key={std.id}
                 type="button"
+                // Fills the form instead of signing in, because the server still
+                // checks the password.
                 onClick={() => {
-                  quickLoginStudent(std.id);
-                  onAuthenticated?.();
+                  setLoginIdentifier(std.rollNumber);
+                  setLoginPassword('student123');
+                  setLoginError('');
+                  setAuthMode('login');
                 }}
                 className="p-3 text-left rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary transition flex flex-col justify-between group focus:ring-4 focus:ring-theme-focus"
               >
@@ -332,12 +368,12 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({ onAuthenti
                     {std.name}
                   </span>
                   <span className="text-[11px] text-theme-text/60 block mt-0.5">
-                    ♿ {std.accessibilityPreference}
+                    ♿ {std.accessibilityPreference ?? 'Standard'}
                   </span>
                 </div>
                 <div className="mt-2 text-[11px] font-bold text-theme-primary flex items-center gap-1">
                   <UserCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Login as this student</span>
+                  <span>Use this account</span>
                 </div>
               </button>
             ))}

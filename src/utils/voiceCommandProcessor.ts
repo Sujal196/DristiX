@@ -3,7 +3,9 @@ import { useExamStore } from '../store/useExamStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
 import { soundEffects } from './soundEffects';
 import { verbalizeMath } from './mathVerbalizer';
+import { describeOptionSelection, describeClearSelection } from './optionSpeech';
 import { matchExamFromQuery } from './examMatcher';
+import { isPracticeTabNavigation } from './practiceTabNavigation';
 
 export interface CommandProcessResult {
   success: boolean;
@@ -190,6 +192,35 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   }
 
   // ==========================================
+  // 2b. GO TO THE PRACTICE TAB (navigation only — must run BEFORE Start Exam)
+  //
+  // matchExamFromQuery() reads the bare word "practice" as an alias for the
+  // first Practice Drill, so without this guard "go on the practice tab" used
+  // to launch that drill as a live test instead of switching tabs. The
+  // candidate is first taken to the Practice Arena and told which drills are
+  // listed; only a later "Start <drill name>" opens one.
+  // ==========================================
+  if (isPracticeTabNavigation(rawTranscript)) {
+    // STRICT INTEGRITY: Cannot leave active unsubmitted exam
+    if (context.activeView === 'exam' && !examStore.isSubmitted) {
+      examStore.setSubmitModalOpen(true);
+      soundEffects.playTimerAlert();
+      const reply = 'You cannot leave the exam before submitting it. The submit confirmation window is now open. Please submit your test first.';
+      return makeReply('CONFIRM_SUBMIT', reply, 'Opened Submit Modal (Exit Prevented)');
+    }
+
+    examStore.returnToCatalog();
+    examStore.setPortalTab('practice');
+
+    const drills = context.availableDrills;
+    const names = drills.map((d, idx) => `${idx + 1}. ${d.title}`).join('; ');
+    const reply = drills.length
+      ? `Switched to the Practice Arena tab. ${drills.length} practice drills are now listed on your screen: ${names}. Say "Start" followed by a drill name to open one.`
+      : 'Switched to the Practice Arena tab. No practice drills are available right now. Say "Go to mock test page" to see the mock examinations.';
+    return makeReply('PRACTICE_TAB', reply, 'Opened Practice Tab (No Drill Started)');
+  }
+
+  // ==========================================
   // RETURN TO CATALOG / MOCK TEST PAGE / CHOOSE ANOTHER EXAM
   // Evaluated BEFORE Start Exam so "open mock test page" or "go on mocktest page" returns to catalog!
   // BUT if a specific exam like UPSC or Railway was requested, matchedExamFromQuery will be set!
@@ -229,6 +260,12 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
       rawLower.includes('exams page') ||
       rawLower.includes('catalog page') ||
       rawLower.includes('catalog') ||
+      rawLower.includes('exam tab') ||
+      rawLower.includes('exams tab') ||
+      rawLower.includes('mock tab') ||
+      rawLower.includes('mocks tab') ||
+      rawLower.includes('test tab') ||
+      rawLower.includes('tests tab') ||
       rawLower.includes('all exams') ||
       rawLower.includes('all tests') ||
       rawLower.includes('sare test') ||
@@ -314,7 +351,11 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
 
-    examStore.selectExam(matchedExam.id, matchedExam.id.includes('practice') ? 'practice' : 'exam');
+    // The confirmation reply below is spoken for this action, so the store's
+    // own "Starting…" line is suppressed — otherwise it interrupts the reply.
+    void examStore.selectExam(matchedExam.id, matchedExam.id.includes('practice') ? 'practice' : 'exam', {
+      announce: false,
+    });
     const reply = `"${matchedExam.title}" has been opened successfully! Question 1 is now loaded on your screen. Say "Read question" to hear the full question and all options.`;
     return makeReply('START_EXAM', reply, `Started Exam: ${matchedExam.title}`);
   }
@@ -363,8 +404,13 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     else if (normalized.includes('option 3')) optNum = 3;
     else if (normalized.includes('option 4')) optNum = 4;
 
-    examStore.selectOption(optNum);
-    const reply = `Option ${optNum} selected successfully. Say "Next question" to continue or "Read question" to review.`;
+    examStore.selectOption(optNum, { announce: false });
+    // One message, carrying the option's own words: "Option 3 selected
+    // successfully" alone leaves a candidate working without sight unable to
+    // tell which answer actually went on the record.
+    const { questions, currentIndex } = useExamStore.getState();
+    const selection = describeOptionSelection(questions[currentIndex], optNum);
+    const reply = `${selection} Say "Next question" to continue or "Read question" to review.`;
     return makeReply('SELECT_OPTION', reply, `Selected Option ${optNum}`);
   }
 
@@ -377,9 +423,16 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     rawLower.includes('deselect')
   ) {
     if (context.activeView === 'exam') {
-      examStore.clearOption();
-      const reply = 'Your selected option has been cleared. You can now choose a different option.';
-      return makeReply('CLEAR_OPTION', reply, 'Cleared selected option');
+      const state = useExamStore.getState();
+      const q = state.questions[state.currentIndex];
+      const hadSelection = Boolean(q && state.selectedOptions[q.id]);
+      examStore.clearOption({ announce: false });
+      const reply = describeClearSelection(q, hadSelection);
+      return makeReply(
+        'CLEAR_OPTION',
+        reply,
+        hadSelection ? 'Cleared selected option' : 'Nothing selected to clear'
+      );
     }
   }
 
@@ -656,7 +709,16 @@ export function processVoiceCommand(
 
   const finalResult = bestResult || executeCommand(candidates[0] || '', false);
 
-  // Announce EXACTLY ONCE for the final winning result
-  useAnnouncerStore.getState().announce(finalResult.assistantReply, 'assertive', true);
+  // A recognised command speaks for itself here; both callers then find the
+  // engine already talking and stay quiet.
+  //
+  // An *unrecognised* transcript does not, because it is only a provisional
+  // guess — the caller still has a Gemini/Groq pass to try, and voicing a
+  // placeholder would both reach the candidate and, now that the engine reports
+  // honestly, crowd out the real answer that follows. Each caller has its own
+  // final fallback for the case where nothing at all is recognised.
+  if (finalResult.intent !== 'UNRECOGNIZED') {
+    useAnnouncerStore.getState().announce(finalResult.assistantReply, 'assertive', true);
+  }
   return finalResult;
 }

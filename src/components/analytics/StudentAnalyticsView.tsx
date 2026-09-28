@@ -25,7 +25,13 @@ interface StudentAnalyticsViewProps {
 }
 
 export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onReturnToCatalog }) => {
-  const { currentStudent, submissions } = useAuthStore();
+  const { currentStudent, submissions, syncSubmissions } = useAuthStore();
+
+  // Pull the latest results from the server whenever this view opens, so a
+  // score earned in another tab or on another device shows up here.
+  useEffect(() => {
+    void syncSubmissions();
+  }, [syncSubmissions]);
   const { selectExam, availableExams, availablePracticeDrills } = useExamStore();
   const { announce } = useAnnouncerStore();
 
@@ -128,7 +134,7 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
     const all = [...availableExams, ...availablePracticeDrills];
     const target = all.find((e) => e.id === sub.examId || e.code === sub.examCode);
     if (target) {
-      selectExam(target.id, sub.examType);
+      void selectExam(target.id, sub.examType);
     } else {
       announce(`Exam ${sub.examTitle} is currently not active in the catalog.`, 'polite', true);
     }
@@ -272,7 +278,12 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
 
         <div className="flex items-center gap-2 text-xs font-medium text-theme-text/70 bg-theme-bg px-3 py-1.5 rounded-xl border border-theme-border">
           <Calendar className="w-4 h-4 text-theme-primary" aria-hidden="true" />
-          <span>Registered: {new Date(currentStudent.registeredAt).toLocaleDateString()}</span>
+          <span>
+            Registered:{' '}
+            {currentStudent.registeredAt
+              ? new Date(currentStudent.registeredAt).toLocaleDateString()
+              : '—'}
+          </span>
         </div>
       </div>
 

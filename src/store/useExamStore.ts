@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { EXAMS_CATALOG } from '../data/exams';
-import { PRACTICE_DRILLS_CATALOG } from '../data/practiceDrills';
-import type { Exam } from '../data/exams';
-import type { QuestionItem } from '../data/questions';
+import type { Exam, QuestionItem } from '../../shared/types';
 import { soundEffects } from '../utils/soundEffects';
 import { useAnnouncerStore } from './useAnnouncerStore';
 import { verbalizeMath } from '../utils/mathVerbalizer';
+import { describeOptionSelection } from '../utils/optionSpeech';
 import { useAuthStore } from './useAuthStore';
+import { getDataSource } from '../services/dataSource';
+import type { GradeResult, StartAttemptResult } from '../../shared/types';
 
 export interface SectionDiagnostic {
   section: string;
@@ -55,20 +55,69 @@ interface ExamState {
   isSubmitModalOpen: boolean;
   activeSectionFilter: string;
 
+  /**
+   * True while the catalog is being fetched or lazily seeded. The listing
+   * screen uses this to show a loading state instead of a misleading
+   * "no examinations match" message.
+   */
+  isCatalogLoading: boolean;
+
+  /**
+   * Why the catalog could not be loaded, if it could not. Distinguishes "no
+   * exams exist" from "cannot reach the server" / "session expired", which
+   * need completely different advice.
+   */
+  catalogError: string | null;
+
+  /**
+   * Server-side attempt id. Null before an attempt starts, and in offline mode
+   * the local data source mints its own so the rest of the code is identical.
+   */
+  attemptId: string | null;
+  /** Server-authoritative deadline (epoch ms). Null when offline. */
+  expiresAtMs: number | null;
+  /** Last grade result returned by the server, if any. */
+  serverReport: GradeResult | null;
+
   // View & Exam Actions
   setPortalTab: (tab: 'exams' | 'practice') => void;
-  selectExam: (examId: string, forceMode?: 'exam' | 'practice') => void;
+  /** Loads the catalog from the active data source. Call once on boot. */
+  loadCatalog: () => Promise<void>;
+  /**
+   * Starts (or resumes) an attempt and opens the exam.
+   *
+   * `options.announce` exists because the voice assistant speaks its own
+   * confirmation for the same action. Letting this one speak too meant two
+   * messages for one command, and since every announcement interrupts, the
+   * second cancelled the first mid-sentence — the assistant sounded like it was
+   * starting its reply over.
+   */
+  selectExam: (
+    examId: string,
+    forceMode?: 'exam' | 'practice',
+    options?: { announce?: boolean }
+  ) => Promise<void>;
+  /** Pushes the current progress to the server. Debounced internally. */
+  persistState: () => void;
   returnToCatalog: () => void;
   openAnalytics: () => void;
-  addNewExam: (newExam: Exam, mode: 'exam' | 'practice') => void;
-  deleteCustomExam: (examId: string) => void;
+  addNewExam: (
+    newExam: Exam,
+    mode: 'exam' | 'practice'
+  ) => Promise<{ ok: boolean; message?: string }>;
+  deleteCustomExam: (examId: string) => Promise<void>;
 
   // Question navigation actions
   nextQuestion: () => void;
   previousQuestion: () => void;
   jumpToQuestion: (index: number) => void;
-  selectOption: (optionNumber: number) => void;
-  clearOption: () => void;
+  /**
+   * `options.announce` lets a caller that is about to confirm the choice itself
+   * stay the only voice. Two confirmations for one action means the second
+   * cancels the first mid-sentence, and the candidate never hears the option.
+   */
+  selectOption: (optionNumber: number, options?: { announce?: boolean }) => void;
+  clearOption: (options?: { announce?: boolean }) => void;
   toggleMarkForReview: () => void;
   setExamMode: (mode: 'exam' | 'practice') => void;
   setTimer: (sec: number, formatted: string) => void;
@@ -77,7 +126,7 @@ interface ExamState {
   setShortcutsOpen: (open: boolean) => void;
   setSubmitModalOpen: (open: boolean) => void;
   setActiveSectionFilter: (section: string) => void;
-  submitExam: () => void;
+  submitExam: () => Promise<void>;
   resetExam: () => void;
   getDiagnosticReport: () => DiagnosticReportData;
   announceCurrentQuestion: (speakTTS?: boolean, includeOptions?: boolean) => void;
@@ -86,65 +135,52 @@ interface ExamState {
 }
 
 /**
- * A stored exam is only safe to use if it actually carries a questions array.
- * Without this guard a stale/partial record in localStorage (for example one
- * written by an older build with a different Exam shape) would make
- * `defaultExam.questions[0].id` throw at module-import time, which unmounts the
- * whole React tree and leaves a blank white page.
+ * Placeholder used until `loadCatalog()` fills the store from the backend.
+ * The catalog is never seeded from localStorage any more: it lives in MongoDB,
+ * which is also what keeps the answer key out of this bundle.
  */
-function isUsableExam(value: unknown): value is Exam {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<Exam>;
-  return Array.isArray(candidate.questions) && candidate.questions.length > 0;
-}
-
-/**
- * Hydrates a list of exams from localStorage, discarding anything that does not
- * match the expected shape. Returns the seeded fallback when storage is empty,
- * unreadable, or entirely corrupt.
- */
-const loadStoredExams = <T>(key: string, fallback: T[], isValid: (v: unknown) => boolean): T[] => {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return fallback;
-    const usable = parsed.filter(isValid);
-    return usable.length > 0 ? (usable as T[]) : fallback;
-  } catch {
-    return fallback;
-  }
+const EMPTY_EXAM: Exam = {
+  id: '',
+  code: '',
+  title: 'Loading examinations…',
+  description: '',
+  category: 'Staff Selection',
+  durationMinutes: 60,
+  totalMarks: 0,
+  negativeMarking: 'No negative marking (Practice)',
+  difficulty: 'Moderate',
+  sections: [],
+  questionCount: 0,
+  questions: [],
 };
-
-const initialExams = loadStoredExams<Exam>('dristix_exams', EXAMS_CATALOG, isUsableExam);
-const initialDrills = loadStoredExams<Exam>('dristix_practice_drills', PRACTICE_DRILLS_CATALOG, isUsableExam);
-const defaultExam = initialExams.find(isUsableExam) || initialDrills.find(isUsableExam) || EXAMS_CATALOG[0];
 
 export const useExamStore = create<ExamState>((set, get) => ({
   portalTab: 'exams',
-  availableExams: initialExams,
-  availablePracticeDrills: initialDrills,
-  currentExam: defaultExam,
+  availableExams: [],
+  availablePracticeDrills: [],
+  currentExam: EMPTY_EXAM,
   activeView: 'catalog', // Default landing on the accessible catalog dashboard
-  questions: defaultExam.questions,
+  questions: [],
   currentIndex: 0,
   selectedOptions: {},
   markedForReview: {},
-  visitedQuestions: defaultExam.questions?.length
-    ? { [defaultExam.questions[0].id]: true }
-    : {},
+  visitedQuestions: {},
   examMode: 'exam',
   isSubmitted: false,
   submissionTime: null,
-  timeRemaining: defaultExam.durationMinutes * 60,
-  formattedTime: `${String(Math.floor(defaultExam.durationMinutes / 60)).padStart(2, '0')}:${String(
-    defaultExam.durationMinutes % 60
-  ).padStart(2, '0')}:00`,
+  // The real duration arrives with the attempt, from the server's own clock.
+  timeRemaining: 0,
+  formattedTime: '00:00:00',
   isPaletteOpen: false,
   isSettingsOpen: false,
   isShortcutsOpen: false,
   isSubmitModalOpen: false,
   activeSectionFilter: 'All',
+  isCatalogLoading: true,
+  catalogError: null,
+  attemptId: null,
+  expiresAtMs: null,
+  serverReport: null,
 
   nextQuestion: () => {
     const { currentIndex, questions } = get();
@@ -189,7 +225,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
     }
   },
 
-  selectOption: (optionNumber: number) => {
+  selectOption: (optionNumber: number, options?: { announce?: boolean }) => {
     const { currentIndex, questions, selectedOptions } = get();
     const currentQ = questions[currentIndex];
     const opt = currentQ.options.find((o) => o.number === optionNumber);
@@ -199,16 +235,14 @@ export const useExamStore = create<ExamState>((set, get) => ({
     set({ selectedOptions: updated });
     soundEffects.playSelect();
 
-    const optSpeech = opt.mathLatex ? `${opt.text}, ${verbalizeMath(opt.mathLatex)}` : opt.text;
-    useAnnouncerStore.getState().announce(
-      `Option ${optionNumber} selected: ${optSpeech}.`,
-      'assertive',
-      true,
-      true
-    );
+    if (options?.announce !== false) {
+      useAnnouncerStore
+        .getState()
+        .announce(describeOptionSelection(currentQ, optionNumber), 'assertive', true, true);
+    }
   },
 
-  clearOption: () => {
+  clearOption: (options?: { announce?: boolean }) => {
     const { currentIndex, questions, selectedOptions } = get();
     const currentQ = questions[currentIndex];
     if (selectedOptions[currentQ.id]) {
@@ -216,12 +250,14 @@ export const useExamStore = create<ExamState>((set, get) => ({
       delete next[currentQ.id];
       set({ selectedOptions: next });
       soundEffects.playClear();
-      useAnnouncerStore.getState().announce(
-        `Selection cleared for Question ${currentQ.questionNumber}.`,
-        'polite',
-        true
-      );
-    } else {
+      if (options?.announce !== false) {
+        useAnnouncerStore.getState().announce(
+          `Selection cleared for Question ${currentQ.questionNumber}.`,
+          'polite',
+          true
+        );
+      }
+    } else if (options?.announce !== false) {
       useAnnouncerStore.getState().announce(
         `No option was selected for Question ${currentQ.questionNumber}.`,
         'polite',
@@ -242,6 +278,39 @@ export const useExamStore = create<ExamState>((set, get) => ({
       ? `Question ${currentQ.questionNumber} marked for review.`
       : `Question ${currentQ.questionNumber} unmarked from review.`;
     useAnnouncerStore.getState().announce(statusMsg, 'polite', true);
+  },
+
+  /**
+   * Loads the exam catalog from the active data source.
+   *
+   * In api mode this is the ONLY way questions enter the app, and the server
+   * strips the answer key before sending. In offline mode it is a no-op
+   * because the catalog is already seeded from the bundled data.
+   */
+  loadCatalog: async () => {
+    set({ isCatalogLoading: true, catalogError: null });
+    try {
+      const { exams, drills } = await getDataSource().exams.getFullCatalog();
+      set({ availableExams: exams, availablePracticeDrills: drills, catalogError: null });
+
+      // Keep the placeholder currentExam pointing at something real so the
+      // header does not read "Loading examinations…" forever.
+      const all = get();
+      if (!all.currentExam.id) {
+        const first = all.availableExams[0] ?? all.availablePracticeDrills[0];
+        if (first) set({ currentExam: first });
+      }
+    } catch (err) {
+      // Swallowing this used to leave an empty catalog and a "no examinations
+      // have been published yet" message, which reads as an empty database when
+      // the truth is usually "the server is unreachable" or "your session
+      // expired". Both need very different responses from the user.
+      const message =
+        err instanceof Error ? err.message : 'Could not reach the DristiX server.';
+      set({ catalogError: message });
+    } finally {
+      set({ isCatalogLoading: false });
+    }
   },
 
   setExamMode: (mode) => {
@@ -277,7 +346,11 @@ export const useExamStore = create<ExamState>((set, get) => ({
       );
   },
 
-  selectExam: (examId: string, forceMode?: 'exam' | 'practice') => {
+  selectExam: async (
+    examId: string,
+    forceMode?: 'exam' | 'practice',
+    options?: { announce?: boolean }
+  ) => {
     const { activeView, isSubmitted, currentExam } = get();
 
     // STRICT INTEGRITY: If candidate is taking a test, prevent switching exams before submitting
@@ -297,25 +370,70 @@ export const useExamStore = create<ExamState>((set, get) => ({
     const { availableExams, availablePracticeDrills } = get();
     const allAvailable = [...availableExams, ...availablePracticeDrills];
     const exam = allAvailable.find((e) => e.id === examId) || allAvailable[0];
+    if (!exam || !exam.id) {
+      useAnnouncerStore
+        .getState()
+        .announce('No examinations are available yet. Please contact your administrator.', 'assertive', true);
+      return;
+    }
     const isPractice = availablePracticeDrills.some((e) => e.id === exam.id);
     const targetMode = forceMode || (isPractice ? 'practice' : 'exam');
 
-    const durationSec = exam.durationMinutes * 60;
-    const h = String(Math.floor(durationSec / 3600)).padStart(2, '0');
-    const m = String(Math.floor((durationSec % 3600) / 60)).padStart(2, '0');
+    // Start (or resume) the attempt through the data source. In api mode this
+    // is where the server hands over the question set and the deadline, and
+    // where the answer key is withheld.
+    let started: StartAttemptResult;
+    try {
+      started = await getDataSource().exams.startAttempt(exam.id, targetMode);
+    } catch (err) {
+      useAnnouncerStore
+        .getState()
+        .announce(
+          err instanceof Error ? err.message : 'Could not start this examination.',
+          'assertive',
+          true
+        );
+      return;
+    }
+
+    // In api mode the server owns the clock; the Web Worker then only keeps the
+    // display ticking smoothly between heartbeats.
+    const remaining = started.clock.remainingSeconds;
+    const h = String(Math.floor(remaining / 3600)).padStart(2, '0');
+    const m = String(Math.floor((remaining % 3600) / 60)).padStart(2, '0');
+    const s = String(remaining % 60).padStart(2, '0');
+
+    const questions = started.questions as unknown as QuestionItem[];
+
+    // Never navigate into an exam the server gave no questions for. The server
+    // refuses to start an empty exam, so this should be unreachable — but the
+    // screen it produces is a dead end, and an explicit message beats it.
+    if (questions.length === 0) {
+      useAnnouncerStore
+        .getState()
+        .announce(
+          `${exam.title} has no questions yet. Please contact your administrator.`,
+          'assertive',
+          true
+        );
+      return;
+    }
 
     set({
-      currentExam: exam,
-      questions: exam.questions || [],
+      currentExam: { ...exam, questions },
+      questions,
+      attemptId: started.attemptId,
+      expiresAtMs: new Date(started.clock.expiresAt).getTime(),
       currentIndex: 0,
       selectedOptions: {},
       markedForReview: {},
-      visitedQuestions: exam.questions && exam.questions.length > 0 ? { [exam.questions[0].id]: true } : {},
-      examMode: targetMode,
+      visitedQuestions: questions.length > 0 ? { [questions[0].id]: true } : {},
+      examMode: started.questions[0]?.hint !== undefined ? 'practice' : targetMode,
       isSubmitted: false,
       submissionTime: null,
-      timeRemaining: durationSec,
-      formattedTime: `${h}:${m}:00`,
+      serverReport: null,
+      timeRemaining: remaining,
+      formattedTime: `${h}:${m}:${s}`,
       activeView: 'exam',
       activeSectionFilter: 'All',
       isPaletteOpen: false,
@@ -325,12 +443,40 @@ export const useExamStore = create<ExamState>((set, get) => ({
     });
 
     soundEffects.playNavigate();
+    const mode = get().examMode;
     const speechMsg =
-      targetMode === 'practice'
-        ? `Starting Practice Drill: ${exam.title}. Total ${exam.questions.length} questions. Helpful Hints and Step-by-Step Solutions are enabled. Question 1 loaded.`
-        : `Starting ${exam.title}. Total ${exam.questions.length} questions. Time limit: ${exam.durationMinutes} minutes. Question 1 loaded.`;
+      mode === 'practice'
+        ? `Starting Practice Drill: ${exam.title}. Total ${questions.length} questions. Helpful Hints and Step-by-Step Solutions are enabled. Question 1 loaded.`
+        : `Starting ${exam.title}. Total ${questions.length} questions. Time limit: ${exam.durationMinutes} minutes. Question 1 loaded.`;
 
-    useAnnouncerStore.getState().announce(speechMsg, 'assertive', true);
+    // Skipped when the caller has already said its own piece. Every
+    // announcement interrupts the last, so two of them for one action means the
+    // first is cut off part-way through.
+    if (options?.announce !== false) {
+      useAnnouncerStore.getState().announce(speechMsg, 'assertive', true);
+    }
+  },
+
+  /**
+   * Pushes the current progress to the server immediately.
+   *
+   * Normally the automatic debounced save below handles this, so components do
+   * not call it. It exists for the flush that must happen right before submit.
+   */
+  persistState: () => {
+    const { attemptId } = get();
+    if (!attemptId) return;
+    const s = get();
+    void getDataSource()
+      .exams.saveState(attemptId, {
+        currentIndex: s.currentIndex,
+        selectedOptions: s.selectedOptions,
+        markedForReview: s.markedForReview,
+        visitedQuestions: s.visitedQuestions,
+      })
+      .catch(() => {
+        // Best-effort; submit sends the authoritative copy anyway.
+      });
   },
 
   returnToCatalog: () => {
@@ -402,12 +548,55 @@ export const useExamStore = create<ExamState>((set, get) => ({
       );
   },
 
-  submitExam: () => {
-    soundEffects.playSuccess();
-    const { currentExam, examMode, getDiagnosticReport } = get();
-    const report = getDiagnosticReport();
+  submitExam: async () => {
+    const { currentExam, examMode, attemptId } = get();
 
-    // Automatically record exam submission for student tracking & admin analytics
+    if (autosaveTimer !== null) {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+    }
+
+    let report: GradeResult | null = null;
+
+    if (attemptId) {
+      try {
+        // Authoritative grading. The server holds the answer key, so the score
+        // shown to the student is the server's, never the browser's.
+        report = await getDataSource().exams.submitAttempt(attemptId);
+      } catch (err) {
+        useAnnouncerStore
+          .getState()
+          .announce(
+            err instanceof Error
+              ? `Could not submit: ${err.message}`
+              : 'Could not submit this examination. Please try again.',
+            'assertive',
+            true
+          );
+        return;
+      }
+    }
+
+    // Offline mode still grades locally, because there is no server to ask.
+    if (!report) {
+      const local = get().getDiagnosticReport();
+      report = {
+        ...local,
+        attemptId: attemptId ?? 'local',
+        examTitle: local.examTitle,
+        status: 'submitted',
+        questions: get().questions as unknown as GradeResult['questions'],
+      } as GradeResult;
+    }
+
+    soundEffects.playSuccess();
+
+    // The server's graded questions now legitimately carry correctOption and
+    // explanation, so swapping them in lets DiagnosticReport work unchanged.
+    if (report.questions?.length) {
+      set({ questions: report.questions as unknown as QuestionItem[] });
+    }
+
     useAuthStore.getState().addSubmission({
       examId: currentExam.id,
       examTitle: currentExam.title,
@@ -425,59 +614,88 @@ export const useExamStore = create<ExamState>((set, get) => ({
       isSubmitted: true,
       isSubmitModalOpen: false,
       submissionTime: Date.now(),
+      serverReport: report,
     });
+
     useAnnouncerStore.getState().announce(
-      'Exam successfully submitted. Showing diagnostic and performance analytics report.',
+      `Exam successfully submitted. You scored ${report.totalScore} out of ${report.maxScore}, which is ${report.scorePercentage} percent correct. Showing your diagnostic and performance analytics report.`,
       'assertive',
       true
     );
   },
 
-  addNewExam: (newExam: Exam, mode: 'exam' | 'practice') => {
-    if (mode === 'practice') {
-      const updated = [newExam, ...get().availablePracticeDrills];
-      set({ availablePracticeDrills: updated });
-      try {
-        localStorage.setItem('dristix_practice_drills', JSON.stringify(updated));
-      } catch {}
-    } else {
-      const updated = [newExam, ...get().availableExams];
-      set({ availableExams: updated });
-      try {
-        localStorage.setItem('dristix_exams', JSON.stringify(updated));
-      } catch {}
+  addNewExam: async (newExam: Exam, mode: 'exam' | 'practice') => {
+    try {
+      // The data source decides where this lands. Publishing has to go through
+      // the server or no student would ever see the exam.
+      await getDataSource().exams.createExam(newExam, mode);
+      await get().loadCatalog();
+    } catch (err) {
+      // The caller needs this text, not just a boolean: "it may already exist,
+      // or the server rejected it" leaves an examiner guessing at which field
+      // was wrong when the server has already said so.
+      const message = err instanceof Error ? err.message : 'The server rejected the examination.';
+      useAnnouncerStore
+        .getState()
+        .announce(`Could not publish the examination: ${message}`, 'assertive', true);
+      return { ok: false, message };
     }
+
     soundEffects.playSuccess();
     useAnnouncerStore
       .getState()
       .announce(`New examination "${newExam.title}" published successfully.`, 'assertive', true);
+    return { ok: true };
   },
 
-  deleteCustomExam: (examId: string) => {
-    const updatedExams = get().availableExams.filter((e) => e.id !== examId);
-    const updatedDrills = get().availablePracticeDrills.filter((e) => e.id !== examId);
-    const { currentExam } = get();
-    const nextCurrent =
-      currentExam.id === examId
-        ? updatedExams[0] || updatedDrills[0] || EXAMS_CATALOG[0]
-        : currentExam;
-
-    set({
-      availableExams: updatedExams,
-      availablePracticeDrills: updatedDrills,
-      currentExam: nextCurrent,
-      questions: nextCurrent?.questions || [],
-    });
+  deleteCustomExam: async (examId: string) => {
     try {
-      localStorage.setItem('dristix_exams', JSON.stringify(updatedExams));
-      localStorage.setItem('dristix_practice_drills', JSON.stringify(updatedDrills));
-    } catch {}
+      await getDataSource().exams.deleteExam(examId);
+    } catch (err) {
+      useAnnouncerStore
+        .getState()
+        .announce(
+          err instanceof Error
+            ? `Could not remove the examination: ${err.message}`
+            : 'Could not remove the examination.',
+          'assertive',
+          true
+        );
+      return;
+    }
+
+    // Re-read from the source rather than patching local state, so a server
+    // delete that also removed attempts stays consistent.
+    await get().loadCatalog();
+
+    if (!get().currentExam.id) {
+      set({ currentExam: EMPTY_EXAM, questions: [] });
+    }
+
     soundEffects.playSelect();
     useAnnouncerStore.getState().announce('Examination removed from catalog.', 'polite', true);
   },
 
   resetExam: () => {
-    const { currentExam } = get();
+    const { currentExam, questions } = get();
+
+    // There is nothing to retake unless a question set is actually loaded.
+    //
+    // This used to set activeView to 'exam' unconditionally, which navigated to
+    // the exam screen with an empty `questions` array whenever it was triggered
+    // from the catalog — via a voice intent or the retake shortcut — producing
+    // "No Questions Found". Staying put is the honest response.
+    if (questions.length === 0) {
+      useAnnouncerStore
+        .getState()
+        .announce(
+          'There is no examination to retake yet. Open a test from the catalog first.',
+          'assertive',
+          true
+        );
+      return;
+    }
+
     const durationSec = currentExam.durationMinutes * 60;
     const h = String(Math.floor(durationSec / 3600)).padStart(2, '0');
     const m = String(Math.floor((durationSec % 3600) / 60)).padStart(2, '0');
@@ -486,7 +704,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
       currentIndex: 0,
       selectedOptions: {},
       markedForReview: {},
-      visitedQuestions: currentExam.questions && currentExam.questions.length > 0 ? { [currentExam.questions[0].id]: true } : {},
+      visitedQuestions: questions.length > 0 ? { [questions[0].id]: true } : {},
       isSubmitted: false,
       submissionTime: null,
       timeRemaining: durationSec,
@@ -507,6 +725,9 @@ export const useExamStore = create<ExamState>((set, get) => ({
     let msg = `Question ${currentQ.questionNumber} of ${questions.length}. Section: ${currentQ.section}. ${currentQ.questionText}. `;
     if (currentQ.mathLatex) {
       msg += `Equation: ${verbalizeMath(currentQ.mathLatex)}. `;
+    }
+    if (currentQ.diagramAiExplanation?.audioNarration || currentQ.diagramDescription) {
+      msg += `Diagram details: ${currentQ.diagramAiExplanation?.audioNarration || currentQ.diagramDescription}. `;
     }
 
     if (includeOptions && currentQ.options && currentQ.options.length > 0) {
@@ -568,6 +789,29 @@ export const useExamStore = create<ExamState>((set, get) => ({
   },
 
   getDiagnosticReport: (): DiagnosticReportData => {
+    // In api mode the grade was computed on the server. Returning it keeps a
+    // single source of truth, and avoids recomputing a score the client has no
+    // answer key to compute correctly.
+    const server = get().serverReport;
+    if (server) {
+      return {
+        examTitle: server.examTitle,
+        totalQuestions: server.totalQuestions,
+        attemptedCount: server.attemptedCount,
+        correctCount: server.correctCount,
+        incorrectCount: server.incorrectCount,
+        unattemptedCount: server.unattemptedCount,
+        markedCount: server.markedCount,
+        scorePercentage: server.scorePercentage,
+        totalScore: server.totalScore,
+        maxScore: server.maxScore,
+        sectionDiagnostics: server.sectionDiagnostics,
+        verbalSummary: server.verbalSummary,
+        weakAreas: server.weakAreas,
+        strongAreas: server.strongAreas,
+      };
+    }
+
     const { currentExam, questions, selectedOptions, markedForReview } = get();
     const totalQuestions = questions.length;
     let attemptedCount = 0;
@@ -654,3 +898,46 @@ export const useExamStore = create<ExamState>((set, get) => ({
     };
   },
 }));
+
+/**
+ * Debounced autosave.
+ *
+ * Option clicks, navigation and mark-for-review all mutate local state
+ * synchronously so the UI never waits on the network, and this subscriber
+ * pushes a snapshot a moment after the student stops interacting. Subscribing
+ * rather than calling a save from each action means a newly added mutation
+ * cannot silently forget to persist.
+ *
+ * The server merges each patch, so a dropped request never loses earlier
+ * answers, and submit sends an authoritative copy regardless.
+ */
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+useExamStore.subscribe((state, prev) => {
+  if (!state.attemptId) return;
+  if (state.activeView !== 'exam' || state.isSubmitted) return;
+
+  const changed =
+    state.selectedOptions !== prev.selectedOptions ||
+    state.markedForReview !== prev.markedForReview ||
+    state.visitedQuestions !== prev.visitedQuestions ||
+    state.currentIndex !== prev.currentIndex;
+  if (!changed) return;
+
+  if (autosaveTimer !== null) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+    const s = useExamStore.getState();
+    if (!s.attemptId) return;
+    void getDataSource()
+      .exams.saveState(s.attemptId, {
+        currentIndex: s.currentIndex,
+        selectedOptions: s.selectedOptions,
+        markedForReview: s.markedForReview,
+        visitedQuestions: s.visitedQuestions,
+      })
+      .catch(() => {
+        // Best-effort. The next change retries; submit sends the final copy.
+      });
+  }, 1200);
+});

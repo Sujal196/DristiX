@@ -2,8 +2,9 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
-import { EXAM_CATEGORIES } from '../../data/exams';
-import type { Exam, ExamCategory } from '../../data/exams';
+import { EXAM_CATEGORIES } from '../../data/examCategories';
+import type { Exam } from '../../../shared/types';
+import type { ExamCategory } from '../../data/examCategories';
 
 export const ExamCatalogScreen: React.FC = () => {
   const {
@@ -12,6 +13,9 @@ export const ExamCatalogScreen: React.FC = () => {
     availableExams,
     availablePracticeDrills,
     selectExam,
+    isCatalogLoading,
+    catalogError,
+    loadCatalog,
   } = useExamStore();
   const { announce, stopSpeech } = useAnnouncerStore();
 
@@ -82,7 +86,7 @@ export const ExamCatalogScreen: React.FC = () => {
   const handleListenOverview = (exam: Exam) => {
     soundEffects.playSelect();
     const isPractice = portalTab === 'practice';
-    const overview = `${isPractice ? 'Practice Drill' : 'Examination'}: ${exam.title}, Code ${exam.code}. Category: ${exam.category}. Difficulty: ${exam.difficulty}. Total questions: ${exam.questions.length}. Duration: ${exam.durationMinutes} minutes. ${
+    const overview = `${isPractice ? 'Practice Drill' : 'Examination'}: ${exam.title}, Code ${exam.code}. Category: ${exam.category}. Difficulty: ${exam.difficulty}. Total questions: ${exam.questionCount}. Duration: ${exam.durationMinutes} minutes. ${
       isPractice
         ? 'Hints and step-by-step solutions are enabled.'
         : `Maximum marks: ${exam.totalMarks}. Negative marking: ${exam.negativeMarking}.`
@@ -92,7 +96,7 @@ export const ExamCatalogScreen: React.FC = () => {
 
   const handleStartExam = (exam: Exam) => {
     stopSpeech();
-    selectExam(exam.id, portalTab === 'practice' ? 'practice' : 'exam');
+    void selectExam(exam.id, portalTab === 'practice' ? 'practice' : 'exam');
   };
 
   // Announce focused exam details
@@ -100,7 +104,7 @@ export const ExamCatalogScreen: React.FC = () => {
     const exam = filteredExams[index];
     if (!exam) return;
     const isPractice = portalTab === 'practice';
-    const msg = `${isPractice ? 'Practice Drill' : 'Exam'} ${index + 1} of ${filteredExams.length}: ${exam.title}. Code ${exam.code}. Duration ${exam.durationMinutes} minutes. ${exam.questions.length} questions. Difficulty ${exam.difficulty}. ${
+    const msg = `${isPractice ? 'Practice Drill' : 'Exam'} ${index + 1} of ${filteredExams.length}: ${exam.title}. Code ${exam.code}. Duration ${exam.durationMinutes} minutes. ${exam.questionCount} questions. Difficulty ${exam.difficulty}. ${
       isPractice ? 'Hints and Solutions available.' : ''
     } Press Enter to start, or O to hear overview.`;
     announce(msg, 'polite', true);
@@ -235,7 +239,7 @@ export const ExamCatalogScreen: React.FC = () => {
       <div
         role="tablist"
         aria-label="Portal Section Selector. Press T to switch between Mock Exams and Practice Arena."
-        className="mb-6 p-1.5 rounded-2xl bg-theme-surface border-2 border-theme-border flex flex-col sm:flex-row gap-2 shadow-sm"
+        className="mb-8 p-1.5 rounded-2xl bg-theme-surface/90 border-2 border-theme-border flex flex-col sm:flex-row gap-2 shadow-md backdrop-blur-xs"
       >
         <button
           type="button"
@@ -244,15 +248,15 @@ export const ExamCatalogScreen: React.FC = () => {
           aria-selected={portalTab === 'exams'}
           aria-controls="panel-exam-catalog"
           onClick={() => setPortalTab('exams')}
-          className={`flex-1 py-3 px-4 rounded-xl font-extrabold text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all focus:outline-none focus:ring-4 focus:ring-theme-focus ${
+          className={`flex-1 py-3.5 px-5 rounded-xl font-black text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-theme-focus ${
             portalTab === 'exams'
-              ? 'bg-theme-primary text-white shadow-md'
-              : 'text-theme-text hover:bg-theme-border/30'
+              ? 'bg-theme-primary text-theme-primary-text shadow-lg scale-[1.01]'
+              : 'text-theme-text hover:bg-theme-surface-elevated/70'
           }`}
         >
           <span className="text-xl" aria-hidden="true">🏆</span>
           <span>Mock Examinations (Timed Tests)</span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-black/20 dark:bg-white/20 font-mono">
+          <span className="text-xs px-2.5 py-0.5 rounded-full bg-black/20 dark:bg-white/20 font-mono font-bold">
             {availableExams.length} Tests
           </span>
         </button>
@@ -264,15 +268,15 @@ export const ExamCatalogScreen: React.FC = () => {
           aria-selected={portalTab === 'practice'}
           aria-controls="panel-exam-catalog"
           onClick={() => setPortalTab('practice')}
-          className={`flex-1 py-3 px-4 rounded-xl font-extrabold text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all focus:outline-none focus:ring-4 focus:ring-theme-focus ${
+          className={`flex-1 py-3.5 px-5 rounded-xl font-black text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-theme-focus ${
             portalTab === 'practice'
-              ? 'bg-emerald-600 text-white shadow-md'
-              : 'text-theme-text hover:bg-theme-border/30'
+              ? 'bg-emerald-600 text-white shadow-lg scale-[1.01]'
+              : 'text-theme-text hover:bg-theme-surface-elevated/70'
           }`}
         >
           <span className="text-xl" aria-hidden="true">💡</span>
           <span>Practice Arena (Hints & Solutions)</span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-black/20 dark:bg-white/20 font-mono">
+          <span className="text-xs px-2.5 py-0.5 rounded-full bg-black/20 dark:bg-white/20 font-mono font-bold">
             {availablePracticeDrills.length} Drills
           </span>
         </button>
@@ -280,15 +284,15 @@ export const ExamCatalogScreen: React.FC = () => {
 
       {/* Hero Welcome Banner */}
       <section
-        className={`mb-6 p-6 md:p-8 rounded-2xl bg-theme-surface border-2 shadow-sm text-center md:text-left flex flex-col md:flex-row md:items-center md:justify-between gap-6 transition-colors ${
+        className={`mb-8 p-6 md:p-8 rounded-3xl bg-theme-surface border-2 shadow-md text-center md:text-left flex flex-col md:flex-row md:items-center md:justify-between gap-6 transition-all ${
           portalTab === 'practice'
-            ? 'border-emerald-600/50 bg-emerald-500/5'
-            : 'border-theme-border'
+            ? 'border-emerald-600/50 bg-emerald-500/5 shadow-emerald-500/5'
+            : 'border-theme-border/80'
         }`}
         aria-labelledby="catalog-heading"
       >
         <div className="max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-theme-primary/10 text-theme-primary border border-theme-primary/30 mb-3">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-extrabold bg-theme-primary/10 text-theme-primary border border-theme-primary/30 mb-3.5">
             <span>♿ 100% WCAG 2.1 AA Compliant</span>
             <span>•</span>
             <span>
@@ -299,16 +303,16 @@ export const ExamCatalogScreen: React.FC = () => {
           </div>
           <h1
             id="catalog-heading"
-            className="text-3xl md:text-4xl font-extrabold tracking-tight text-theme-text mb-3"
+            className="text-3xl md:text-4xl font-black tracking-tight text-theme-text mb-3"
           >
             {portalTab === 'practice'
               ? 'Interactive Practice Arena'
               : 'Examination & Mock Test Series'}
           </h1>
-          <p className="text-base md:text-lg text-theme-text/80 leading-relaxed">
+          <p className="text-base md:text-lg text-theme-text/80 leading-relaxed font-medium">
             {portalTab === 'practice' ? (
               <>
-                Sharpen your concepts topic-by-topic. Includes instant <strong className="text-amber-500">Helpful Hints</strong> and <strong className="text-emerald-500">Step-by-Step Solutions</strong> with no timer pressure.
+                Sharpen your concepts topic-by-topic. Includes instant <strong className="text-amber-500 font-bold">Helpful Hints</strong> and <strong className="text-emerald-500 font-bold">Step-by-Step Solutions</strong> with no timer pressure.
               </>
             ) : (
               <>
@@ -481,25 +485,72 @@ export const ExamCatalogScreen: React.FC = () => {
       >
         {filteredExams.length === 0 ? (
           <div className="col-span-full p-12 text-center rounded-2xl bg-theme-surface border-2 border-dashed border-theme-border">
-            <span className="text-4xl mb-3 block" aria-hidden="true">
-              📑
-            </span>
-            <h2 className="text-xl font-bold text-theme-text mb-2">
-              No Modules Match Your Criteria
-            </h2>
-            <p className="text-sm text-theme-text/70 mb-4">
-              Try adjusting your search query or selecting "All" categories.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCategory('All');
-                setSearchQuery('');
-              }}
-              className="px-4 py-2 rounded-lg bg-theme-primary text-white font-bold text-sm focus:ring-4 focus:ring-theme-focus"
-            >
-              Reset Filters
-            </button>
+            {isCatalogLoading ? (
+              <>
+                <div
+                  aria-hidden="true"
+                  className="w-10 h-10 mx-auto mb-4 rounded-full border-4 border-theme-border border-t-theme-primary animate-spin"
+                />
+                <h2 className="text-xl font-bold text-theme-text mb-2">
+                  Loading Examinations
+                </h2>
+                <p className="text-sm text-theme-text/70" role="status" aria-live="polite">
+                  Fetching the examination catalog. This will only take a moment.
+                </p>
+              </>
+            ) : catalogError ? (
+              <>
+                <span className="text-4xl mb-3 block" aria-hidden="true">
+                  📡
+                </span>
+                <h2 className="text-xl font-bold text-theme-text mb-2">
+                  Cannot Load the Examination Catalog
+                </h2>
+                <p className="text-sm text-theme-text/70 mb-1 max-w-lg mx-auto">
+                  {catalogError}
+                </p>
+                <p className="text-sm text-theme-text/70 mb-4 max-w-lg mx-auto">
+                  The catalog lives on the DristiX server. Make sure the backend is running
+                  (<code className="font-mono">cd server &amp;&amp; npm run dev</code>), then try
+                  again. If your session expired, sign out and back in.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadCatalog()}
+                  className="px-4 py-2 rounded-lg bg-theme-primary text-white font-bold text-sm focus:ring-4 focus:ring-theme-focus"
+                >
+                  Retry
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="text-4xl mb-3 block" aria-hidden="true">
+                  📑
+                </span>
+                <h2 className="text-xl font-bold text-theme-text mb-2">
+                  No Modules Match Your Criteria
+                </h2>
+                <p className="text-sm text-theme-text/70 mb-4">
+                  {activeExamsList.length === 0
+                    ? 'No examinations have been published yet. An administrator can add one from the Admin Studio.'
+                    : 'Try adjusting your search query or selecting "All" categories.'}
+                </p>
+              </>
+            )}
+            {/* Resetting filters cannot help while loading, and with a load error
+                there is nothing loaded to filter in the first place. */}
+            {!isCatalogLoading && !catalogError && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory('All');
+                  setSearchQuery('');
+                }}
+                className="px-4 py-2 rounded-lg bg-theme-primary text-white font-bold text-sm focus:ring-4 focus:ring-theme-focus"
+              >
+                Reset Filters
+              </button>
+            )}
           </div>
         ) : (
           filteredExams.map((exam, idx) => {
@@ -604,7 +655,7 @@ export const ExamCatalogScreen: React.FC = () => {
                     <div>
                       <span className="text-theme-text/60 block">Questions</span>
                       <span className="font-extrabold text-theme-text">
-                        ❓ {exam.questions.length} items
+                        ❓ {exam.questionCount} items
                       </span>
                     </div>
                     <div>

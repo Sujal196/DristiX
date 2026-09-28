@@ -1,4 +1,4 @@
-import type { Exam } from '../data/exams';
+import type { Exam } from '../../shared/types';
 
 /**
  * Universal High-Accuracy Dynamic Exam Matcher.

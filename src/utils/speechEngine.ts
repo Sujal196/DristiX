@@ -37,6 +37,44 @@ class SpeechEngine {
   private watchdogTimer: any = null;
   private lastSpeechEndTime: number = 0;
   private lastSpokenText: string = '';
+  private lastSpokenAt: number = 0;
+  /**
+   * Handle to the `speak()` call that is still waiting out its start delay.
+   *
+   * `synth.cancel()` does not touch a `setTimeout` that has already been
+   * scheduled, so without clearing it here a cancelled announcement still ran
+   * and played. Several call sites announce one action in quick succession —
+   * the confirmation, the store's own "starting…" line, and the auto-read of
+   * question 1 — and every one of them survived the cancel, so the candidate
+   * heard the same sentence start over two or three times.
+   */
+  private pendingSpeakTimer: any = null;
+  /**
+   * Incremented whenever an in-flight `speak()` must be abandoned. The timer
+   * captures the value it was scheduled under and does nothing if it has moved
+   * on since.
+   */
+  private speakGeneration = 0;
+  /**
+   * Set when speech is cut short from outside — an explicit stop, or a newer
+   * announcement taking over — instead of running to its own end.
+   *
+   * `onSpeechEnd` alone cannot tell the two apart, so a listener waiting for
+   * the confirmation to finish before speaking next would happily start talking
+   * over an intentional stop. It is cleared the moment `speak()` commits to new
+   * speech, so it never carries over to the next announcement.
+   */
+  private interruptedAt = 0;
+  /**
+   * How long an identical sentence is considered a duplicate rather than a
+   * fresh request.
+   *
+   * Machine-triggered repeats arrive within milliseconds of each other (React
+   * runs effects twice in development, and a command's reply is announced by
+   * both the handler and its caller). A candidate asking to hear a question
+   * again needs at least a second to say so.
+   */
+  private static readonly REPEAT_SUPPRESSION_MS = 1000;
 
   constructor() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -96,6 +134,14 @@ class SpeechEngine {
   }
 
   public stop(notify = true) {
+    // Abandon any speak() still waiting out its start delay. `synth.cancel()`
+    // below cannot reach a timeout that is already scheduled, so without this
+    // the cancelled utterance plays anyway.
+    this.speakGeneration++;
+    if (this.pendingSpeakTimer) {
+      clearTimeout(this.pendingSpeakTimer);
+      this.pendingSpeakTimer = null;
+    }
     if (this.watchdogTimer) {
       clearTimeout(this.watchdogTimer);
       this.watchdogTimer = null;
@@ -107,6 +153,9 @@ class SpeechEngine {
       } catch {}
     }
     if (notify) {
+      // Recorded before notifying: listeners read it from inside the callback
+      // to tell "finished speaking" apart from "was stopped".
+      this.interruptedAt = Date.now();
       this.notifySpeechEnd();
     }
   }
@@ -125,6 +174,18 @@ class SpeechEngine {
 
   public isSpeaking(): boolean {
     return this.internalSpeaking;
+  }
+
+  /**
+   * True when the speech that just ended was cut short from outside — an
+   * explicit stop, or a newer announcement taking over — rather than reaching
+   * its own end.
+   *
+   * Only meaningful when read straight from an `onSpeechEnd` callback, which is
+   * when listeners ask the question.
+   */
+  public wasInterrupted(): boolean {
+    return this.interruptedAt > 0 && Date.now() - this.interruptedAt < 5000;
   }
 
   /**
@@ -165,6 +226,28 @@ class SpeechEngine {
 
     this.synth = window.speechSynthesis;
 
+    // Clean HTML tags or redundant whitespace
+    const cleanText = text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    if (!cleanText) {
+      this.notifySpeechEnd();
+      return;
+    }
+
+    // Decide this before touching anything: an interrupting repeat would cancel
+    // the utterance already playing and then play itself, which is precisely
+    // the double-speech this guards against. Duplicates arrive either while the
+    // first copy is still going (two call sites announcing the same action) or
+    // within a few milliseconds of it finishing (a development-mode effect
+    // running twice). A candidate asking for a question again needs a second to
+    // say so, so neither window swallows a genuine repeat.
+    const now = Date.now();
+    const isRepeat =
+      cleanText.toLowerCase() === this.lastSpokenText &&
+      (this.internalSpeaking || now - this.lastSpokenAt < SpeechEngine.REPEAT_SUPPRESSION_MS);
+    if (isRepeat) {
+      return;
+    }
+
     // Fix Chrome bug: if paused or stuck, resume first
     if (this.synth.paused) {
       try {
@@ -178,13 +261,11 @@ class SpeechEngine {
       return;
     }
 
-    // Clean HTML tags or redundant whitespace
-    const cleanText = text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-    if (!cleanText) {
-      this.notifySpeechEnd();
-      return;
-    }
     this.lastSpokenText = cleanText.toLowerCase();
+    this.lastSpokenAt = now;
+    // This announcement is the live one now; a stop that ended the previous
+    // one no longer describes the current state.
+    this.interruptedAt = 0;
 
     const detectedLang = detectLanguage(cleanText);
 
@@ -261,8 +342,22 @@ class SpeechEngine {
       }
     }, estimatedDurationMs);
 
+    // Report as speaking from the moment we commit to it, not from `onstart`.
+    //
+    // `onstart` only fires once `synth.speak()` runs — 40ms later at the
+    // earliest, often far longer. Every call site that guards a second
+    // announcement with `isSpeaking()` was therefore reading `false` at exactly
+    // the moment it mattered, so the guard never guarded.
+    this.internalSpeaking = true;
+
+    const generation = ++this.speakGeneration;
+
     // Small delay prevents Chrome cancel() race condition
-    setTimeout(() => {
+    this.pendingSpeakTimer = setTimeout(() => {
+      this.pendingSpeakTimer = null;
+      // stop() ran while this was queued; the utterance it was about to play
+      // has been cancelled, so playing it now would be a ghost repeat.
+      if (generation !== this.speakGeneration) return;
       if (this.synth) {
         if (this.synth.paused) {
           try {

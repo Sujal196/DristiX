@@ -1,0 +1,220 @@
+/*
+ * DristiX public landing surface.
+ *
+ * Everything here is token-driven on purpose: the landing renders before the
+ * visitor has chosen a theme, and this app ships four of them (light high
+ * contrast, dark high contrast, yellow-on-black, warm sepia). A surface with
+ * hard-coded blues would be unreadable in two of them.
+ *
+ * `color-mix()` is the only engine used for tints. Tailwind's opacity
+ * modifiers do nothing on `var()`-based colours — the class is never emitted —
+ * so washes are mixed from the token instead of approximated with a second
+ * hand-picked colour.
+ */
+
+.landing-root {
+  --dx-wash: color-mix(in srgb, var(--primary) 5%, var(--bg-page));
+  --dx-wash-deep: color-mix(in srgb, var(--primary) 12%, var(--bg-page));
+  --dx-chip: color-mix(in srgb, var(--primary) 10%, var(--bg-surface));
+  --dx-glow-color: color-mix(in srgb, var(--primary) 20%, transparent);
+
+  /* Browser surfaces do not inherit a design system; they have to be given one. */
+  accent-color: var(--primary);
+  caret-color: var(--primary);
+}
+
+.landing-root ::selection {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.landing-root * {
+  scrollbar-color: var(--border-subtle) var(--bg-surface-elevated);
+  scrollbar-width: thin;
+}
+
+.landing-root ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.landing-root ::-webkit-scrollbar-track {
+  background: var(--bg-surface-elevated);
+}
+
+.landing-root ::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border: 2px solid var(--bg-surface-elevated);
+  border-radius: 999px;
+}
+
+.landing-root ::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* ---------------------------------------------------------------- */
+/* Ambient Light & Hero Background Mesh                              */
+/* ---------------------------------------------------------------- */
+
+.dx-hero-ambient {
+  position: relative;
+  background-color: color-mix(in srgb, var(--primary) 4%, var(--bg-page));
+}
+
+.dx-hero-ambient::before {
+  content: '';
+  position: absolute;
+  top: -15%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 95%;
+  max-width: 1400px;
+  height: 600px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--primary) 28%, transparent) 0%, color-mix(in srgb, var(--primary) 8%, transparent) 50%, transparent 75%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+  filter: blur(60px);
+}
+
+.dx-wash {
+  background-color: var(--dx-wash);
+}
+
+.dx-wash-deep {
+  background-color: var(--dx-wash-deep);
+}
+
+.dx-chip-fill {
+  background-color: var(--dx-chip);
+}
+
+.dx-gradient-text {
+  background: linear-gradient(135deg, var(--text-primary) 30%, var(--primary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Header sticky offset */
+.landing-root [id] {
+  scroll-margin-top: 5.5rem;
+}
+
+@media (max-width: 1023px) {
+  .landing-root [id] {
+    scroll-margin-top: 9rem;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Hero Demo Audio Wave & Interactive Animations                    */
+/* ---------------------------------------------------------------- */
+
+@keyframes dx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dx-rise {
+  animation: dx-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes dx-listen {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scaleY(1.1);
+    opacity: 1;
+  }
+}
+
+.dx-bar {
+  transform-origin: bottom;
+  animation: dx-listen 1.1s ease-in-out infinite;
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+@keyframes dx-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.dx-caret {
+  animation: dx-caret 1s steps(1, end) infinite;
+}
+
+@keyframes dx-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.dx-wire {
+  stroke-dasharray: 7 9;
+  stroke-dashoffset: 160;
+  animation: dx-draw 3.2s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards;
+}
+
+/* Glass Card & Border Glow */
+.dx-hero-card {
+  background: color-mix(in srgb, var(--bg-surface) 60%, transparent) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: var(--shadow-xl), 0 0 35px var(--primary-glow), inset 0 1px 0 0 color-mix(in srgb, #ffffff 20%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--primary) 30%, transparent) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dx-hero-card:hover {
+  box-shadow: var(--shadow-xl), 0 0 45px var(--primary-glow);
+}
+
+.dx-chip-card {
+  background: color-mix(in srgb, var(--bg-surface) 50%, transparent) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid color-mix(in srgb, var(--primary) 20%, transparent) !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dx-chip-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary) !important;
+  box-shadow: 0 4px 16px var(--primary-glow);
+}
+
+/* Reduced Motion Safety */
+@media (prefers-reduced-motion: reduce) {
+  .landing-root *,
+  .landing-root *::before,
+  .landing-root *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .dx-rise {
+    opacity: 1;
+    transform: none;
+  }
+
+  .dx-wire {
+    stroke-dashoffset: 0;
+  }
+}
+

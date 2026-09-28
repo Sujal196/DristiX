@@ -14,6 +14,8 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
+import { speechEngine } from '../../utils/speechEngine';
+import { AiDiagramViewer } from '../common/AiDiagramViewer';
 
 export const ExamScreen: React.FC = () => {
   const {
@@ -51,11 +53,50 @@ export const ExamScreen: React.FC = () => {
     if (qHeadingRef.current) {
       qHeadingRef.current.focus({ preventScroll: false });
     }
+
     // Auto-read question and options upon navigating if enabled
     const autoRead = usePreferencesStore.getState().autoReadOnNavigate;
-    if (autoRead && currentQ) {
+    if (!autoRead || !currentQ) return;
+
+    // Queue behind whatever is being said.
+    //
+    // Opening an exam speaks a confirmation first. Every announcement
+    // interrupts the last, so reading question 1 straight away cut that
+    // confirmation off part-way through — and with the confirmation re-firing
+    // as well, the candidate heard fragments of both, repeated. Waiting for the
+    // engine to go quiet gives one message, then the next.
+    let finished = false;
+    let unbind: (() => void) | null = null;
+
+    const read = (afterWaiting: boolean) => {
+      if (finished) return;
+      finished = true;
+      if (unbind) {
+        unbind();
+        unbind = null;
+      }
+      // Ended because it was stopped, not because it finished: the candidate
+      // asked for silence, and reading question 1 anyway would ignore that.
+      if (afterWaiting && speechEngine.wasInterrupted()) return;
       announceCurrentQuestion(true);
+    };
+
+    if (speechEngine.isSpeaking()) {
+      unbind = speechEngine.onSpeechEnd(() => read(true));
+      // Backstop: a synthesiser that never reports an end must not leave the
+      // question unread forever.
+      const fallback = window.setTimeout(() => read(true), 15000);
+      return () => {
+        window.clearTimeout(fallback);
+        finished = true;
+        if (unbind) unbind();
+      };
     }
+
+    read(false);
+    return () => {
+      finished = true;
+    };
   }, [currentIndex]);
 
   if (!currentQ) {
@@ -201,6 +242,9 @@ export const ExamScreen: React.FC = () => {
               />
             </div>
           )}
+
+          {/* AI Diagram Viewer if diagram exists */}
+          <AiDiagramViewer question={currentQ} />
         </div>
 
         {/* Semantic Option Group */}
@@ -362,7 +406,7 @@ export const ExamScreen: React.FC = () => {
             <button
               id="btn-clear"
               type="button"
-              onClick={clearOption}
+              onClick={() => clearOption()}
               className="px-3.5 py-3 font-bold rounded-lg border-2 border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg transition text-sm sm:text-base flex items-center gap-1.5"
             >
               <RotateCcw className="w-4 h-4 text-theme-text-secondary" aria-hidden="true" />
