@@ -4,11 +4,10 @@ import type { Exam } from '../../shared/types';
  * Universal High-Accuracy Dynamic Exam Matcher.
  * Matches:
  * 1. Exact model parameter (ID, Code, Title)
- * 2. Admin-created custom exams by exact title or cleaned title
- * 3. 2-3 letter acronyms (NDA, CAT, JEE, NET, CDS, GATE, NEET, etc.)
- * 4. Specific known national exams & multilingual aliases (UPSC, RRB, IBPS, SSC)
- * 5. Dynamic numerical/ordinal indices (Exam 1 through Exam 50+, "5th test", "paanchwa")
- * 6. High-specificity token overlap scoring so any newly created admin exam opens instantly.
+ * 2. Exact Full Title or Cleaned Core Title in Query
+ * 3. Specific Differentiators (e.g. "10+2", "10 plus 2", "12", "Sprint", "Science")
+ * 4. Dynamic Numerical Position & Ordinal Matching (Exam 6, 6th Test, "6 number wala", "chhatha")
+ * 5. High-specificity Multi-candidate Scoring so general keywords (like "RRB") do NOT shadow specific exams.
  */
 export function matchExamFromQuery(
   rawQuery: string,
@@ -17,9 +16,8 @@ export function matchExamFromQuery(
 ): Exam | null {
   if (!allExams || allExams.length === 0) return null;
 
-  const query = (rawQuery || '').toLowerCase().trim();
+  const raw = (rawQuery || '').trim();
   const p = String(param || '').toLowerCase().trim();
-  const combined = `${p} ${query}`.toLowerCase();
 
   // 1. Direct ID / Code / Exact Title Match from Model Parameter
   if (p && p !== 'null' && p !== 'undefined') {
@@ -32,258 +30,285 @@ export function matchExamFromQuery(
     if (directMatch) return directMatch;
   }
 
+  // Normalize Devanagari numerals to ASCII digits
+  let query = raw
+    .toLowerCase()
+    .replace(/०/g, '0')
+    .replace(/१/g, '1')
+    .replace(/२/g, '2')
+    .replace(/३/g, '3')
+    .replace(/४/g, '4')
+    .replace(/५/g, '5')
+    .replace(/६/g, '6')
+    .replace(/७/g, '7')
+    .replace(/८/g, '8')
+    .replace(/९/g, '9');
+
+  // Normalize "10+2" variations (10+2, 10 + 2, 10 plus 2, ten plus two, 10प्लस2)
+  query = query
+    .replace(/\b10\s*[\+\-]\s*2\b/g, '10+2')
+    .replace(/\b10\s*plus\s*2\b/gi, '10+2')
+    .replace(/\bten\s*plus\s*two\b/gi, '10+2')
+    .replace(/\b10\s*प्लस\s*2\b/gi, '10+2')
+    .replace(/\b10\s*2\b/g, '10+2');
+
+  const combined = `${p} ${query}`.toLowerCase();
+
   // 2. Direct Substring ID or Code Match in User Query
   for (const exam of allExams) {
     const idLower = exam.id.toLowerCase();
     const codeLower = exam.code.toLowerCase();
-    if (combined.includes(idLower) || (codeLower.length >= 3 && combined.includes(codeLower))) {
+    const codeHyphenless = codeLower.replace(/[-_\s]+/g, '');
+    const combinedHyphenless = combined.replace(/[-_\s]+/g, '');
+
+    if (
+      combined.includes(idLower) ||
+      (codeLower.length >= 3 && combined.includes(codeLower)) ||
+      (codeHyphenless.length >= 3 && combinedHyphenless.includes(codeHyphenless))
+    ) {
       return exam;
     }
   }
 
-  // 3. Exact Full Title or Cleaned Core Title in Query
-  // Checks if the user uttered the full or core title of any exam (including newly added admin exams)
+  // 3. Exact Full Title or Cleaned Core Title Match
   const commonBoilerplate = /\b(mock|test|exam|examination|series|paper|drill|practice|full|tier|tier-1|tier-2|2024|2025|2026|set\s*[a-z0-9]?)\b/gi;
 
   for (const exam of allExams) {
     const titleLower = exam.title.toLowerCase();
-    if (combined.includes(titleLower)) {
+    const titleNormalized = titleLower
+      .replace(/\b10\s*[\+\-]\s*2\b/g, '10+2')
+      .replace(/\b10\s*plus\s*2\b/gi, '10+2');
+
+    if (combined.includes(titleLower) || combined.includes(titleNormalized)) {
       return exam;
     }
 
-    const coreTitle = titleLower.replace(commonBoilerplate, '').replace(/\s+/g, ' ').trim();
+    const coreTitle = titleNormalized.replace(commonBoilerplate, '').replace(/\s+/g, ' ').trim();
     if (coreTitle.length >= 3 && combined.includes(coreTitle)) {
       return exam;
     }
   }
 
-  // 4. Code Token Substrings (e.g. Code is "NDA-01" or "GATE-CS", user says "NDA" or "GATE")
-  for (const exam of allExams) {
-    const codeTokens = exam.code
-      .toLowerCase()
-      .split(/[-_\s]+/)
-      .filter((t) => t.length >= 3 && !['test', 'mock', 'exam', 'set'].includes(t));
-    if (codeTokens.some((t) => new RegExp(`\\b${t}\\b`, 'i').test(combined))) {
-      return exam;
+  // 4. Explicit Index / Ordinal Matching (e.g. Exam 6, 6th Test, "6 number", "chhatha", "open 6")
+  let extractedTargetIdx: number | null = null;
+
+  // Patterns like "exam 6", "test 6", "number 6", "no 6", "open 6", "start 6"
+  const prefixNumMatch = combined.match(/\b(?:exam|test|number|no\.?|open|start|kholo|chalao)\s*(\d+)\b/i);
+  if (prefixNumMatch && prefixNumMatch[1]) {
+    extractedTargetIdx = parseInt(prefixNumMatch[1], 10) - 1;
+  }
+
+  // Patterns like "6th exam", "6th test", "6th", "6th wala", "6 number", "6 no", "6 wala"
+  if (extractedTargetIdx === null) {
+    const suffixNumMatch = combined.match(/\b(\d+)\s*(?:st|nd|rd|th|number|no\.?|wala|waala|valaa|vala|waale|number\s*wala|number\s*vala)\b/i);
+    if (suffixNumMatch && suffixNumMatch[1]) {
+      extractedTargetIdx = parseInt(suffixNumMatch[1], 10) - 1;
     }
   }
 
-  // 5. UPSC / Civil Services / CSAT Multilingual & Phonetic Aliases
-  const isUPSC =
-    combined.includes('upsc') ||
-    combined.includes('u.p.s.c') ||
-    combined.includes('u p s c') ||
-    combined.includes('up sc') ||
-    combined.includes('civil service') ||
-    combined.includes('civil services') ||
-    combined.includes('civil') ||
-    combined.includes('सिविल सेवा') ||
-    combined.includes('सिविल') ||
-    combined.includes('सिविल्स') ||
-    combined.includes('यूपीएससी') ||
-    combined.includes('सीसैट') ||
-    combined.includes('csat') ||
-    combined.includes('ias') ||
-    combined.includes('ips') ||
-    combined.includes('paper 2') ||
-    combined.includes('paper-2') ||
-    combined.includes('paper2') ||
-    combined.includes('paper ii');
+  // Ordinal words in English and Hindi (1-indexed converted to 0-indexed)
+  if (extractedTargetIdx === null) {
+    const ordinalWordMap: { [key: string]: number } = {
+      pehla: 0,
+      pehli: 0,
+      first: 0,
+      '1st': 0,
+      dusra: 1,
+      doosra: 1,
+      dusri: 1,
+      second: 1,
+      '2nd': 1,
+      teesra: 2,
+      teesri: 2,
+      third: 2,
+      '3rd': 2,
+      chautha: 3,
+      chauthi: 3,
+      fourth: 3,
+      '4th': 3,
+      paanchwa: 4,
+      panchwa: 4,
+      fifth: 4,
+      '5th': 4,
+      chhatha: 5,
+      chhatwa: 5,
+      chatha: 5,
+      chhattha: 5,
+      chhatthi: 5,
+      sixth: 5,
+      '6th': 5,
+      saatwa: 6,
+      satwa: 6,
+      seventh: 6,
+      '7th': 6,
+      aathwa: 7,
+      athwa: 7,
+      eighth: 7,
+      '8th': 7,
+      nauwa: 8,
+      ninth: 8,
+      '9th': 8,
+      daswa: 9,
+      tenth: 9,
+      '10th': 9,
+    };
 
-  if (isUPSC) {
-    const upsc = allExams.find(
-      (e) =>
-        e.id.includes('upsc') ||
-        e.code.includes('CSAT') ||
-        e.title.toLowerCase().includes('civil services') ||
-        e.title.toLowerCase().includes('upsc')
-    );
-    if (upsc) return upsc;
-  }
-
-  // 6. Railway / RRB NTPC Aliases
-  const isRailway =
-    combined.includes('rrb') ||
-    combined.includes('ntpc') ||
-    combined.includes('railway') ||
-    combined.includes('railways') ||
-    combined.includes('rail') ||
-    combined.includes('आरआरबी') ||
-    combined.includes('एनटीपीसी') ||
-    combined.includes('रेलवे');
-
-  if (isRailway) {
-    const rrb = allExams.find(
-      (e) =>
-        e.id.includes('rrb') ||
-        e.code.includes('RRB') ||
-        e.title.toLowerCase().includes('rrb') ||
-        e.title.toLowerCase().includes('railway')
-    );
-    if (rrb) return rrb;
-  }
-
-  // 7. IBPS / Banking & Insurance Aliases
-  const isBanking =
-    combined.includes('ibps') ||
-    combined.includes('banking') ||
-    combined.includes('आईबीपीएस') ||
-    combined.includes('पीओ') ||
-    combined.includes('बैंकिंग') ||
-    combined.includes('bank') ||
-    combined.includes('बैंक') ||
-    (combined.includes('po') && !combined.includes('open') && !combined.includes('report'));
-
-  if (isBanking) {
-    const ibps = allExams.find(
-      (e) =>
-        e.id.includes('ibps') ||
-        e.code.includes('IBPS') ||
-        e.title.toLowerCase().includes('ibps') ||
-        e.title.toLowerCase().includes('bank')
-    );
-    if (ibps) return ibps;
-  }
-
-  // 8. SSC CGL / Staff Selection Aliases
-  const isSSC =
-    combined.includes('ssc') ||
-    combined.includes('cgl') ||
-    combined.includes('एसएससी') ||
-    combined.includes('सीजीएल') ||
-    combined.includes('staff selection') ||
-    combined.includes('tier 1') ||
-    combined.includes('tier-1') ||
-    combined.includes('tier1');
-
-  if (isSSC) {
-    const ssc = allExams.find(
-      (e) =>
-        e.id.includes('ssc') ||
-        e.code.includes('SSC') ||
-        e.title.toLowerCase().includes('ssc') ||
-        e.title.toLowerCase().includes('cgl')
-    );
-    if (ssc) return ssc;
-  }
-
-  // 8b. Data Interpretation / Chart Analysis / Sonification
-  const isDI =
-    combined.includes('data interpretation') ||
-    combined.includes('chart analysis') ||
-    combined.includes('sonification') ||
-    combined.includes('graph analysis') ||
-    combined.includes('di drill') ||
-    combined.includes('di test') ||
-    combined.includes('di exam') ||
-    combined.includes('di-data-01') ||
-    combined.includes('data drill');
-
-  if (isDI) {
-    const di = allExams.find(
-      (e) =>
-        e.code === 'DI-DATA-01' ||
-        e.id.includes('DI-DATA') ||
-        e.title.toLowerCase().includes('data interpretation')
-    );
-    if (di) return di;
-  }
-
-  // 9. Practice Drills / Topic-wise Arena
-  const isPractice =
-    combined.includes('practice') ||
-    combined.includes('drill') ||
-    combined.includes('अभ्यास') ||
-    combined.includes('arithmetic') ||
-    combined.includes('syllogism') ||
-    combined.includes('grammar');
-
-  if (isPractice) {
-    const practice = allExams.find((e) => e.id.includes('practice'));
-    if (practice) return practice;
-  }
-
-  // 10. Dynamic Numerical Position & Ordinal Matching (Exam 1, Test 2, Exam 5, 6th Test, etc.)
-  // Matches "exam 1", "test 3", "exam 5", "test 10"
-  const numMatch = combined.match(/\b(?:exam|test|number|no\.?)\s*(\d+)\b/i);
-  if (numMatch && numMatch[1]) {
-    const targetIdx = parseInt(numMatch[1], 10) - 1;
-    if (targetIdx >= 0 && targetIdx < allExams.length) {
-      return allExams[targetIdx];
+    for (const [word, idx] of Object.entries(ordinalWordMap)) {
+      if (new RegExp(`\\b${word}\\b`, 'i').test(combined)) {
+        extractedTargetIdx = idx;
+        break;
+      }
     }
   }
 
-  // Matches "1st exam", "2nd test", "5th test", "10th exam"
-  const ordMatch = combined.match(/\b(\d+)(?:st|nd|rd|th)\s*(?:exam|test)?\b/i);
-  if (ordMatch && ordMatch[1]) {
-    const targetIdx = parseInt(ordMatch[1], 10) - 1;
-    if (targetIdx >= 0 && targetIdx < allExams.length) {
-      return allExams[targetIdx];
+  // Hindi number words before "number", "wala", "exam", "test"
+  if (extractedTargetIdx === null) {
+    const hindiNumWords: { [key: string]: number } = {
+      ek: 0,
+      do: 1,
+      teen: 2,
+      char: 3,
+      paanch: 4,
+      panch: 4,
+      chhe: 5,
+      chhah: 5,
+      che: 5,
+      saat: 6,
+      aath: 7,
+      nau: 8,
+      das: 9,
+    };
+
+    for (const [w, idx] of Object.entries(hindiNumWords)) {
+      if (new RegExp(`\\b${w}\\s*(?:number|no|wala|vala|exam|test|kholo|chalao)\\b`, 'i').test(combined)) {
+        extractedTargetIdx = idx;
+        break;
+      }
     }
   }
 
-  // Hindi ordinals (pehla, dusra, teesra, chautha, paanchwa, chhatha, saatwa, aathwa)
-  const hindiOrdinals: { [key: string]: number } = {
-    pehla: 0,
-    pehli: 0,
-    first: 0,
-    dusra: 1,
-    doosra: 1,
-    dusri: 1,
-    second: 1,
-    teesra: 2,
-    teesri: 2,
-    third: 2,
-    chautha: 3,
-    chauthi: 3,
-    fourth: 3,
-    paanchwa: 4,
-    panchwa: 4,
-    fifth: 4,
-    chhatha: 5,
-    sixth: 5,
-    saatwa: 6,
-    seventh: 6,
-    aathwa: 7,
-    eighth: 7,
-  };
-
-  for (const [word, idx] of Object.entries(hindiOrdinals)) {
-    if (new RegExp(`\\b${word}\\b`, 'i').test(combined) && idx < allExams.length) {
-      return allExams[idx];
-    }
-  }
-
-  // 11. Highest-Specificity Dynamic Token Overlap (For ANY Admin-Created Exam)
-  // Scores every available exam based on how many distinct meaningful words from its title appear in the query
+  // 5. Multi-candidate Specificity Scoring
+  // Assign a relevance score to every exam.
+  // The exam with the highest specificity score wins.
   let bestExam: Exam | null = null;
   let highestScore = 0;
 
-  for (const exam of allExams) {
-    const words = exam.title
-      .toLowerCase()
-      .split(/[\s\-:,/]+/)
-      .map((w) => w.replace(/[^a-z0-9]/gi, ''))
-      .filter((w) => w.length >= 3 && !['test', 'mock', 'exam', 'paper', 'series', 'drill', 'open', 'start'].includes(w));
-
+  for (let idx = 0; idx < allExams.length; idx++) {
+    const exam = allExams[idx];
     let score = 0;
-    for (const w of words) {
-      if (new RegExp(`\\b${w}\\b`, 'i').test(combined) || combined.includes(w)) {
-        // Boost short unique acronyms (e.g. "nda", "cat", "gate", "neet", "ctet")
-        score += w.length <= 4 ? 3 : 2;
+
+    const titleLower = exam.title.toLowerCase();
+    const codeLower = exam.code.toLowerCase();
+
+    // If explicit index matches this exam, add a huge boost (+80)
+    if (extractedTargetIdx !== null && extractedTargetIdx === idx) {
+      score += 80;
+    }
+
+    // Specific Differentiators
+    // 10+2 / 12 (RRB NTPC 10+2 Exam / RRB-12)
+    if (titleLower.includes('10+2') || codeLower.includes('12')) {
+      if (combined.includes('10+2') || combined.includes('12') || combined.includes('barahvi') || combined.includes('barvi')) {
+        score += 60;
       }
     }
 
-    if (score > highestScore && score >= 2) {
+    // Science / Sprint / General Awareness (Railway RRB NTPC General Awareness & Science Sprint)
+    if (titleLower.includes('science') || titleLower.includes('sprint') || titleLower.includes('awareness')) {
+      if (combined.includes('science') || combined.includes('sprint') || combined.includes('awareness') || combined.includes('general')) {
+        score += 60;
+      }
+    }
+
+    // UPSC CSAT
+    if (titleLower.includes('csat') || codeLower.includes('csat')) {
+      if (
+        combined.includes('csat') ||
+        combined.includes('upsc') ||
+        combined.includes('civil') ||
+        combined.includes('ias') ||
+        combined.includes('paper 2') ||
+        combined.includes('paper-2') ||
+        combined.includes('paper ii')
+      ) {
+        score += 50;
+      }
+    }
+
+    // IBPS PO
+    if (titleLower.includes('ibps') || codeLower.includes('ibps')) {
+      if (combined.includes('ibps') || combined.includes('po') || combined.includes('bank') || combined.includes('banking')) {
+        score += 50;
+      }
+    }
+
+    // SSC CGL
+    if (titleLower.includes('ssc') || codeLower.includes('ssc')) {
+      if (combined.includes('ssc') || combined.includes('cgl') || combined.includes('staff selection') || combined.includes('tier 1') || combined.includes('tier-1')) {
+        score += 50;
+      }
+    }
+
+    // Data Interpretation
+    if (titleLower.includes('data interpretation') || codeLower.includes('di-data')) {
+      if (combined.includes('data interpretation') || combined.includes('chart') || combined.includes('sonification') || combined.includes('graph')) {
+        score += 50;
+      }
+    }
+
+    // Code tokens match (e.g. RRB, NTPC, 04, 12, CGL, CSAT)
+    const codeTokens = codeLower
+      .split(/[-_\s]+/)
+      .filter((t) => t.length >= 2 && !['test', 'mock', 'exam', 'set'].includes(t));
+
+    for (const token of codeTokens) {
+      if (new RegExp(`\\b${token}\\b`, 'i').test(combined)) {
+        score += token.length <= 3 ? 15 : 10;
+      }
+    }
+
+    // Distinctive words in title
+    const words = titleLower
+      .replace(/\b10\s*[\+\-]\s*2\b/g, '10+2')
+      .split(/[\s\-:,/]+/)
+      .map((w) => w.replace(/[^a-z0-9+]/gi, ''))
+      .filter((w) => w.length >= 3 && !['test', 'mock', 'exam', 'paper', 'series', 'drill', 'open', 'start'].includes(w));
+
+    for (const w of words) {
+      if (new RegExp(`\\b${w.replace('+', '\\+')}\\b`, 'i').test(combined) || combined.includes(w)) {
+        score += w.length <= 4 ? 12 : 8;
+      }
+    }
+
+    // Railway category boost
+    if (
+      (combined.includes('rrb') || combined.includes('ntpc') || combined.includes('railway') || combined.includes('railways') || combined.includes('रेलवे') || combined.includes('आरआरबी')) &&
+      (titleLower.includes('rrb') || codeLower.includes('rrb') || titleLower.includes('railway'))
+    ) {
+      score += 10;
+    }
+
+    if (score > highestScore) {
       highestScore = score;
       bestExam = exam;
     }
   }
 
-  if (bestExam) {
+  // If we found a clear scored winner (minimum threshold 10), return it!
+  if (bestExam && highestScore >= 10) {
     return bestExam;
+  }
+
+  // If explicit index was requested and is valid, return that index directly
+  if (extractedTargetIdx !== null && extractedTargetIdx >= 0 && extractedTargetIdx < allExams.length) {
+    return allExams[extractedTargetIdx];
+  }
+
+  // Fallback to first practice exam if query explicitly mentions practice
+  if (combined.includes('practice') || combined.includes('drill') || combined.includes('अभ्यास')) {
+    const practice = allExams.find((e) => e.id.includes('practice'));
+    if (practice) return practice;
   }
 
   return null;
 }
-

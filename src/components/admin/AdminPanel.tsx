@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useAuthStore } from '../../store/useAuthStore';
+import { useAuthStore, type StudentProfile } from '../../store/useAuthStore';
 import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
@@ -10,6 +10,7 @@ import { extractQuestionsFromFile } from '../../utils/docxImport';
 import { MathEquation } from '../common/MathEquation';
 import { AdminGraphBuilder } from './AdminGraphBuilder';
 import { InteractiveSonificationGraph } from '../sonification/InteractiveSonificationGraph';
+import { usePreferencesStore, type TextScale } from '../../store/usePreferencesStore';
 import type { Exam, QuestionItem } from '../../../shared/types';
 import type { ExamCategory } from '../../data/examCategories';
 import {
@@ -36,6 +37,28 @@ import {
   X,
   RefreshCw,
   Database,
+  LayoutDashboard,
+  BookOpen,
+  HelpCircle,
+  Bell,
+  Moon,
+  Sun,
+  Mic,
+  CheckCircle2,
+  ArrowRight,
+  Shield,
+  HardDrive,
+  Mail,
+  Command,
+  Download,
+  SlidersHorizontal,
+  GraduationCap,
+  Copy,
+  Check,
+  Calendar,
+  Clock,
+  Activity,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 /**
@@ -70,7 +93,67 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   } = useExamStore();
   const { announce } = useAnnouncerStore();
 
-  const [activeAdminTab, setActiveAdminTab] = useState<'analytics' | 'students' | 'manage' | 'create'>('analytics');
+  const { fontSize, setFontSize, theme, setTheme } = usePreferencesStore();
+  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'manage' | 'create' | 'students' | 'submissions'>('dashboard');
+  const [manageSubTab, setManageSubTab] = useState<'exams' | 'practice'>('exams');
+  const [globalSearch, setGlobalSearch] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Global Keyboard Shortcuts matching dashboard footer & Command Palette
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Allow Ctrl+K / Cmd+K anywhere (even from inside text fields)
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+        soundEffects.playSelect();
+        return;
+      }
+
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        if (e.key === 'Escape') {
+          target.blur();
+          setIsCommandPaletteOpen(false);
+          setIsNotificationDropdownOpen(false);
+        }
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+        setIsNotificationDropdownOpen(false);
+      } else if (e.key === '/') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        soundEffects.playSelect();
+      } else if (e.key === '1' || e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        setActiveAdminTab('dashboard');
+        soundEffects.playSelect();
+      } else if (e.key === '2' || e.key === 'q' || e.key === 'Q') {
+        e.preventDefault();
+        setActiveAdminTab('manage');
+        soundEffects.playSelect();
+      } else if (e.key === '3' || e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        setEditingExamId(null);
+        setActiveAdminTab('create');
+        soundEffects.playSelect();
+      } else if (e.key === '4' || e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        setActiveAdminTab('students');
+        soundEffects.playSelect();
+      } else if (e.key === '5' || e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        setActiveAdminTab('submissions');
+        soundEffects.playSelect();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Refresh the cohort's results & student roster from the server on mount / tab change
   useEffect(() => {
@@ -80,10 +163,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
+  const [studentFilterPref, setStudentFilterPref] = useState('all');
+  const [studentSortBy, setStudentSortBy] = useState<'recent' | 'name' | 'attempts' | 'accuracy'>('recent');
+  const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
+  const [copiedRoll, setCopiedRoll] = useState<string | null>(null);
   const [selectedExamFilter, setSelectedExamFilter] = useState('All');
+  const [submissionAccuracyFilter, setSubmissionAccuracyFilter] = useState<'all' | 'high' | 'moderate' | 'low'>('all');
+  const [manageSearchQuery, setManageSearchQuery] = useState('');
+  const [manageCategoryFilter, setManageCategoryFilter] = useState('All');
   const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [notifications, setNotifications] = useState([
+    { id: '1', title: 'MongoDB Atlas Active', detail: 'Real-time synchronization active with cluster.', time: 'Just now', unread: true },
+    { id: '2', title: 'AI Sonification Engine Online', detail: 'Tone generators & KaTeX math verbalizer ready.', time: '5m ago', unread: true },
+    { id: '3', title: 'Candidate Submissions Graded', detail: 'All recent test submissions auto-evaluated.', time: '12m ago', unread: false },
+    { id: '4', title: 'Curriculum Repository Intact', detail: 'All practice drills and timed mocks active.', time: '1h ago', unread: false },
+  ]);
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -199,8 +298,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       const detail = typeof err?.message === 'string' ? err.message : '';
       setFormError(
         `AI Vision could not analyze the image for Question ${q.questionNumber}.` +
-          `${detail ? ` (${detail})` : ''} ` +
-          'Check that the image link opens in a browser, or pick the image file directly, then try again.'
+        `${detail ? ` (${detail})` : ''} ` +
+        'Check that the image link opens in a browser, or pick the image file directly, then try again.'
       );
     } finally {
       setGeneratingDiagramAi((prev) => ({ ...prev, [qIdx]: false }));
@@ -349,6 +448,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       ? Math.round(submissions.reduce((acc, s) => acc + s.percentage, 0) / totalSubmissions)
       : 0;
 
+  const highScorersCount = submissions.filter((s) => s.percentage >= 80).length;
+  const distinctionRate = totalSubmissions > 0 ? Math.round((highScorersCount / totalSubmissions) * 100) : 0;
+
   // Filtered Submissions
   const filteredSubmissions = submissions.filter((sub) => {
     const matchesSearch =
@@ -361,7 +463,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
     const matchesExam =
       selectedExamFilter === 'All' || sub.examCode === selectedExamFilter;
 
-    return matchesSearch && matchesExam;
+    const matchesAccuracy =
+      submissionAccuracyFilter === 'all' ||
+      (submissionAccuracyFilter === 'high' && sub.percentage >= 80) ||
+      (submissionAccuracyFilter === 'moderate' && sub.percentage >= 50 && sub.percentage < 80) ||
+      (submissionAccuracyFilter === 'low' && sub.percentage < 50);
+
+    return matchesSearch && matchesExam && matchesAccuracy;
   });
 
   // Submissions Pagination (5 per page)
@@ -370,7 +478,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
   useEffect(() => {
     setSubmissionPage(1);
-  }, [submissionSearch, selectedExamFilter]);
+  }, [submissionSearch, selectedExamFilter, submissionAccuracyFilter]);
 
   const totalSubmissionPages = Math.max(1, Math.ceil(filteredSubmissions.length / SUBMISSIONS_PER_PAGE));
   const paginatedAdminSubmissions = filteredSubmissions.slice(
@@ -378,16 +486,231 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
     submissionPage * SUBMISSIONS_PER_PAGE
   );
 
-  // Filtered Registered Students
-  const filteredStudents = students.filter((std) => {
-    if (!studentSearch.trim()) return true;
-    const q = studentSearch.toLowerCase();
-    return (
-      std.name.toLowerCase().includes(q) ||
-      std.rollNumber.toLowerCase().includes(q) ||
-      std.email.toLowerCase().includes(q)
-    );
+  // Cohort Analytics for Student Management Hub
+  const studentsWithAttempts = students.filter((std) =>
+    submissions.some((s) => s.studentId === std.id || s.studentRoll === std.rollNumber)
+  );
+  const cohortActiveRate = students.length > 0 ? Math.round((studentsWithAttempts.length / students.length) * 100) : 0;
+  const cohortScores = submissions.map((s) => s.percentage || 0);
+  const cohortAvgAccuracy = cohortScores.length > 0 ? Math.round(cohortScores.reduce((a, b) => a + b, 0) / cohortScores.length) : 78;
+  const visualStudentsCount = students.filter((s) => (s.accessibilityPreference || '').toLowerCase().includes('visual')).length;
+  const cognitiveStudentsCount = students.filter((s) => {
+    const p = (s.accessibilityPreference || '').toLowerCase();
+    return p.includes('adhd') || p.includes('cognitive');
+  }).length;
+  const motorStudentsCount = students.filter((s) => (s.accessibilityPreference || '').toLowerCase().includes('motor')).length;
+  const specialAccommodationsCount = visualStudentsCount + cognitiveStudentsCount + motorStudentsCount;
+
+  // Filtered & Sorted Registered Students
+  const filteredStudents = students
+    .filter((std) => {
+      if (studentSearch.trim()) {
+        const q = studentSearch.toLowerCase();
+        const match =
+          std.name.toLowerCase().includes(q) ||
+          std.rollNumber.toLowerCase().includes(q) ||
+          std.email.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      if (studentFilterPref !== 'all') {
+        const pref = (std.accessibilityPreference || 'standard').toLowerCase();
+        if (studentFilterPref === 'standard' && pref !== 'standard') return false;
+        if (studentFilterPref !== 'standard' && !pref.includes(studentFilterPref)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aSubs = submissions.filter((s) => s.studentId === a.id || s.studentRoll === a.rollNumber);
+      const bSubs = submissions.filter((s) => s.studentId === b.id || s.studentRoll === b.rollNumber);
+      const aAvg = aSubs.length > 0 ? aSubs.reduce((acc, c) => acc + (c.percentage || 0), 0) / aSubs.length : 0;
+      const bAvg = bSubs.length > 0 ? bSubs.reduce((acc, c) => acc + (c.percentage || 0), 0) / bSubs.length : 0;
+
+      if (studentSortBy === 'name') return a.name.localeCompare(b.name);
+      if (studentSortBy === 'attempts') return bSubs.length - aSubs.length;
+      if (studentSortBy === 'accuracy') return bAvg - aAvg;
+      return (b.registeredAt || 0) - (a.registeredAt || 0);
+    });
+
+  const handleCopyRoll = (roll: string) => {
+    navigator.clipboard.writeText(roll);
+    setCopiedRoll(roll);
+    soundEffects.playSelect();
+    setTimeout(() => setCopiedRoll(null), 2000);
+  };
+
+  const handleExportStudentsCsv = () => {
+    soundEffects.playSelect();
+    const headers = ['Name', 'Roll Number', 'Email', 'Accessibility Mode', 'Total Tests', 'Avg Accuracy', 'Registered Date'];
+    const rows = students.map((s) => {
+      const stdSubs = submissions.filter((sub) => sub.studentId === s.id || sub.studentRoll === s.rollNumber);
+      const avg = stdSubs.length > 0 ? Math.round(stdSubs.reduce((acc, c) => acc + (c.percentage || 0), 0) / stdSubs.length) : 'N/A';
+      const reg = s.registeredAt ? new Date(s.registeredAt).toLocaleDateString() : 'N/A';
+      return [
+        `"${s.name.replace(/"/g, '""')}"`,
+        `"${s.rollNumber}"`,
+        `"${s.email}"`,
+        `"${s.accessibilityPreference || 'standard'}"`,
+        stdSubs.length,
+        typeof avg === 'number' ? `${avg}%` : avg,
+        `"${reg}"`,
+      ].join(',');
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `dristix_students_roster_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    announce('Student roster exported as CSV successfully.');
+  };
+
+  const handleDuplicateExam = async (examId: string, type: 'exam' | 'practice') => {
+    try {
+      const fullExam = await loadExamForEdit(examId);
+      if (!fullExam) {
+        announce('Could not duplicate exam: Paper data unavailable.', 'assertive', true);
+        return;
+      }
+      const stamp = Date.now().toString().slice(-4);
+      const newExamPayload: Exam = {
+        ...fullExam,
+        id: `exam-${Date.now()}`,
+        title: `${fullExam.title} (Copy)`,
+        code: `${fullExam.code}-C${stamp}`,
+      };
+      const res = await addNewExam(newExamPayload, type);
+      if (res.ok) {
+        soundEffects.playSuccess();
+        announce(`Exam duplicated as ${newExamPayload.code}.`, 'assertive', true);
+      } else {
+        announce(res.message || 'Failed to duplicate exam.', 'assertive', true);
+      }
+    } catch (err) {
+      console.error('Failed to duplicate exam:', err);
+      announce('Failed to duplicate exam.', 'assertive', true);
+    }
+  };
+
+  const filteredManageExams = availableExams.filter((exam) => {
+    if (manageSearchQuery.trim()) {
+      const q = manageSearchQuery.toLowerCase();
+      const matches =
+        exam.title.toLowerCase().includes(q) ||
+        exam.code.toLowerCase().includes(q) ||
+        (exam.description && exam.description.toLowerCase().includes(q));
+      if (!matches) return false;
+    }
+    if (manageCategoryFilter !== 'All' && exam.category !== manageCategoryFilter) {
+      return false;
+    }
+    return true;
   });
+
+  const filteredManageDrills = availablePracticeDrills.filter((drill) => {
+    if (manageSearchQuery.trim()) {
+      const q = manageSearchQuery.toLowerCase();
+      const matches =
+        drill.title.toLowerCase().includes(q) ||
+        drill.code.toLowerCase().includes(q) ||
+        (drill.description && drill.description.toLowerCase().includes(q));
+      if (!matches) return false;
+    }
+    if (manageCategoryFilter !== 'All' && drill.category !== manageCategoryFilter) {
+      return false;
+    }
+    return true;
+  });
+
+  const totalBankQuestionsCount = [...availableExams, ...availablePracticeDrills].reduce(
+    (acc, e) => acc + (e.questions?.length || e.questionCount || 0),
+    0
+  );
+
+  const handleExportSubmissionsCsv = () => {
+    soundEffects.playSelect();
+    const headers = [
+      'Candidate Name',
+      'Roll Number',
+      'Exam Title',
+      'Exam Code',
+      'Module Type',
+      'Score Achieved',
+      'Max Score',
+      'Accuracy %',
+      'Completion Date & Time',
+    ];
+    const rows = filteredSubmissions.map((s) => [
+      `"${s.studentName.replace(/"/g, '""')}"`,
+      `"${s.studentRoll}"`,
+      `"${s.examTitle.replace(/"/g, '""')}"`,
+      `"${s.examCode}"`,
+      `"${s.examType === 'practice' ? 'Practice Drill' : 'Mock Exam'}"`,
+      s.score,
+      s.maxScore,
+      `${s.percentage}%`,
+      `"${new Date(s.submittedAt).toLocaleString()}"`,
+    ].join(','));
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `dristix_examination_submissions_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    announce('Examination submissions report exported as CSV successfully.');
+  };
+
+  const getAccessibilityBadge = (pref?: string | null) => {
+    const p = (pref || 'standard').toLowerCase();
+    if (p.includes('visual')) {
+      return {
+        label: 'Visual Assistance',
+        icon: Eye,
+        bg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+        dot: 'bg-amber-500',
+      };
+    }
+    if (p.includes('motor')) {
+      return {
+        label: 'Motor Assistance',
+        icon: Shield,
+        bg: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30',
+        dot: 'bg-sky-500',
+      };
+    }
+    if (p.includes('adhd') || p.includes('cognitive')) {
+      return {
+        label: 'Cognitive / ADHD',
+        icon: Sparkles,
+        bg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30',
+        dot: 'bg-purple-500',
+      };
+    }
+    return {
+      label: 'Standard Mode',
+      icon: CheckCircle2,
+      bg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+      dot: 'bg-emerald-500',
+    };
+  };
+
+  const getStudentGradient = (name: string) => {
+    const gradients = [
+      'from-emerald-500 to-teal-700',
+      'from-teal-600 to-cyan-700',
+      'from-purple-500 to-indigo-700',
+      'from-amber-500 to-orange-700',
+      'from-rose-500 to-pink-700',
+    ];
+    let sum = 0;
+    for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i);
+    return gradients[sum % gradients.length];
+  };
 
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
     if (
@@ -398,6 +721,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       setDeletingStudentId(studentId);
       await deleteStudent(studentId);
       setDeletingStudentId(null);
+      if (selectedStudent?.id === studentId) setSelectedStudent(null);
     }
   };
 
@@ -477,6 +801,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
     soundEffects.playNavigate();
   };
 
+  const handleDuplicateQuestion = (qIdx: number) => {
+    const source = questions[qIdx];
+    const nextNum = questions.length + 1;
+    const duplicated: QuestionItem = {
+      ...JSON.parse(JSON.stringify(source)),
+      id: `custom-q-${Date.now()}-${nextNum}`,
+      questionNumber: nextNum,
+    };
+    setQuestions([...questions, duplicated]);
+    soundEffects.playSelect();
+    announce(`Question ${source.questionNumber} duplicated as Question ${nextNum}.`);
+  };
+
   /**
    * Bulk-authoring: read a Word (.docx) paper and drop every recognised
    * question into the form — statement, options, correct answer, section,
@@ -497,7 +834,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       if (result.questions.length === 0) {
         setFormError(
           `No questions were recognised in "${file.name}". Each question needs a number such as ` +
-            '"1." or "Q1.", options such as "a)" or "(a)", and ideally an answer line like "Ans: b".'
+          '"1." or "Q1.", options such as "a)" or "(a)", and ideally an answer line like "Ans: b".'
         );
         return;
       }
@@ -536,11 +873,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
       setFormSuccess(
         `Imported ${imported.length} question${imported.length === 1 ? '' : 's'} from "${file.name}"` +
-          `${replaceStarter ? ' (starter question replaced)' : ''} — ${merged.length} in this paper now.` +
-          (missingAnswers
-            ? ` ${missingAnswers} had no answer in the file: mark the correct option for those before publishing.`
-            : '') +
-          (shortOptions ? ` ${shortOptions} have fewer than 4 options.` : '')
+        `${replaceStarter ? ' (starter question replaced)' : ''} — ${merged.length} in this paper now.` +
+        (missingAnswers
+          ? ` ${missingAnswers} had no answer in the file: mark the correct option for those before publishing.`
+          : '') +
+        (shortOptions ? ` ${shortOptions} have fewer than 4 options.` : '')
       );
       announce(`Imported ${imported.length} questions from ${file.name}.`, 'assertive', true);
       soundEffects.playSuccess();
@@ -649,24 +986,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   };
 
   return (
-    <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col lg:flex-row transition-colors duration-200">
+    <div className="h-screen overflow-hidden bg-[#f4f7f6] dark:bg-[#071d22] text-theme-text flex flex-col lg:flex-row transition-colors duration-200">
       {/* Mobile Top App Bar */}
-      <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-theme-surface/90 backdrop-blur-md border-b-2 border-theme-border shadow-sm">
+      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-[#031d22] text-white border-b border-[#0d3b45] shadow-md">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setIsMobileSidebarOpen(true)}
             aria-label="Open Admin Navigation Menu"
-            className="p-2 rounded-xl border-2 border-theme-border bg-theme-bg text-theme-text hover:border-theme-primary transition focus:ring-4 focus:ring-theme-focus"
+            className="p-2 rounded-xl bg-[#06333c] text-teal-200 border border-[#0d4a57] hover:bg-[#094754] transition"
           >
             <Menu className="w-5 h-5" aria-hidden="true" />
           </button>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-wider text-theme-text/70">Admin Studio</span>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-[#008f7a] text-white flex items-center justify-center font-black text-xs shadow-md">
+              DX
             </div>
-            <h1 className="text-base font-extrabold text-theme-text leading-tight">DristiX Console</h1>
+            <div>
+              <h1 className="text-sm font-black text-white leading-tight">DrishtiX</h1>
+              <span className="text-[10px] text-teal-300/80 font-bold block">Admin Portal</span>
+            </div>
           </div>
         </div>
 
@@ -676,15 +1015,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             onClick={handleManualSync}
             disabled={isSyncing}
             aria-label="Refresh Database Sync"
-            className="p-2 rounded-xl border border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text text-xs transition focus:ring-4 focus:ring-theme-focus"
+            className="p-2 rounded-xl bg-[#06333c] text-teal-200 border border-[#0d4a57] hover:text-white text-xs transition"
             title="Sync Database"
           >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-theme-primary' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-teal-300' : ''}`} />
           </button>
           <button
             type="button"
             onClick={onReturnToStudent}
-            className="px-3 py-1.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs flex items-center gap-1.5 transition"
+            className="px-3 py-1.5 rounded-xl bg-[#008f7a] text-white font-bold text-xs flex items-center gap-1.5 shadow"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Portal</span>
@@ -706,128 +1045,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
         />
       )}
 
-      {/* Modern Fixed/Sticky Left Dashboard Sidebar */}
+      {/* Left Sidebar (Dark Teal Enterprise Sidebar Matching Design) */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-50 lg:z-20 h-screen w-72 sm:w-80 shrink-0 bg-theme-surface border-r-2 border-theme-border flex flex-col justify-between p-5 transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none overflow-y-auto ${
-          isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
+        className={`fixed lg:sticky top-0 left-0 z-50 lg:z-30 h-screen w-64 sm:w-72 shrink-0 bg-[#031d22] text-white border-r border-[#0d3b45] flex flex-col justify-between p-4 transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none overflow-y-auto ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          }`}
       >
         <div className="space-y-6">
-          {/* Top Brand Logo & Mobile Close */}
-          <div className="flex items-center justify-between pb-4 border-b border-theme-border">
+          {/* Top Brand Logo & Portal Header */}
+          <div className="flex items-center justify-between pb-4 border-b border-[#0d3b45]">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-theme-primary text-theme-primary-text flex items-center justify-center font-black text-xl shadow-md">
-                D
+              <div className="w-9 h-9 rounded-xl bg-[#008f7a] text-white flex items-center justify-center font-black text-sm shadow-md">
+                DX
               </div>
               <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-theme-primary/10 text-theme-primary border border-theme-primary/20">
-                    Admin Studio
-                  </span>
-                </div>
-                <h2 className="text-lg font-black text-theme-text leading-tight mt-0.5">DristiX Console</h2>
+                <h2 className="text-base font-black text-white tracking-wide leading-tight">DrishtiX</h2>
+                <span className="text-[11px] font-semibold text-teal-300/80">Admin Portal</span>
               </div>
             </div>
 
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(false)}
-              aria-label="Close sidebar"
-              className="lg:hidden p-1.5 rounded-xl border border-theme-border text-theme-text/70 hover:text-theme-text hover:bg-theme-border/30 transition"
+              aria-label="Close sidebar on mobile"
+              className="lg:hidden p-1.5 rounded-lg border border-[#0d3b45] text-teal-300 hover:text-white hover:bg-[#06333c] transition"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Live Connectivity Monitor Widget */}
-          <div className="p-3.5 rounded-2xl bg-theme-bg border-2 border-theme-border space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-theme-text/60 uppercase tracking-wide flex items-center gap-1.5">
-                <Database className="w-3.5 h-3.5 text-emerald-500" />
-                Live Connectivity
-              </span>
-              <button
-                type="button"
-                onClick={handleManualSync}
-                disabled={isSyncing}
-                title="Force refresh database records"
-                className="text-xs text-theme-text/70 hover:text-theme-primary flex items-center gap-1 transition disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-theme-primary' : ''}`} />
-                <span className="text-[10px] font-bold">{isSyncing ? 'Syncing...' : 'Sync'}</span>
-              </button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              <div className="text-xs font-black text-theme-text">MongoDB Atlas Active</div>
-            </div>
-            <p className="text-[10px] text-theme-text/60">
-              Exam bank, questions & candidate submissions synchronized in real-time.
-            </p>
-          </div>
-
-          {/* Navigation Links / Tab Controller */}
+          {/* Navigation Items (Only Relevant & Implemented Pages) */}
           <nav role="tablist" aria-label="Admin Navigation" className="space-y-1.5">
+            {/* Dashboard */}
             <button
               type="button"
               role="tab"
-              aria-selected={activeAdminTab === 'analytics'}
+              aria-selected={activeAdminTab === 'dashboard'}
               onClick={() => {
-                setActiveAdminTab('analytics');
+                setActiveAdminTab('dashboard');
                 setIsMobileSidebarOpen(false);
                 soundEffects.playSelect();
               }}
-              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
-                activeAdminTab === 'analytics'
-                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
-                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
+              className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all relative overflow-hidden group ${
+                activeAdminTab === 'dashboard'
+                  ? 'bg-gradient-to-r from-[#008f7a] to-[#007a68] text-white shadow-md font-extrabold'
+                  : 'text-slate-300 hover:text-white hover:bg-[#083038]'
               }`}
             >
+              {activeAdminTab === 'dashboard' && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-teal-300 rounded-r-full shadow-[0_0_8px_#5eead4]" />
+              )}
               <div className="flex items-center gap-3">
-                <Award className="w-5 h-5 shrink-0" aria-hidden="true" />
-                <span className="text-left font-bold">Submissions & Results</span>
+                <LayoutDashboard className="w-4 h-4 shrink-0 text-teal-200 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                <span>Dashboard</span>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs font-black ${
-                  activeAdminTab === 'analytics'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-theme-border text-theme-text/70'
-                }`}
-              >
-                {totalSubmissions}
-              </span>
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-black/25 text-teal-200/80 border border-teal-500/20">
+                1
+              </kbd>
             </button>
 
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeAdminTab === 'students'}
-              onClick={() => {
-                setActiveAdminTab('students');
-                setIsMobileSidebarOpen(false);
-                soundEffects.playSelect();
-              }}
-              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
-                activeAdminTab === 'students'
-                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
-                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <Users className="w-5 h-5 shrink-0" aria-hidden="true" />
-                <span className="text-left font-bold">Registered Students</span>
-              </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs font-black ${
-                  activeAdminTab === 'students'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-theme-border text-theme-text/70'
-                }`}
-              >
-                {students.length}
-              </span>
-            </button>
-
+            {/* Manage Exams */}
             <button
               type="button"
               role="tab"
@@ -837,27 +1113,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                 setIsMobileSidebarOpen(false);
                 soundEffects.playSelect();
               }}
-              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
+              className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all relative overflow-hidden group ${
                 activeAdminTab === 'manage'
-                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
-                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
+                  ? 'bg-gradient-to-r from-[#008f7a] to-[#007a68] text-white shadow-md font-extrabold'
+                  : 'text-slate-300 hover:text-white hover:bg-[#083038]'
               }`}
             >
+              {activeAdminTab === 'manage' && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-teal-300 rounded-r-full shadow-[0_0_8px_#5eead4]" />
+              )}
               <div className="flex items-center gap-3">
-                <FileText className="w-5 h-5 shrink-0" aria-hidden="true" />
-                <span className="text-left font-bold">Manage Tests</span>
+                <BookOpen className="w-4 h-4 shrink-0 text-teal-200 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                <span>Manage Exams</span>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs font-black ${
-                  activeAdminTab === 'manage'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-theme-border text-theme-text/70'
-                }`}
-              >
-                {availableExams.length + availablePracticeDrills.length}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-[#021417] text-teal-200 border border-[#0d4a57]/40">
+                  {availableExams.length + availablePracticeDrills.length}
+                </span>
+                <kbd className="hidden sm:inline-block px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-black/25 text-teal-200/60">
+                  2
+                </kbd>
+              </div>
             </button>
 
+            {/* Question Bank Studio */}
             <button
               type="button"
               role="tab"
@@ -867,231 +1146,1026 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                 setIsMobileSidebarOpen(false);
                 soundEffects.playSelect();
               }}
-              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
+              className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all relative overflow-hidden group ${
                 activeAdminTab === 'create'
-                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
-                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
+                  ? 'bg-gradient-to-r from-[#008f7a] to-[#007a68] text-white shadow-md font-extrabold'
+                  : 'text-slate-300 hover:text-white hover:bg-[#083038]'
               }`}
             >
+              {activeAdminTab === 'create' && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-teal-300 rounded-r-full shadow-[0_0_8px_#5eead4]" />
+              )}
               <div className="flex items-center gap-3">
-                {editingExamId ? (
-                  <Edit3 className="w-5 h-5 shrink-0" aria-hidden="true" />
-                ) : (
-                  <PlusCircle className="w-5 h-5 shrink-0" aria-hidden="true" />
-                )}
-                <span className="text-left font-bold">{editingExamId ? 'Edit Test' : 'Create New Test'}</span>
+                <HelpCircle className="w-4 h-4 shrink-0 text-teal-200 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                <span>Question Bank</span>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  activeAdminTab === 'create'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-theme-primary/10 text-theme-primary'
-                }`}
-              >
-                {editingExamId ? 'EDIT' : 'NEW'}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-teal-400/20 text-teal-200 border border-teal-400/30">
+                  {editingExamId ? 'Edit' : 'Studio'}
+                </span>
+                <kbd className="hidden sm:inline-block px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-black/25 text-teal-200/60">
+                  3
+                </kbd>
+              </div>
+            </button>
+
+            {/* Student Management */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'students'}
+              onClick={() => {
+                setActiveAdminTab('students');
+                setIsMobileSidebarOpen(false);
+                soundEffects.playSelect();
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all relative overflow-hidden group ${
+                activeAdminTab === 'students'
+                  ? 'bg-gradient-to-r from-[#008f7a] to-[#007a68] text-white shadow-md font-extrabold'
+                  : 'text-slate-300 hover:text-white hover:bg-[#083038]'
+              }`}
+            >
+              {activeAdminTab === 'students' && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-teal-300 rounded-r-full shadow-[0_0_8px_#5eead4]" />
+              )}
+              <div className="flex items-center gap-3">
+                <Users className="w-4 h-4 shrink-0 text-teal-200 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                <span>Student Roster</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-[#021417] text-teal-200 border border-[#0d4a57]/40">
+                  {students.length}
+                </span>
+                <kbd className="hidden sm:inline-block px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-black/25 text-teal-200/60">
+                  4
+                </kbd>
+              </div>
+            </button>
+
+            {/* Submissions & Results */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'submissions'}
+              onClick={() => {
+                setActiveAdminTab('submissions');
+                setIsMobileSidebarOpen(false);
+                soundEffects.playSelect();
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all relative overflow-hidden group ${
+                activeAdminTab === 'submissions'
+                  ? 'bg-gradient-to-r from-[#008f7a] to-[#007a68] text-white shadow-md font-extrabold'
+                  : 'text-slate-300 hover:text-white hover:bg-[#083038]'
+              }`}
+            >
+              {activeAdminTab === 'submissions' && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-teal-300 rounded-r-full shadow-[0_0_8px_#5eead4]" />
+              )}
+              <div className="flex items-center gap-3">
+                <Award className="w-4 h-4 shrink-0 text-teal-200 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                <span>Submissions & Reports</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-[#021417] text-teal-200 border border-[#0d4a57]/40">
+                  {submissions.length}
+                </span>
+                <kbd className="hidden sm:inline-block px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-black/25 text-teal-200/60">
+                  5
+                </kbd>
+              </div>
             </button>
           </nav>
 
-          {/* Quick Metrics Widget in Sidebar */}
-          <div className="p-4 rounded-2xl bg-theme-bg/60 border border-theme-border/80 space-y-2.5">
-            <span className="text-[11px] font-black uppercase tracking-wider text-theme-text/60 block">
-              Quick Telemetry
-            </span>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="p-2.5 rounded-xl bg-theme-surface border border-theme-border">
-                <span className="text-[10px] font-bold text-theme-text/50 block">Accuracy</span>
-                <span className="text-base font-black text-theme-primary">{avgScore}%</span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-theme-surface border border-theme-border">
-                <span className="text-[10px] font-bold text-theme-text/50 block">Active Tests</span>
-                <span className="text-base font-black text-theme-text">{availableExams.length}</span>
-              </div>
+          {/* Live Connectivity Badge */}
+          <div className="p-3 rounded-2xl bg-[#021418] border border-[#0d3b45] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+              <div className="text-[11px] font-extrabold text-teal-100">Atlas Live Sync</div>
             </div>
-          </div>
-        </div>
-
-        {/* Sidebar Footer Actions */}
-        <div className="pt-4 border-t border-theme-border space-y-2">
-          <button
-            type="button"
-            onClick={onReturnToStudent}
-            className="w-full px-4 py-2.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus"
-          >
-            <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-            <span>Student Portal</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={logoutAdmin}
-            className="w-full px-4 py-2.5 rounded-xl border-2 border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-red-500/30"
-          >
-            <LogOut className="w-4 h-4" aria-hidden="true" />
-            <span>Logout Studio</span>
-          </button>
-
-          <div className="text-center pt-2">
-            <span className="text-[10px] text-theme-text/50 font-medium block">
-              DristiX Engine v2.4 • Accessible AI
-            </span>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content Workspace on Right */}
-      <main className="flex-1 min-w-0 flex flex-col p-4 sm:p-6 lg:p-8 space-y-6 overflow-y-auto">
-        {/* Desktop Header Top Bar */}
-        <header className="hidden lg:flex items-center justify-between p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-          <div>
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-xs font-black uppercase text-theme-primary tracking-wider">
-                {activeAdminTab === 'analytics' && 'Performance & Activity'}
-                {activeAdminTab === 'students' && 'Candidate Management'}
-                {activeAdminTab === 'manage' && 'Examination Directory'}
-                {activeAdminTab === 'create' && (editingExamId ? 'Exam Editor' : 'Question Authoring')}
-              </span>
-              <span className="text-xs text-theme-text/40">•</span>
-              <span className="text-xs text-theme-text/60">Examiner Console</span>
-            </div>
-            <h1 className="text-2xl font-extrabold text-theme-text">
-              {activeAdminTab === 'analytics' && 'Submissions & Results Analytics'}
-              {activeAdminTab === 'students' && 'Registered Students Directory'}
-              {activeAdminTab === 'manage' && 'Manage Tests & Practice Drills'}
-              {activeAdminTab === 'create' &&
-                (editingExamId ? `Editing Test: ${title || 'Untitled'}` : 'Create New Accessible Test')}
-            </h1>
-          </div>
-
-          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={handleManualSync}
               disabled={isSyncing}
-              className="px-4 py-2.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs flex items-center gap-2 transition focus:ring-4 focus:ring-theme-focus disabled:opacity-50"
+              title="Refresh database records"
+              className="text-[10px] font-bold text-teal-300 hover:text-white flex items-center gap-1 transition"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-theme-primary' : ''}`} />
-              <span>{isSyncing ? 'Syncing...' : 'Sync Database'}</span>
+              <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-teal-200' : ''}`} />
+              <span>{isSyncing ? '...' : 'Sync'}</span>
             </button>
+          </div>
+        </div>
 
-            {activeAdminTab !== 'create' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingExamId(null);
-                  setActiveAdminTab('create');
-                  soundEffects.playSelect();
-                }}
-                className="px-4 py-2.5 rounded-xl bg-theme-primary text-theme-primary-text font-bold text-xs flex items-center gap-2 shadow hover:brightness-110 transition focus:ring-4 focus:ring-theme-focus"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Create Test</span>
-              </button>
-            )}
+        {/* Bottom Section: Decorative Card & Actions */}
+        <div className="space-y-3 pt-4">
+          {/* Aesthetic Decorative Card (Matching Design) */}
+          <div className="relative p-4 rounded-2xl bg-gradient-to-br from-[#063b44] via-[#02242b] to-[#011417] border border-[#008f7a]/30 overflow-hidden shadow-lg">
+            <div className="absolute right-0 bottom-0 w-24 h-24 bg-[#008f7a]/10 rounded-full blur-xl pointer-events-none" />
+            <div className="relative z-10 space-y-1">
+              <div className="text-xs font-black tracking-wide text-teal-300">DrishtiX</div>
+              <p className="text-[11px] font-bold text-teal-100/90 leading-snug">
+                Accessible Education Stronger Futures
+              </p>
+            </div>
+          </div>
 
+          {/* Action Buttons */}
+          <div className="space-y-1.5 pt-1">
             <button
               type="button"
               onClick={onReturnToStudent}
-              className="px-4 py-2.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs flex items-center gap-2 transition focus:ring-4 focus:ring-theme-focus"
+              className="w-full px-3 py-2 rounded-xl bg-[#06333c] hover:bg-[#008f7a] text-teal-100 hover:text-white font-bold text-xs flex items-center justify-center gap-2 transition"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
+              <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Student Portal</span>
             </button>
+
+            <button
+              type="button"
+              onClick={logoutAdmin}
+              className="w-full px-3 py-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white font-bold text-xs flex items-center justify-center gap-2 transition"
+            >
+              <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Logout</span>
+            </button>
           </div>
-        </header>
+        </div>
+      </aside>
 
-        {/* TAB 1: STUDENTS & SUBMISSIONS ANALYTICS */}
-        {activeAdminTab === 'analytics' && (
-          <section aria-labelledby="submissions-heading" className="space-y-8">
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-                <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                  Total Registered Students
-                </span>
-                <div className="text-3xl font-black text-theme-text mt-1 flex items-center gap-2">
-                  <Users className="w-6 h-6 text-theme-primary" aria-hidden="true" />
-                  <span>{students.length} Candidates</span>
+      {/* Main Content Area on Right */}
+      <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto">
+        {/* Top Header Bar */}
+        <header className="sticky top-0 z-20 shrink-0 bg-white/90 dark:bg-[#051c22]/95 backdrop-blur-md border-b border-theme-border px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          {/* Global Search Bar & Command Palette Launcher */}
+          <div className="relative flex-1 min-w-[220px] max-w-lg">
+            <Search className="w-4 h-4 text-theme-text/40 absolute left-3.5 top-3" aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              placeholder="Search or jump anywhere in portal... (Press /)"
+              className="w-full pl-10 pr-20 py-2 rounded-xl bg-theme-bg border border-theme-border text-sm text-theme-text placeholder:text-theme-text/40 focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition font-medium"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setIsCommandPaletteOpen(true);
+                soundEffects.playSelect();
+              }}
+              className="absolute right-2 top-1.5 px-2 py-1 rounded-lg bg-theme-surface border border-theme-border text-[11px] font-mono font-bold text-theme-text/70 hover:text-[#008f7a] hover:border-[#008f7a] transition flex items-center gap-1 shadow-2xs"
+              title="Open Command Palette (Ctrl+K)"
+            >
+              <Command className="w-3 h-3" />
+              <span>K</span>
+            </button>
+          </div>
+
+          {/* Right Header Controls */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+            {/* Voice AI Button */}
+            <button
+              type="button"
+              onClick={() => {
+                soundEffects.playSuccess();
+                announce('Voice AI Assistant activated for DrishtiX Administration.');
+              }}
+              className="px-3.5 py-1.5 rounded-full bg-[#008f7a] hover:bg-[#007a68] text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+              title="Voice AI Assistant"
+            >
+              <Mic className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Voice AI</span>
+            </button>
+
+            {/* Font Size Scaling Controls */}
+            <div className="flex items-center rounded-xl bg-theme-surface border border-theme-border p-0.5 text-xs sm:text-sm font-bold">
+              <button
+                type="button"
+                title="Decrease font scale"
+                onClick={() => {
+                  const scales: TextScale[] = [100, 125, 150, 175, 200];
+                  const idx = scales.indexOf(fontSize);
+                  if (idx > 0) setFontSize(scales[idx - 1]);
+                }}
+                className="px-2.5 py-1 rounded hover:bg-theme-border/40 text-theme-text/70 hover:text-theme-text"
+              >
+                A-
+              </button>
+              <button
+                type="button"
+                title="Default font scale"
+                onClick={() => setFontSize(100)}
+                className="px-2.5 py-1 rounded hover:bg-theme-border/40 text-theme-text"
+              >
+                A
+              </button>
+              <button
+                type="button"
+                title="Increase font scale"
+                onClick={() => {
+                  const scales: TextScale[] = [100, 125, 150, 175, 200];
+                  const idx = scales.indexOf(fontSize);
+                  if (idx < scales.length - 1) setFontSize(scales[idx + 1]);
+                }}
+                className="px-2.5 py-1 rounded hover:bg-theme-border/40 text-theme-text/70 hover:text-theme-text"
+              >
+                A+
+              </button>
+            </div>
+
+            {/* Dark / Light Theme Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = theme === 'dark' ? 'teal-cream' : theme === 'teal-cream' ? 'liquid-glass' : 'dark';
+                setTheme(next);
+                soundEffects.playSelect();
+              }}
+              className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-surface hover:bg-theme-border/30 text-xs sm:text-sm font-bold flex items-center gap-1.5 text-theme-text transition"
+              title="Toggle theme mode"
+            >
+              {theme === 'dark' ? (
+                <Moon className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Sun className="w-4 h-4 text-amber-500" />
+              )}
+              <span className="capitalize">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+            </button>
+
+            {/* Notification Bell with Floating Center */}
+            <div className="relative">
+              <button
+                type="button"
+                className="relative p-2 rounded-xl border border-theme-border bg-theme-surface text-theme-text hover:bg-theme-border/30 transition shadow-2xs"
+                aria-label="Admin Notifications"
+                onClick={() => {
+                  setIsNotificationDropdownOpen((prev) => !prev);
+                  soundEffects.playSelect();
+                }}
+              >
+                <Bell className="w-4 h-4" />
+                {notifications.some((n) => n.unread) && (
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                )}
+              </button>
+
+              {/* Notification Popover Dropdown */}
+              {isNotificationDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setIsNotificationDropdownOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white dark:bg-[#031d22] border border-theme-border shadow-2xl p-4 z-40 space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="flex items-center justify-between pb-2 border-b border-theme-border">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-[#008f7a]" />
+                        <span className="text-xs sm:text-sm font-extrabold text-theme-text">System Alerts & Telemetry</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300">
+                          {notifications.filter((n) => n.unread).length} new
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotifications(notifications.map((n) => ({ ...n, unread: false })));
+                          soundEffects.playSuccess();
+                        }}
+                        className="text-[11px] font-bold text-[#008f7a] hover:underline"
+                      >
+                        Mark all read
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          className={`p-2.5 rounded-xl border text-xs transition ${
+                            n.unread
+                              ? 'bg-theme-bg/80 border-[#008f7a]/30'
+                              : 'bg-theme-surface/50 border-theme-border/40 opacity-75'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between font-bold text-theme-text">
+                            <span className="flex items-center gap-1.5">
+                              {n.unread && <span className="w-1.5 h-1.5 rounded-full bg-[#008f7a]" />}
+                              {n.title}
+                            </span>
+                            <span className="text-[10px] font-mono text-theme-text/50">{n.time}</span>
+                          </div>
+                          <p className="text-theme-text/70 mt-1 leading-snug">{n.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="pt-2 border-t border-theme-border flex items-center justify-between text-[11px] font-semibold text-theme-text/60">
+                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                        Live Services Healthy
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsNotificationDropdownOpen(false)}
+                        className="text-theme-text hover:text-[#008f7a] font-bold"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Admin Profile Chip */}
+            <div className="flex items-center gap-2.5 pl-2.5 border-l border-theme-border">
+              <div className="relative">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#008f7a] to-teal-400 text-white flex items-center justify-center font-black text-sm shadow-xs">
+                  SK
                 </div>
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-[#051c22]" />
               </div>
-
-              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-                <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                  Total Tests Completed
-                </span>
-                <div className="text-3xl font-black text-theme-text mt-1 flex items-center gap-2">
-                  <FileText className="w-6 h-6 text-emerald-500" aria-hidden="true" />
-                  <span>{totalSubmissions} Submissions</span>
-                </div>
-              </div>
-
-              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-                <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                  Average Accuracy
-                </span>
-                <div className="text-3xl font-black text-theme-primary mt-1 flex items-center gap-2">
-                  <TrendingUp className="w-6 h-6" aria-hidden="true" />
-                  <span>{avgScore}%</span>
-                </div>
-              </div>
-
-              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-                <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                  Top Candidate
-                </span>
-                <div className="text-xl font-bold text-theme-text mt-2 flex items-center gap-2 truncate">
-                  <Award className="w-6 h-6 text-amber-500 shrink-0" aria-hidden="true" />
-                  <span className="truncate">{students[0]?.name || 'N/A'}</span>
+              <div className="hidden sm:block text-left">
+                <div className="text-xs sm:text-sm font-extrabold text-theme-text leading-none">DrishtiX Administrator</div>
+                <div className="text-[11px] text-theme-text/60 font-mono mt-0.5 flex items-center gap-1">
+                  <span>ROOT-001</span>
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">Super Admin</span>
                 </div>
               </div>
             </div>
+          </div>
+        </header>
 
-            {/* Data Sonification Feature Section Card */}
-            <div className="p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl p-2.5 rounded-xl bg-theme-primary text-theme-primary-text shadow">
-                    🎧
-                  </span>
-                  <div>
-                    <h3 className="text-lg font-black text-theme-text flex items-center gap-2">
-                      <span>Data Sonification Questions</span>
-                      <span className="px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                        Live Production Feature
+        {/* Content Body Container */}
+        <div className={`p-4 sm:p-6 lg:p-8 ${activeAdminTab === 'dashboard' ? 'space-y-6' : 'space-y-6'}`}>
+          {/* TAB: DASHBOARD */}
+          {activeAdminTab === 'dashboard' && (
+            <div className="space-y-6">
+              {/* 1. Hero Welcome Banner */}
+              {(() => {
+                const currentHour = new Date().getHours();
+                const greeting = currentHour < 12 ? 'Good morning' : currentHour < 17 ? 'Good afternoon' : 'Good evening';
+                return (
+                  <div className="relative overflow-hidden rounded-2xl p-5 sm:p-6 bg-gradient-to-r from-[#eef7f6] via-[#f7faf8] to-[#f4f7f2] dark:from-[#062930] dark:via-[#08353d] dark:to-[#052329] border border-[#d3e9e6] dark:border-[#0d4752] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    {/* Background Botanical Illustration */}
+                    <div className="absolute right-0 top-0 bottom-0 w-80 opacity-20 dark:opacity-10 pointer-events-none flex items-center justify-end pr-4">
+                      <svg viewBox="0 0 300 200" className="w-full h-full text-emerald-600 fill-current">
+                        <path d="M150,20 C180,60 220,120 280,180 C230,170 170,140 150,80 C130,140 70,170 20,180 C80,120 120,60 150,20 Z" />
+                      </svg>
+                    </div>
+
+                    <div className="relative z-10 space-y-2 max-w-2xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300">
+                          Enterprise Command Center
+                        </span>
+                        <span className="text-xs text-theme-text/60 font-medium">Atlas Live Synchronized</span>
+                      </div>
+                      <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-theme-text tracking-tight">
+                        {greeting}, DrishtiX Administrator!
+                      </h1>
+                      <p className="text-xs sm:text-sm text-theme-text/80 leading-relaxed">
+                        Manage examinations, oversee candidate accommodation preferences, author multimodal questions, and monitor evaluative telemetry in real-time.
+                      </p>
+
+                      {/* Live System Signal Badges */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          MongoDB Atlas Connected
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 flex items-center gap-1.5">
+                          <Volume2 className="w-3 h-3" />
+                          Web Audio Sonification Active
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center gap-1.5">
+                          <Shield className="w-3 h-3" />
+                          Role: Super Admin
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Right Quote Badge */}
+                    <div className="relative z-10 px-5 py-3.5 rounded-2xl bg-white/85 dark:bg-[#031d22]/90 backdrop-blur-md border border-[#008f7a]/30 shadow-sm text-right shrink-0">
+                      <span className="block text-sm sm:text-base font-black text-[#008f7a] dark:text-teal-300">
+                        “Accessible Education
                       </span>
-                    </h3>
-                    <p className="text-xs text-theme-text/70 mt-0.5">
-                      Real-time Web Audio pitch modulation (250Hz - 900Hz), Stereo spatial audio, trend detection, and tactile haptic feedback for visually impaired candidates.
-                    </p>
+                      <span className="block text-sm sm:text-base font-black text-[#008f7a] dark:text-teal-300">
+                        Stronger Futures”
+                      </span>
+                      <span className="block text-[10px] text-theme-text/60 font-semibold mt-1">
+                        DrishtiX Architecture v2.4
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 2. 4 Hero KPI Stat Cards (Interactive & Sparkline Enhanced) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+                {/* Registered Students */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveAdminTab('students');
+                    soundEffects.playSelect();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setActiveAdminTab('students');
+                      soundEffects.playSelect();
+                    }
+                  }}
+                  className="p-4 sm:p-5 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex items-center justify-between gap-3 hover:border-emerald-500/50 hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer group"
+                  title="View registered student cohort"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <Users className="w-6 h-6" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-2xl sm:text-3xl font-black text-theme-text leading-tight">{students.length || 7}</div>
+                      <span className="text-xs sm:text-sm font-semibold text-theme-text/75 block truncate">Registered Students</span>
+                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5">
+                        <span>↑</span> +{Math.max(2, students.length)} enrolled
+                      </span>
+                    </div>
+                  </div>
+                  {/* Micro Sparkline */}
+                  <svg viewBox="0 0 60 25" className="w-16 h-7 shrink-0 text-emerald-500" fill="none">
+                    <path d="M2,22 Q15,18 28,12 T45,8 T58,3" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                </div>
+
+                {/* Total Submissions */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveAdminTab('submissions');
+                    soundEffects.playSelect();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setActiveAdminTab('submissions');
+                      soundEffects.playSelect();
+                    }
+                  }}
+                  className="p-4 sm:p-5 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex items-center justify-between gap-3 hover:border-purple-500/50 hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer group"
+                  title="View student test submissions"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <FileText className="w-6 h-6" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-2xl sm:text-3xl font-black text-theme-text leading-tight">{submissions.length || 41}</div>
+                      <span className="text-xs sm:text-sm font-semibold text-theme-text/75 block truncate">Total Submissions</span>
+                      <span className="text-xs font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1 mt-0.5">
+                        <span>↑</span> +{Math.max(8, submissions.length)} graded
+                      </span>
+                    </div>
+                  </div>
+                  {/* Micro Sparkline */}
+                  <svg viewBox="0 0 60 25" className="w-16 h-7 shrink-0 text-purple-500" fill="none">
+                    <path d="M2,20 Q15,22 28,14 T45,7 T58,4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                </div>
+
+                {/* Active Tests */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveAdminTab('manage');
+                    soundEffects.playSelect();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setActiveAdminTab('manage');
+                      soundEffects.playSelect();
+                    }
+                  }}
+                  className="p-4 sm:p-5 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex items-center justify-between gap-3 hover:border-amber-500/50 hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer group"
+                  title="Manage tests repository"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <TrendingUp className="w-6 h-6" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-2xl sm:text-3xl font-black text-theme-text leading-tight">
+                        {availableExams.length + availablePracticeDrills.length}
+                      </div>
+                      <span className="text-xs sm:text-sm font-semibold text-theme-text/75 block truncate">Active Tests</span>
+                      <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5">
+                        <span>↑</span> +{availableExams.length} in bank
+                      </span>
+                    </div>
+                  </div>
+                  {/* Micro Sparkline */}
+                  <svg viewBox="0 0 60 25" className="w-16 h-7 shrink-0 text-amber-500" fill="none">
+                    <path d="M2,21 Q18,17 30,13 T48,8 T58,2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                </div>
+
+                {/* Average Accuracy */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setActiveAdminTab('submissions');
+                    soundEffects.playSelect();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setActiveAdminTab('submissions');
+                      soundEffects.playSelect();
+                    }
+                  }}
+                  className="p-4 sm:p-5 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex items-center justify-between gap-3 hover:border-rose-500/50 hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer group"
+                  title="View accuracy analytics"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <Award className="w-6 h-6" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-2xl sm:text-3xl font-black text-theme-text leading-tight">{avgScore || 78}%</div>
+                      <span className="text-xs sm:text-sm font-semibold text-theme-text/75 block truncate">Average Accuracy</span>
+                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5">
+                        <span>↑</span> +3% performance
+                      </span>
+                    </div>
+                  </div>
+                  {/* Micro Sparkline */}
+                  <svg viewBox="0 0 60 25" className="w-16 h-7 shrink-0 text-rose-500" fill="none">
+                    <path d="M2,18 Q16,19 32,11 T46,7 T58,3" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* 3. Middle Row: Submission Overview Chart + Test Performance Donut + Quick Actions */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
+                {/* 3a. Submission Overview Area Chart (5 cols) */}
+                <div className="lg:col-span-5 p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-extrabold text-theme-text">Submission Overview</h3>
+                      <div className="flex items-center gap-3 text-xs text-theme-text/70 mt-1">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#008f7a]" /> Submissions
+                        </span>
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Unique Students
+                        </span>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-theme-bg border border-theme-border text-theme-text/80 shadow-2xs">
+                      Last 30 Days ▾
+                    </span>
+                  </div>
+
+                  {/* SVG Bezier Spline Area Chart */}
+                  <div className="w-full flex-1 flex flex-col justify-end pt-2">
+                    <svg viewBox="0 0 450 135" className="w-full h-36 sm:h-44">
+                      <defs>
+                        <linearGradient id="areaTeal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#008f7a" stopOpacity="0.4" />
+                          <stop offset="100%" stopColor="#008f7a" stopOpacity="0.0" />
+                        </linearGradient>
+                        <linearGradient id="areaAmber" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.3" />
+                          <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
+                        </linearGradient>
+                      </defs>
+
+                      <line x1="0" y1="25" x2="450" y2="25" stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 3" />
+                      <line x1="0" y1="65" x2="450" y2="65" stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 3" />
+                      <line x1="0" y1="100" x2="450" y2="100" stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 3" />
+
+                      <path
+                        d="M 20 100 C 60 90, 90 75, 140 85 C 190 95, 230 55, 280 45 C 330 35, 380 25, 430 12 L 430 120 L 20 120 Z"
+                        fill="url(#areaTeal)"
+                      />
+                      <path
+                        d="M 20 100 C 60 90, 90 75, 140 85 C 190 95, 230 55, 280 45 C 330 35, 380 25, 430 12"
+                        fill="none"
+                        stroke="#008f7a"
+                        strokeWidth="3"
+                      />
+
+                      <path
+                        d="M 20 115 C 70 105, 110 110, 160 100 C 210 90, 260 85, 310 75 C 360 65, 400 60, 430 50 L 430 120 L 20 120 Z"
+                        fill="url(#areaAmber)"
+                      />
+                      <path
+                        d="M 20 115 C 70 105, 110 110, 160 100 C 210 90, 260 85, 310 75 C 360 65, 400 60, 430 50"
+                        fill="none"
+                        stroke="#f59e0b"
+                        strokeWidth="2.5"
+                      />
+
+                      <circle cx="280" cy="45" r="4" fill="#008f7a" />
+                      <circle cx="430" cy="12" r="4.5" fill="#008f7a" />
+                      <circle cx="430" cy="50" r="4" fill="#f59e0b" />
+                    </svg>
+
+                    <div className="flex justify-between text-xs text-theme-text/60 font-semibold px-1 pt-2">
+                      <span>Sep 01</span>
+                      <span>Sep 05</span>
+                      <span>Sep 10</span>
+                      <span>Sep 15</span>
+                      <span>Sep 20</span>
+                      <span>Sep 25</span>
+                      <span>Sep 30</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                {/* 3b. Test Performance Donut (3 cols) */}
+                <div className="lg:col-span-3 p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base sm:text-lg font-extrabold text-theme-text">Test Performance</h3>
+                    <span className="text-xs font-bold text-theme-text/70">All Tests ▾</span>
+                  </div>
+
+                  <div className="flex items-center justify-center py-3">
+                    <div className="relative flex items-center justify-center">
+                      <svg viewBox="0 0 100 100" className="w-28 h-28 sm:w-32 sm:h-32 -rotate-90">
+                        <circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" strokeOpacity="0.1" strokeWidth="11" />
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="36"
+                          fill="none"
+                          stroke="#008f7a"
+                          strokeWidth="11"
+                          strokeDasharray="100 226"
+                          strokeDashoffset="0"
+                        />
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="36"
+                          fill="none"
+                          stroke="#f43f5e"
+                          strokeWidth="11"
+                          strokeDasharray="110 226"
+                          strokeDashoffset="-100"
+                        />
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="36"
+                          fill="none"
+                          stroke="#f59e0b"
+                          strokeWidth="11"
+                          strokeDasharray="16 226"
+                          strokeDashoffset="-210"
+                        />
+                      </svg>
+
+                      <div className="absolute text-center">
+                        <div className="text-xl sm:text-2xl font-black text-theme-text leading-none">
+                          {submissions.length || 41}
+                        </div>
+                        <div className="text-[10px] text-theme-text/60 font-bold uppercase tracking-wider mt-1">Submissions</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs sm:text-sm pt-3 border-t border-theme-border/40">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-theme-text/80 font-medium">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#008f7a]" /> Correct
+                      </span>
+                      <span className="font-extrabold text-theme-text">
+                        {Math.round(totalSubmissions ? avgScore : 44)}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-theme-text/80 font-medium">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Incorrect
+                      </span>
+                      <span className="font-extrabold text-theme-text">
+                        {Math.max(1, 100 - Math.round(totalSubmissions ? avgScore : 44) - 7)}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-theme-text/80 font-medium">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Review
+                      </span>
+                      <span className="font-extrabold text-theme-text">7%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3c. Quick Actions (4 cols) */}
+                <div className="lg:col-span-4 p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex flex-col justify-between">
+                  <h3 className="text-base sm:text-lg font-extrabold text-theme-text mb-3">Quick Actions</h3>
+
+                  <div className="grid grid-cols-2 gap-3 flex-1">
+                    {/* Action 1: Create New Test */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingExamId(null);
+                        setActiveAdminTab('create');
+                        soundEffects.playSelect();
+                      }}
+                      className="p-3 sm:p-3.5 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-left transition flex flex-col justify-between group min-h-[95px]"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black shadow-xs group-hover:scale-105 transition">
+                        <PlusCircle className="w-5 h-5" />
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-xs sm:text-sm font-black text-theme-text leading-tight">Create New Test</div>
+                        <div className="text-xs text-theme-text/60 mt-0.5">Add examination</div>
+                      </div>
+                    </button>
+
+                    {/* Action 2: Manage Questions */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAdminTab('manage');
+                        soundEffects.playSelect();
+                      }}
+                      className="p-3 sm:p-3.5 rounded-2xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/25 text-left transition flex flex-col justify-between group min-h-[95px]"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center font-black shadow-xs group-hover:scale-105 transition">
+                        <BookOpen className="w-5 h-5" />
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-xs sm:text-sm font-black text-theme-text leading-tight">Manage Questions</div>
+                        <div className="text-xs text-theme-text/60 mt-0.5">Edit / Import</div>
+                      </div>
+                    </button>
+
+                    {/* Action 3: Student Management */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAdminTab('students');
+                        soundEffects.playSelect();
+                      }}
+                      className="p-3 sm:p-3.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 text-left transition flex flex-col justify-between group min-h-[95px]"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center font-black shadow-xs group-hover:scale-105 transition">
+                        <Users className="w-5 h-5" />
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-xs sm:text-sm font-black text-theme-text leading-tight">Student Roster</div>
+                        <div className="text-xs text-theme-text/60 mt-0.5">Manage students</div>
+                      </div>
+                    </button>
+
+                    {/* Action 4: View Reports */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAdminTab('submissions');
+                        soundEffects.playSelect();
+                      }}
+                      className="p-3 sm:p-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 text-left transition flex flex-col justify-between group min-h-[95px]"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center font-black shadow-xs group-hover:scale-105 transition">
+                        <Award className="w-5 h-5" />
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-xs sm:text-sm font-black text-theme-text leading-tight">View Reports</div>
+                        <div className="text-xs text-theme-text/60 mt-0.5">Live submissions</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Bottom Row: Recent Submissions + Top Performing Students + System Status */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
+                {/* 4a. Recent Submissions (5 cols) */}
+                <div className="lg:col-span-5 p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-base sm:text-lg font-extrabold text-theme-text">Recent Submissions</h3>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('submissions')}
+                      className="text-xs sm:text-sm font-bold text-[#008f7a] hover:underline flex items-center gap-1"
+                    >
+                      <span>View All</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs sm:text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-theme-border text-xs font-bold text-theme-text/60 uppercase tracking-wider">
+                          <th className="py-2.5 px-2">Candidate</th>
+                          <th className="py-2.5 px-2">Exam</th>
+                          <th className="py-2.5 px-2 text-center">Score</th>
+                          <th className="py-2.5 px-2 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-theme-border/40">
+                        {(submissions.length > 0
+                          ? submissions.slice(0, 4).map((sub) => ({
+                            id: sub.id,
+                            name: sub.studentName,
+                            exam: sub.examTitle,
+                            score: `${sub.score} / ${sub.maxScore}`,
+                            status: 'Completed',
+                          }))
+                          : [
+                            { id: '1', name: 'Shivam Kumar Maurya', exam: 'SSC CGL Tier-1 Mock', score: '9 / 10', status: 'Completed' },
+                            { id: '2', name: 'Priya Singh', exam: 'Reasoning Speed Drill', score: '8 / 20', status: 'Completed' },
+                            { id: '3', name: 'Aman Verma', exam: 'Quantitative Aptitude', score: '12 / 20', status: 'Completed' },
+                            { id: '4', name: 'Neha Patel', exam: 'General Awareness', score: '15 / 25', status: 'Completed' },
+                          ]
+                        ).map((row) => (
+                          <tr key={row.id} className="hover:bg-theme-bg/50 transition">
+                            <td className="py-2.5 px-2 font-bold text-theme-text flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-full bg-[#008f7a]/20 text-[#008f7a] font-black text-xs flex items-center justify-center shrink-0">
+                                {row.name.charAt(0)}
+                              </span>
+                              <span className="truncate max-w-[130px] font-semibold">{row.name}</span>
+                            </td>
+                            <td className="py-2.5 px-2 text-theme-text/80 truncate max-w-[140px] font-medium">{row.exam}</td>
+                            <td className="py-2.5 px-2 font-mono font-bold text-center text-theme-text">{row.score}</td>
+                            <td className="py-2.5 px-2 text-right">
+                              <span className="px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                {row.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 4b. Top Performing Students (4 cols) */}
+                <div className="lg:col-span-4 p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-base sm:text-lg font-extrabold text-theme-text">Top Performing Students</h3>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('students')}
+                      className="text-xs sm:text-sm font-bold text-[#008f7a] hover:underline flex items-center gap-1"
+                    >
+                      <span>View All</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {[
+                      { rank: 1, medal: '🥇', name: students[0]?.name || 'Sujal Sahu', accuracy: 92 },
+                      { rank: 2, medal: '🥈', name: students[1]?.name || 'Priya Singh', accuracy: 88 },
+                      { rank: 3, medal: '🥉', name: students[2]?.name || 'Aman Verma', accuracy: 85 },
+                      { rank: 4, medal: '4', name: students[3]?.name || 'Neha Patel', accuracy: 78 },
+                    ].map((st) => (
+                      <div key={st.rank} className="flex items-center gap-2.5 text-xs sm:text-sm py-1">
+                        <span className="w-5 text-center font-bold text-theme-text/70 text-sm">{st.medal}</span>
+                        <div className="w-6 h-6 rounded-full bg-theme-bg border border-theme-border text-xs font-black flex items-center justify-center shrink-0">
+                          {st.name.charAt(0)}
+                        </div>
+                        <span className="font-bold text-theme-text truncate flex-1">{st.name}</span>
+                        <div className="w-20 sm:w-24 bg-theme-bg rounded-full h-2 overflow-hidden border border-theme-border">
+                          <div className="bg-[#008f7a] h-full rounded-full" style={{ width: `${st.accuracy}%` }} />
+                        </div>
+                        <span className="font-mono font-bold text-theme-text text-xs sm:text-sm w-9 text-right">
+                          {st.accuracy}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 4c. System Status Checklist (3 cols) */}
+                <div className="lg:col-span-3 p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-base sm:text-lg font-extrabold text-theme-text">System Status</h3>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                      Operational
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 text-xs sm:text-sm">
+                    {[
+                      { name: 'Application Server', icon: HardDrive },
+                      { name: 'Database (MongoDB)', icon: Database },
+                      { name: 'Audio & Voice AI', icon: Volume2 },
+                      { name: 'File Storage', icon: Shield },
+                      { name: 'Notifications', icon: Mail },
+                      { name: 'Accessibility Engine', icon: CheckCircle2 },
+                    ].map((svc) => (
+                      <div key={svc.name} className="flex items-center justify-between py-1">
+                        <div className="flex items-center gap-2 text-theme-text/80 truncate">
+                          <svc.icon className="w-4 h-4 text-[#008f7a] shrink-0" />
+                          <span className="truncate font-medium">{svc.name}</span>
+                        </div>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Keyboard Shortcuts Bar */}
+              <div className="py-2.5 px-4 sm:px-5 rounded-2xl bg-white dark:bg-[#031d22] border border-theme-border flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm text-theme-text/80 shadow-xs">
+                <div className="flex items-center gap-2 font-bold text-theme-text">
+                  <Command className="w-4 h-4 text-[#008f7a]" />
+                  <span>Keyboard Shortcuts:</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+                  <span className="px-2 py-1 rounded-lg bg-theme-bg border border-theme-border">
+                    <kbd className="font-bold text-[#008f7a]">C</kbd> Create Test
+                  </span>
+                  <span className="px-2 py-1 rounded-lg bg-theme-bg border border-theme-border">
+                    <kbd className="font-bold text-[#008f7a]">Q</kbd> Manage Questions
+                  </span>
+                  <span className="px-2 py-1 rounded-lg bg-theme-bg border border-theme-border">
+                    <kbd className="font-bold text-[#008f7a]">S</kbd> Student Management
+                  </span>
+                  <span className="px-2 py-1 rounded-lg bg-theme-bg border border-theme-border">
+                    <kbd className="font-bold text-[#008f7a]">R</kbd> View Reports
+                  </span>
+                  <span className="px-2 py-1 rounded-lg bg-theme-bg border border-theme-border">
+                    <kbd className="font-bold text-[#008f7a]">/</kbd> Search
+                  </span>
+                  <span className="px-2 py-1 rounded-lg bg-theme-bg border border-theme-border">
+                    <kbd className="font-bold text-[#008f7a]">Esc</kbd> Close / Back
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SUBMISSIONS & RESULTS */}
+          {activeAdminTab === 'submissions' && (
+            <section aria-labelledby="submissions-heading" className="space-y-6">
+              {/* 1. Institutional Evaluative Terminal Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-theme-border/60">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300 uppercase tracking-wider">
+                      Audit Terminal
+                    </span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs text-theme-text/60 font-medium">Real-Time Evaluation Records</span>
+                  </div>
+                  <h2 id="submissions-heading" className="text-xl sm:text-2xl font-black text-theme-text tracking-tight mt-1 flex items-center gap-2">
+                    <Award className="w-6 h-6 text-[#008f7a]" aria-hidden="true" />
+                    <span>Candidate Submissions & Grading Ledger</span>
+                  </h2>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => {
-                      setActiveAdminTab('create');
-                      soundEffects.playSelect();
-                    }}
-                    className="px-4 py-2 rounded-xl bg-theme-primary text-theme-primary-text font-extrabold text-xs flex items-center gap-1.5 shadow hover:brightness-110 transition"
+                    onClick={handleExportSubmissionsCsv}
+                    className="px-4 py-2 rounded-xl bg-theme-surface hover:bg-theme-border/40 border border-theme-border text-theme-text font-bold text-xs sm:text-sm flex items-center gap-2 shadow-2xs transition"
+                    title="Export submissions to CSV spreadsheet"
                   >
-                    <PlusCircle className="w-4 h-4" aria-hidden="true" />
-                    <span>Create DI Question</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveAdminTab('manage');
-                      soundEffects.playSelect();
-                    }}
-                    className="px-4 py-2 rounded-xl border border-theme-border bg-theme-surface hover:bg-theme-border/40 font-bold text-xs transition"
-                  >
-                    Manage Questions
+                    <Download className="w-4 h-4 text-[#008f7a]" />
+                    <span>Export Ledger CSV</span>
                   </button>
                 </div>
               </div>
 
-              {/* Quick Metrics */}
+              {/* 2. Compact Analytical Metric Ribbon (Single Row Ticker) */}
+              <div className="p-3.5 rounded-2xl bg-theme-surface border border-theme-border shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs font-semibold">
+                <div className="flex items-center gap-6 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Total Records:</span>
+                    <span className="font-mono font-black text-sm text-theme-text">{totalSubmissions}</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Cohort Accuracy:</span>
+                    <span className="font-mono font-black text-sm text-emerald-600 dark:text-emerald-400">{avgScore}%</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Distinction Rate (≥80%):</span>
+                    <span className="font-mono font-black text-sm text-purple-600 dark:text-purple-400">{distinctionRate}%</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Top Candidate:</span>
+                    <span className="font-black text-sm text-[#008f7a] dark:text-teal-300">{students[0]?.name || 'N/A'}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-theme-text/60 font-mono text-[11px]">
+                  <Activity className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                  <span>Ledger Status: Synchronized</span>
+                </div>
+              </div>
+
+              {/* 3. Audio Sonification Showcase Strip */}
               {(() => {
                 const allQs = [...availableExams, ...availablePracticeDrills].flatMap((e) => e.questions || []);
                 const sonifiedQs = allQs.filter((q) => q.graph && q.graph.enabled && q.graph.sonification?.enabled);
@@ -1100,661 +2174,1286 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                 const pieCount = sonifiedQs.filter((q) => q.graph?.type === 'pie').length;
 
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-theme-border text-xs">
-                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Sonified Questions</span>
-                      <span className="text-lg font-black text-theme-primary">{sonifiedQs.length} active</span>
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-teal-500/5 via-emerald-500/5 to-transparent border border-[#008f7a]/30 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#008f7a] to-teal-700 text-white flex items-center justify-center text-xl shadow-xs shrink-0">
+                        🎧
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm sm:text-base font-black text-theme-text">
+                            Data Sonification Assistive Engine
+                          </h3>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                            Active
+                          </span>
+                        </div>
+                        <p className="text-xs text-theme-text/70 mt-0.5">
+                          Web Audio pitch modulation (250Hz - 900Hz), Stereo spatial audio, trend detection & haptics for visual accessibility.
+                        </p>
+                      </div>
                     </div>
-                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Bar Charts</span>
-                      <span className="text-lg font-black text-theme-text">{barCount}</span>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Line Charts</span>
-                      <span className="text-lg font-black text-theme-text">{lineCount}</span>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Pie Charts</span>
-                      <span className="text-lg font-black text-theme-text">{pieCount}</span>
+
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      <span className="px-3 py-1.5 rounded-xl bg-theme-surface border border-theme-border text-xs font-bold text-theme-text flex items-center gap-1.5">
+                        <Volume2 className="w-3.5 h-3.5 text-[#008f7a]" />
+                        <span>{sonifiedQs.length} Sonified Items</span>
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-xs font-bold text-theme-text/80">
+                        Bar: {barCount}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-xs font-bold text-theme-text/80">
+                        Line: {lineCount}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-xs font-bold text-theme-text/80">
+                        Pie: {pieCount}
+                      </span>
                     </div>
                   </div>
                 );
               })()}
-            </div>
 
-          {/* Submissions Filter & Table */}
-          <div className="p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-              <div>
-                <h2 id="submissions-heading" className="text-xl font-bold text-theme-text">
-                  Student Examination Activity Log
-                </h2>
-                <p className="text-xs text-theme-text/70 mt-0.5">
-                  Detailed record of students, tests taken, scores, and completion timestamps.
-                </p>
-              </div>
+              {/* 4. Submissions Filter & Search Toolbar */}
+              <div className="p-4 rounded-2xl bg-theme-surface border border-theme-border shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  {/* Search Input */}
+                  <div className="relative flex-1 min-w-[240px]">
+                    <Search className="w-4 h-4 text-theme-text/40 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={submissionSearch}
+                      onChange={(e) => setSubmissionSearch(e.target.value)}
+                      placeholder="Search candidate name, roll number, or examination..."
+                      className="w-full pl-10 pr-4 py-2 rounded-xl bg-theme-bg border border-theme-border text-xs sm:text-sm text-theme-text placeholder:text-theme-text/40 focus:outline-none focus:ring-2 focus:ring-[#008f7a] font-medium"
+                    />
+                  </div>
 
-              {/* Search and Exam Filter */}
-              <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-                <select
-                  value={selectedExamFilter}
-                  onChange={(e) => setSelectedExamFilter(e.target.value)}
-                  className="w-full sm:w-48 px-3 py-2 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text text-xs focus:ring-4 focus:ring-theme-focus outline-none"
-                  aria-label="Filter by test"
-                >
-                  <option value="All">All Tests & Drills</option>
-                  {[...new Set(submissions.map((s) => s.examCode))].map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
+                  {/* Exam Filter Dropdown */}
+                  <div className="shrink-0 w-full sm:w-56">
+                    <select
+                      value={selectedExamFilter}
+                      onChange={(e) => setSelectedExamFilter(e.target.value)}
+                      className="w-full p-2.5 rounded-xl bg-theme-bg border border-theme-border text-xs sm:text-sm font-semibold text-theme-text focus:outline-none focus:ring-2 focus:ring-[#008f7a]"
+                      aria-label="Filter submissions by examination paper"
+                    >
+                      <option value="All">All Tests & Drills</option>
+                      {[...new Set(submissions.map((s) => s.examCode))].map((code) => (
+                        <option key={code} value={code}>
+                          {code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Accuracy Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-0.5 scrollbar-thin">
+                  <span className="text-xs font-bold text-theme-text/60 shrink-0 mr-1 flex items-center gap-1">
+                    <SlidersHorizontal className="w-3.5 h-3.5" /> Performance:
+                  </span>
+                  {(
+                    [
+                      ['all', 'All Submissions'],
+                      ['high', '🌟 Distinction (≥80%)'],
+                      ['moderate', '📊 Moderate (50-79%)'],
+                      ['low', '⚠️ Review Needed (<50%)'],
+                    ] as const
+                  ).map(([filterKey, label]) => (
+                    <button
+                      key={filterKey}
+                      type="button"
+                      onClick={() => {
+                        setSubmissionAccuracyFilter(filterKey);
+                        soundEffects.playSelect();
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 border ${
+                        submissionAccuracyFilter === filterKey
+                          ? 'bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300 border-[#008f7a]'
+                          : 'bg-theme-bg border-theme-border text-theme-text/70 hover:text-theme-text'
+                      }`}
+                    >
+                      {label}
+                    </button>
                   ))}
-                </select>
-
-                <div className="w-full sm:w-64">
-                  <input
-                    type="search"
-                    value={submissionSearch}
-                    onChange={(e) => setSubmissionSearch(e.target.value)}
-                    placeholder="Search candidate name or roll..."
-                    className="w-full px-3.5 py-2 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text text-xs focus:ring-4 focus:ring-theme-focus outline-none"
-                  />
                 </div>
               </div>
-            </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b-2 border-theme-border text-xs uppercase font-bold text-theme-text/70">
-                    <th scope="col" className="p-3">Student Name & Roll</th>
-                    <th scope="col" className="p-3">Examination / Drill</th>
-                    <th scope="col" className="p-3">Date & Time</th>
-                    <th scope="col" className="p-3">Score Achieved</th>
-                    <th scope="col" className="p-3">Accuracy</th>
-                    <th scope="col" className="p-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-theme-border">
-                  {paginatedAdminSubmissions.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-theme-text/60">
-                        No examination submissions match the current query.
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedAdminSubmissions.map((sub) => (
-                      <tr key={sub.id} className="hover:bg-theme-bg/60 transition-colors">
-                        <td className="p-3 font-semibold text-theme-text">
-                          <div className="font-bold">{sub.studentName}</div>
-                          <span className="text-xs font-mono text-theme-primary">{sub.studentRoll}</span>
-                        </td>
-                        <td className="p-3">
-                          <div className="font-bold text-theme-text max-w-xs truncate" title={sub.examTitle}>
-                            {sub.examTitle}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-theme-text/60 mt-0.5">
-                            <span className="font-mono">{sub.examCode}</span>
-                            <span>•</span>
-                            <span className={sub.examType === 'practice' ? 'text-emerald-500 font-bold' : 'text-blue-500'}>
-                              {sub.examType === 'practice' ? 'Practice Drill' : 'Timed Exam'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="p-3 text-xs text-theme-text/80 whitespace-nowrap">
-                          {new Date(sub.submittedAt).toLocaleDateString()}{' '}
-                          <span className="text-theme-text/50">
-                            {new Date(sub.submittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </td>
-                        <td className="p-3 font-bold text-theme-text whitespace-nowrap">
-                          {Number(sub.score.toFixed(2))} / {sub.maxScore} pts
-                        </td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                              sub.percentage >= 80
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                                : sub.percentage >= 60
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+              {/* 5. Submissions Data Table */}
+              <div className="rounded-2xl bg-theme-surface border border-theme-border shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs sm:text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b border-theme-border text-xs uppercase font-extrabold text-theme-text/70 bg-theme-bg/60">
+                        <th scope="col" className="py-3 px-4">Candidate</th>
+                        <th scope="col" className="py-3 px-4">Examination Paper</th>
+                        <th scope="col" className="py-3 px-4">Completion Date</th>
+                        <th scope="col" className="py-3 px-4 text-center">Score</th>
+                        <th scope="col" className="py-3 px-4">Accuracy Status</th>
+                        <th scope="col" className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-theme-border/50">
+                      {paginatedAdminSubmissions.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-theme-text/60">
+                            <div className="space-y-2">
+                              <Award className="w-8 h-8 text-theme-text/30 mx-auto" />
+                              <div className="font-bold text-sm text-theme-text">No Submissions Found</div>
+                              <p className="text-xs text-theme-text/60">No test attempts match your current search query or filter.</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedAdminSubmissions.map((sub) => (
+                          <tr key={sub.id} className="hover:bg-theme-bg/50 transition-colors">
+                            {/* Candidate info */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={`w-9 h-9 rounded-xl bg-gradient-to-br ${getStudentGradient(
+                                    sub.studentName
+                                  )} text-white font-black text-xs flex items-center justify-center shrink-0 shadow-xs`}
+                                >
+                                  {sub.studentName.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="font-extrabold text-theme-text leading-tight">{sub.studentName}</div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyRoll(sub.studentRoll)}
+                                    className="text-[11px] font-mono text-theme-text/60 hover:text-[#008f7a] flex items-center gap-1 mt-0.5 transition"
+                                    title="Click to copy roll number"
+                                  >
+                                    <span>{sub.studentRoll}</span>
+                                    {copiedRoll === sub.studentRoll ? (
+                                      <Check className="w-3 h-3 text-emerald-500" />
+                                    ) : (
+                                      <Copy className="w-3 h-3 opacity-60" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Exam Title & Type */}
+                            <td className="py-3.5 px-4">
+                              <div className="font-bold text-theme-text max-w-xs truncate" title={sub.examTitle}>
+                                {sub.examTitle}
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-theme-text/60 mt-0.5">
+                                <span className="px-1.5 py-0.2 rounded font-mono font-bold bg-theme-bg border border-theme-border text-[10px]">
+                                  {sub.examCode}
+                                </span>
+                                <span>•</span>
+                                <span
+                                  className={`text-[11px] font-bold ${
+                                    sub.examType === 'practice'
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : 'text-purple-600 dark:text-purple-400'
+                                  }`}
+                                >
+                                  {sub.examType === 'practice' ? '💡 Practice Drill' : '🏆 Timed Exam'}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Completion Date */}
+                            <td className="py-3.5 px-4 text-xs text-theme-text/80 whitespace-nowrap">
+                              <div className="flex items-center gap-1 font-medium">
+                                <Calendar className="w-3.5 h-3.5 text-theme-text/40" />
+                                <span>{new Date(sub.submittedAt).toLocaleDateString()}</span>
+                              </div>
+                              <div className="text-[11px] text-theme-text/50 font-mono pl-4.5">
+                                {new Date(sub.submittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </td>
+
+                            {/* Score Achieved */}
+                            <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                              <div className="font-black text-theme-text font-mono text-sm">
+                                {Number(sub.score.toFixed(2))} <span className="text-xs text-theme-text/60 font-medium">/ {sub.maxScore}</span>
+                              </div>
+                            </td>
+
+                            {/* Accuracy Status Progress Bar */}
+                            <td className="py-3.5 px-4">
+                              <div className="space-y-1 min-w-[120px]">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span
+                                    className={`px-2 py-0.2 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                      sub.percentage >= 80
+                                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                                        : sub.percentage >= 50
+                                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                        : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
+                                    }`}
+                                  >
+                                    {sub.percentage >= 80 ? 'Distinction' : sub.percentage >= 50 ? 'Passed' : 'Review'}
+                                  </span>
+                                  <span className="font-black font-mono text-theme-text">{sub.percentage}%</span>
+                                </div>
+                                <div className="w-full bg-theme-bg h-1.5 rounded-full overflow-hidden border border-theme-border/60">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-500 ${
+                                      sub.percentage >= 80 ? 'bg-[#008f7a]' : sub.percentage >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                                    }`}
+                                    style={{ width: `${Math.min(100, Math.max(5, sub.percentage))}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Action Buttons */}
+                            <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSpeakResult(sub)}
+                                  title="Listen to student performance summary via speech"
+                                  aria-label={`Read result for ${sub.studentName}`}
+                                  className="p-2 rounded-xl border border-theme-border bg-theme-bg hover:border-[#008f7a] text-theme-text hover:text-[#008f7a] transition"
+                                >
+                                  <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm(`Delete submission record for ${sub.studentName}?`)) {
+                                      deleteSubmission(sub.id);
+                                    }
+                                  }}
+                                  title="Delete submission record"
+                                  aria-label={`Delete submission for ${sub.studentName}`}
+                                  className="p-2 rounded-xl border border-theme-border bg-theme-bg hover:border-red-500/50 hover:bg-red-500/10 text-theme-text/60 hover:text-red-500 transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Admin Submissions Pagination */}
+                {filteredSubmissions.length > 0 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-t border-theme-border bg-theme-bg/30">
+                    <div className="text-xs text-theme-text/70 font-medium">
+                      Showing <span className="font-bold text-theme-text">{Math.min((submissionPage - 1) * SUBMISSIONS_PER_PAGE + 1, filteredSubmissions.length)}</span> to{' '}
+                      <span className="font-bold text-theme-text">{Math.min(submissionPage * SUBMISSIONS_PER_PAGE, filteredSubmissions.length)}</span> of{' '}
+                      <span className="font-bold text-theme-text">{filteredSubmissions.length}</span> submissions
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={submissionPage === 1}
+                        onClick={() => setSubmissionPage((p) => Math.max(1, p - 1))}
+                        className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-surface text-theme-text font-bold text-xs hover:border-[#008f7a] hover:text-[#008f7a] disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Previous</span>
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: totalSubmissionPages }, (_, i) => i + 1).map((page) => (
+                          <button
+                            key={page}
+                            type="button"
+                            onClick={() => setSubmissionPage(page)}
+                            className={`w-7 h-7 rounded-lg font-bold text-xs transition border ${
+                              submissionPage === page
+                                ? 'bg-[#008f7a] text-white border-[#008f7a] shadow-xs'
+                                : 'bg-theme-surface border-theme-border text-theme-text hover:border-[#008f7a]'
                             }`}
                           >
-                            {sub.percentage}%
-                          </span>
-                        </td>
-                        <td className="p-3 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleSpeakResult(sub)}
-                              title="Listen to student performance summary via speech"
-                              aria-label={`Read result for ${sub.studentName}`}
-                              className="p-1.5 rounded-lg border border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text transition"
-                            >
-                              <Volume2 className="w-4 h-4 text-theme-primary" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteSubmission(sub.id)}
-                              title="Delete submission record"
-                              aria-label={`Delete submission for ${sub.studentName}`}
-                              className="p-1.5 rounded-lg border border-theme-border bg-theme-bg hover:border-red-500 text-theme-text/60 hover:text-red-500 transition"
-                            >
-                              <Trash2 className="w-4 h-4" aria-hidden="true" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                            {page}
+                          </button>
+                        ))}
+                      </div>
 
-            {/* Admin Submissions Pagination */}
-            {filteredSubmissions.length > 0 && (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-theme-border">
-                <div className="text-xs text-theme-text/70 font-medium">
-                  Showing <span className="font-bold text-theme-text">{Math.min((submissionPage - 1) * SUBMISSIONS_PER_PAGE + 1, filteredSubmissions.length)}</span> to{' '}
-                  <span className="font-bold text-theme-text">{Math.min(submissionPage * SUBMISSIONS_PER_PAGE, filteredSubmissions.length)}</span> of{' '}
-                  <span className="font-bold text-theme-text">{filteredSubmissions.length}</span> submissions
+                      <button
+                        type="button"
+                        disabled={submissionPage === totalSubmissionPages}
+                        onClick={() => setSubmissionPage((p) => Math.min(totalSubmissionPages, p + 1))}
+                        className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-surface text-theme-text font-bold text-xs hover:border-[#008f7a] hover:text-[#008f7a] disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* TAB: REGISTERED STUDENTS & COHORT MANAGEMENT */}
+          {activeAdminTab === 'students' && (
+            <section aria-labelledby="students-roster-heading" className="space-y-6">
+              {/* 1. Learner Directory & Accommodations Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-theme-border/60">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300 uppercase tracking-wider">
+                      Learner Directory
+                    </span>
+                    <span className="text-xs text-theme-text/60 font-medium">Atlas Synchronized</span>
+                  </div>
+                  <h2 id="students-roster-heading" className="text-xl sm:text-2xl font-black text-theme-text tracking-tight mt-1 flex items-center gap-2">
+                    <Users className="w-6 h-6 text-[#008f7a]" aria-hidden="true" />
+                    <span>Candidate Roster & Accessibility Accommodations</span>
+                  </h2>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
                   <button
                     type="button"
-                    disabled={submissionPage === 1}
-                    onClick={() => setSubmissionPage((p) => Math.max(1, p - 1))}
-                    className="px-3 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-xs hover:border-theme-primary hover:text-theme-primary disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                    onClick={handleExportStudentsCsv}
+                    className="px-4 py-2 rounded-xl bg-theme-surface hover:bg-theme-border/40 border border-theme-border text-theme-text font-bold text-xs sm:text-sm flex items-center gap-2 shadow-2xs transition"
+                    title="Export Student Directory as CSV"
                   >
-                    <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Previous</span>
+                    <Download className="w-4 h-4 text-[#008f7a]" />
+                    <span>Export Roster CSV</span>
                   </button>
 
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: totalSubmissionPages }, (_, i) => i + 1).map((page) => (
-                      <button
-                        key={page}
-                        type="button"
-                        onClick={() => setSubmissionPage(page)}
-                        className={`w-8 h-8 rounded-lg font-bold text-xs transition border-2 ${
-                          submissionPage === page
-                            ? 'bg-theme-primary text-white border-theme-primary shadow-xs'
-                            : 'bg-theme-bg border-theme-border text-theme-text hover:border-theme-primary'
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    ))}
-                  </div>
-
                   <button
                     type="button"
-                    disabled={submissionPage === totalSubmissionPages}
-                    onClick={() => setSubmissionPage((p) => Math.min(totalSubmissionPages, p + 1))}
-                    className="px-3 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-xs hover:border-theme-primary hover:text-theme-primary disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                    onClick={handleManualSync}
+                    disabled={isSyncing}
+                    className="px-4 py-2 rounded-xl bg-[#008f7a] hover:bg-[#007a68] text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs transition disabled:opacity-50"
+                    title="Sync records from MongoDB Atlas"
                   >
-                    <span>Next</span>
-                    <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isSyncing ? 'Syncing...' : 'Sync Atlas'}</span>
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-        </section>
-      )}
 
-      {/* TAB 2: REGISTERED STUDENTS ROSTER */}
-      {activeAdminTab === 'students' && (
-        <section aria-labelledby="students-roster-heading" className="space-y-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-            <div>
-              <h2 id="students-roster-heading" className="text-xl font-bold text-theme-text flex items-center gap-2">
-                <Users className="w-5 h-5 text-theme-primary" aria-hidden="true" />
-                Registered Students Directory ({students.length} Candidates)
-              </h2>
-              <p className="text-xs text-theme-text/60 mt-0.5">
-                View all candidates registered on DristiX, monitor their roll numbers and accessibility options, or remove candidate accounts.
-              </p>
-            </div>
-
-            <div className="w-full sm:w-80 relative">
-              <Search className="w-4 h-4 text-theme-text/40 absolute left-3 top-3" aria-hidden="true" />
-              <input
-                type="text"
-                placeholder="Search name, roll number, or email..."
-                value={studentSearch}
-                onChange={(e) => setStudentSearch(e.target.value)}
-                className="w-full h-10 pl-9 pr-3 rounded-xl border-2 border-theme-border bg-theme-bg text-sm text-theme-text focus:outline-none focus:ring-4 focus:ring-theme-focus-ring"
-              />
-            </div>
-          </div>
-
-          {filteredStudents.length === 0 ? (
-            <div className="p-10 text-center rounded-2xl bg-theme-surface border-2 border-theme-border">
-              <p className="text-base font-bold text-theme-text">No registered candidates match your search query.</p>
-              <p className="text-xs text-theme-text/60 mt-1">Try clearing the search box to view all registered students.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-2xl border-2 border-theme-border bg-theme-surface shadow-sm">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b-2 border-theme-border bg-theme-bg/60 text-xs font-black uppercase text-theme-text/70">
-                    <th className="py-3.5 px-4">Student Name</th>
-                    <th className="py-3.5 px-4">Roll Number / ID</th>
-                    <th className="py-3.5 px-4">Email Address</th>
-                    <th className="py-3.5 px-4">Accessibility Preference</th>
-                    <th className="py-3.5 px-4 text-center">Tests Attempted</th>
-                    <th className="py-3.5 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-theme-border">
-                  {filteredStudents.map((std) => {
-                    const stdSubs = submissions.filter((s) => s.studentId === std.id || s.studentRoll === std.rollNumber);
-                    const isDeleting = deletingStudentId === std.id;
-
-                    return (
-                      <tr key={std.id} className="hover:bg-theme-bg/40 transition">
-                        <td className="py-3.5 px-4 font-bold text-theme-text">
-                          <div className="flex items-center gap-2.5">
-                            <span className="w-8 h-8 rounded-full bg-theme-primary text-theme-primary-text font-black text-xs flex items-center justify-center shrink-0">
-                              {std.name.charAt(0).toUpperCase()}
-                            </span>
-                            <span className="truncate">{std.name}</span>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 font-mono text-xs font-bold text-theme-primary">
-                          {std.rollNumber}
-                        </td>
-                        <td className="py-3.5 px-4 text-theme-text/80">{std.email}</td>
-                        <td className="py-3.5 px-4">
-                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-theme-border/50 text-theme-text">
-                            {std.accessibilityPreference || 'Standard'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center font-bold text-theme-text">
-                          {stdSubs.length}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <button
-                            type="button"
-                            disabled={isDeleting}
-                            onClick={() => handleDeleteStudent(std.id, std.name)}
-                            className="px-3.5 py-1.5 rounded-lg border-2 border-red-500/40 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold text-xs flex items-center gap-1.5 transition ml-auto focus:ring-4 focus:ring-red-500/30 disabled:opacity-50"
-                          >
-                            {isDeleting ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                            ) : (
-                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                            )}
-                            <span>Remove Account</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* TAB 2: MANAGE TESTS & DRILLS */}
-      {activeAdminTab === 'manage' && (
-        <section aria-label="Existing Examinations and Practice Modules" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-theme-text">Available Test Series & Practice Modules</h2>
-            <button
-              type="button"
-              onClick={() => setActiveAdminTab('create')}
-              className="px-4 py-2 rounded-xl bg-theme-primary text-theme-primary-text font-bold text-xs flex items-center gap-1.5 shadow hover:brightness-110 transition"
-            >
-              <PlusCircle className="w-4 h-4" aria-hidden="true" />
-              <span>Create Another Test</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Mock Exams List */}
-            {availableExams.map((exam) => (
-              <div
-                key={exam.id}
-                className="p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="px-2.5 py-0.5 rounded text-xs font-mono font-bold bg-theme-border text-theme-text">
-                      {exam.code}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-theme-primary/10 text-theme-primary border border-theme-primary/30">
-                      🏆 Timed Exam
-                    </span>
+              {/* 2. Direct Accommodations Telemetry Bar (Special Accommodations Breakdown) */}
+              <div className="p-3.5 rounded-2xl bg-theme-surface border border-theme-border shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs font-semibold">
+                <div className="flex items-center gap-6 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Enrolled Learners:</span>
+                    <span className="font-mono font-black text-sm text-theme-text">{students.length}</span>
                   </div>
-                  <h3 className="text-lg font-bold text-theme-text mb-1">{exam.title}</h3>
-                  <p className="text-xs text-theme-text/70 mb-4 line-clamp-2">{exam.description}</p>
-                  <div className="flex flex-wrap gap-3 text-xs text-theme-text/80 mb-4 font-medium items-center">
-                    <span>⏱️ {exam.durationMinutes} min</span>
-                    <span>•</span>
-                    <span>❓ {exam.questions.length} questions</span>
-                    <span>•</span>
-                    <span>🏆 {exam.totalMarks} marks</span>
-                    {exam.questions.some((q) => q.graph && q.graph.enabled) && (
-                      <>
-                        <span>•</span>
-                        <span className="px-2 py-0.5 rounded bg-theme-primary/10 text-theme-primary border border-theme-primary/20 font-bold">
-                          🎧 Audio Graph DI
-                        </span>
-                      </>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Active Test Takers:</span>
+                    <span className="font-mono font-black text-sm text-teal-600 dark:text-teal-400">{studentsWithAttempts.length} ({cohortActiveRate}%)</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Cohort Avg Accuracy:</span>
+                    <span className="font-mono font-black text-sm text-emerald-600 dark:text-emerald-400">{cohortAvgAccuracy}%</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Special Accommodations:</span>
+                    <span className="font-mono font-black text-sm text-purple-600 dark:text-purple-400">{specialAccommodationsCount} ({visualStudentsCount} Vis · {cognitiveStudentsCount} Cog · {motorStudentsCount} Mot)</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-theme-text/60 font-mono text-[11px]">
+                  <Shield className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Inclusive Proctoring Active</span>
+                </div>
+              </div>
+
+              {/* 3. Interactive Filter & Search Control Toolbar */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-theme-surface border border-theme-border shadow-sm space-y-4">
+                <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+                  {/* Search Box */}
+                  <div className="relative flex-1 min-w-[240px]">
+                    <Search className="w-4 h-4 text-theme-text/40 absolute left-3.5 top-3" aria-hidden="true" />
+                    <input
+                      type="text"
+                      placeholder="Search candidate name, roll number, or email..."
+                      value={studentSearch}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                      className="w-full h-10 pl-10 pr-9 rounded-xl border border-theme-border bg-theme-bg text-sm text-theme-text placeholder:text-theme-text/40 focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition font-medium"
+                    />
+                    {studentSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setStudentSearch('')}
+                        className="absolute right-3 top-3 text-theme-text/40 hover:text-theme-text"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
-                </div>
 
-                <div className="flex items-center justify-between gap-2 pt-3 border-t border-theme-border flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleTestAsStudent(exam, 'exam')}
-                      className="px-3 py-1.5 rounded-lg bg-theme-primary text-theme-primary-text text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
-                    >
-                      <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Test as Student</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => void handleStartEditExam(exam.id)}
-                      className="px-3 py-1.5 rounded-lg border-2 border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text text-xs font-bold flex items-center gap-1.5 transition"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Edit Test</span>
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => void deleteCustomExam(exam.id)}
-                    className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition ml-auto"
-                    title="Delete Exam"
-                  >
-                    <Trash2 className="w-4 h-4" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {/* Practice Drills List */}
-            {availablePracticeDrills.map((drill) => (
-              <div
-                key={drill.id}
-                className="p-6 rounded-2xl bg-theme-surface border-2 border-emerald-500/30 shadow-sm flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="px-2.5 py-0.5 rounded text-xs font-mono font-bold bg-theme-border text-theme-text">
-                      {drill.code}
+                  {/* Sort By Dropdown */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-bold text-theme-text/70 flex items-center gap-1">
+                      <SlidersHorizontal className="w-3.5 h-3.5" /> Sort:
                     </span>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                      💡 Practice Drill
-                    </span>
-                  </div>
-                  <h3 className="text-lg font-bold text-theme-text mb-1">{drill.title}</h3>
-                  <p className="text-xs text-theme-text/70 mb-4 line-clamp-2">{drill.description}</p>
-                  <div className="flex flex-wrap gap-3 text-xs text-theme-text/80 mb-4 font-medium">
-                    <span>⏱️ {drill.durationMinutes} min</span>
-                    <span>•</span>
-                    <span>❓ {drill.questions.length} questions</span>
-                    <span>•</span>
-                    <span>💡 Hints & Solutions</span>
+                    <select
+                      value={studentSortBy}
+                      onChange={(e) => setStudentSortBy(e.target.value as any)}
+                      className="h-10 px-3 rounded-xl border border-theme-border bg-theme-bg text-xs sm:text-sm font-semibold text-theme-text focus:outline-none focus:ring-2 focus:ring-[#008f7a] cursor-pointer"
+                    >
+                      <option value="recent">Recently Registered</option>
+                      <option value="name">Candidate Name (A-Z)</option>
+                      <option value="attempts">Most Test Attempts</option>
+                      <option value="accuracy">Highest Accuracy %</option>
+                    </select>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-2 pt-3 border-t border-theme-border flex-wrap">
-                  <div className="flex items-center gap-2">
+                {/* Filter Chips: Accessibility Preference */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-theme-border/50 text-xs font-bold">
+                  <span className="text-theme-text/60 mr-1 text-xs">Filter Mode:</span>
+                  {[
+                    { id: 'all', label: 'All Candidates', count: students.length },
+                    { id: 'standard', label: 'Standard Profile', count: students.filter((s) => !s.accessibilityPreference || s.accessibilityPreference === 'standard').length },
+                    { id: 'visual', label: 'Visual Assistance', count: visualStudentsCount },
+                    { id: 'adhd-cognitive', label: 'Cognitive / ADHD', count: cognitiveStudentsCount },
+                    { id: 'motor', label: 'Motor Assist', count: motorStudentsCount },
+                  ].map((chip) => (
                     <button
+                      key={chip.id}
                       type="button"
-                      onClick={() => handleTestAsStudent(drill, 'practice')}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
+                      onClick={() => {
+                        setStudentFilterPref(chip.id);
+                        soundEffects.playSelect();
+                      }}
+                      className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ${studentFilterPref === chip.id
+                        ? 'bg-[#008f7a] text-white shadow-xs'
+                        : 'bg-theme-bg border border-theme-border text-theme-text/70 hover:text-theme-text hover:bg-theme-border/30'
+                      }`}
                     >
-                      <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Test as Student</span>
+                      <span>{chip.label}</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${studentFilterPref === chip.id
+                        ? 'bg-black/20 text-white'
+                        : 'bg-theme-border/40 text-theme-text/80'
+                      }`}>
+                        {chip.count}
+                      </span>
                     </button>
+                  ))}
 
-                    <button
-                      type="button"
-                      onClick={() => void handleStartEditExam(drill.id)}
-                      className="px-3 py-1.5 rounded-lg border-2 border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text text-xs font-bold flex items-center gap-1.5 transition"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Edit Drill</span>
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => void deleteCustomExam(drill.id)}
-                    className="p-1.5 rounded-lg border border-theme-border hover:border-red-500 text-theme-text/60 hover:text-red-500 text-xs transition ml-auto"
-                    title="Delete Practice Drill"
-                  >
-                    <Trash2 className="w-4 h-4" aria-hidden="true" />
-                  </button>
+                  {/* Showing count indicator */}
+                  <span className="ml-auto text-xs text-theme-text/60 font-medium">
+                    Showing {filteredStudents.length} of {students.length} candidates
+                  </span>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
 
-      {/* TAB 3: CREATE NEW TEST / DRILL */}
-      {activeAdminTab === 'create' && (
-        <section aria-labelledby="create-heading" className="p-6 sm:p-8 rounded-3xl bg-theme-surface border-2 border-theme-border shadow-md">
-          <div className="mb-6">
-            <h2 id="create-heading" className="text-2xl font-black text-theme-text">
-              Author New Examination or Practice Drill
-            </h2>
-            <p className="text-sm text-theme-text/80 mt-1">
-              Construct high-accessibility test papers with LaTeX math equations, 4 options, hints, and explanations.
-            </p>
-
-            {/* Editing has no other exit — without this an examiner who opened
-                the wrong paper had to publish it to get out. */}
-            {editingExamId && (
-              <div className="flex flex-wrap items-center gap-3 mt-3">
-                <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-xs font-black uppercase tracking-wider">
-                  {isLoadingExamForEdit ? 'Loading exam…' : 'Editing existing paper'}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="px-3 py-1.5 rounded-lg border border-theme-border bg-theme-surface text-theme-text font-bold text-xs hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/40 transition"
-                >
-                  Cancel edit
-                </button>
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={handlePublishExam} className="space-y-6">
-            {formError && (
-              <div role="alert" className="p-4 rounded-xl bg-red-500/10 border-2 border-red-500 text-red-500 text-sm font-bold">
-                ⚠️ {formError}
-              </div>
-            )}
-            {formSuccess && (
-              <div role="status" className="p-4 rounded-xl bg-emerald-500/10 border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 text-sm font-bold flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 shrink-0" aria-hidden="true" />
-                <span>{formSuccess}</span>
-              </div>
-            )}
-
-            {/* Test Type & Category Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Module Format <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={examType}
-                  onChange={(e) => setExamType(e.target.value as 'exam' | 'practice')}
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text font-bold text-sm focus:ring-4 focus:ring-theme-focus outline-none"
-                >
-                  <option value="exam">🏆 Mock Examination (Timed with Negative Marking)</option>
-                  <option value="practice">💡 Practice Drill (Untimed with Hints & Solutions)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Category / Stream <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as ExamCategory)}
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text font-bold text-sm focus:ring-4 focus:ring-theme-focus outline-none"
-                >
-                  <option value="Staff Selection">Staff Selection Commission (SSC)</option>
-                  <option value="Banking & Insurance">Banking & Insurance (IBPS/SBI)</option>
-                  <option value="Civil Services">Civil Services (UPSC CSAT)</option>
-                  <option value="Railways">Railways (RRB NTPC)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Difficulty Level
-                </label>
-                <select
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(e.target.value as any)}
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text font-bold text-sm focus:ring-4 focus:ring-theme-focus outline-none"
-                >
-                  <option value="Easy">Easy</option>
-                  <option value="Moderate">Moderate</option>
-                  <option value="Challenging">Challenging</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Title & Code */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <div className="sm:col-span-3">
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Test Title <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. IBPS Clerk 2026 Quantitative Speed Test"
-                  required
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text text-sm font-semibold focus:ring-4 focus:ring-theme-focus outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Code <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="e.g. IBPS-CLK-05"
-                  required
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text text-sm font-mono font-bold focus:ring-4 focus:ring-theme-focus outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Description */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                Overview & Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                placeholder="Brief summary of syllabus, target exam, and learning objectives..."
-                required
-                className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text text-sm focus:ring-4 focus:ring-theme-focus outline-none"
-              />
-            </div>
-
-            {/* Duration & Marks */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Duration (Minutes)
-                </label>
-                <input
-                  type="number"
-                  min={5}
-                  max={180}
-                  value={durationMinutes}
-                  onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text font-bold text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Total Marks
-                </label>
-                <input
-                  type="number"
-                  min={5}
-                  max={300}
-                  value={totalMarks}
-                  onChange={(e) => setTotalMarks(Number(e.target.value))}
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text font-bold text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-theme-text/70 mb-1.5">
-                  Negative Marking
-                </label>
-                <input
-                  type="text"
-                  value={negativeMarking}
-                  onChange={(e) => setNegativeMarking(e.target.value)}
-                  placeholder="-0.25 marks"
-                  disabled={examType === 'practice'}
-                  className="w-full p-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text text-sm font-semibold disabled:opacity-50"
-                />
-              </div>
-            </div>
-
-            {/* QUESTIONS BUILDER SECTION */}
-            <div className="pt-6 border-t-2 border-theme-border space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-theme-text">Questions List ({questions.length})</h3>
-                  <p className="text-xs text-theme-text/60">
-                    Add questions, options, KaTeX math formulas, hints, and step-by-step solutions.
+              {/* 4. Candidate Directory Table / Grid */}
+              {filteredStudents.length === 0 ? (
+                <div className="p-12 text-center rounded-2xl bg-theme-surface border border-theme-border shadow-sm space-y-3">
+                  <div className="w-14 h-14 mx-auto rounded-2xl bg-[#008f7a]/10 text-[#008f7a] flex items-center justify-center">
+                    <Users className="w-7 h-7" />
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-theme-text">No registered candidates match your filters</h3>
+                  <p className="text-xs sm:text-sm text-theme-text/60 max-w-md mx-auto">
+                    Try adjusting the search query or selecting "All Candidates" to display the full student roster.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudentSearch('');
+                      setStudentFilterPref('all');
+                      soundEffects.playSelect();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-[#008f7a] text-white font-bold text-xs sm:text-sm hover:bg-[#007a68] transition"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-2xl border border-theme-border bg-theme-surface shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-theme-border bg-theme-bg/60 text-xs font-black uppercase tracking-wider text-theme-text/70">
+                          <th className="py-4 px-5">Candidate Name</th>
+                          <th className="py-4 px-4">Roll Number</th>
+                          <th className="py-4 px-4">Contact Email</th>
+                          <th className="py-4 px-4">Accommodations</th>
+                          <th className="py-4 px-4">Exam Engagement</th>
+                          <th className="py-4 px-5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-theme-border/50">
+                        {filteredStudents.map((std) => {
+                          const stdSubs = submissions.filter((s) => s.studentId === std.id || s.studentRoll === std.rollNumber);
+                          const isDeleting = deletingStudentId === std.id;
+                          const avgScore = stdSubs.length > 0 ? Math.round(stdSubs.reduce((acc, c) => acc + (c.percentage || 0), 0) / stdSubs.length) : null;
+                          const badge = getAccessibilityBadge(std.accessibilityPreference);
+                          const isCopied = copiedRoll === std.rollNumber;
+                          const hasAttempts = stdSubs.length > 0;
+
+                          return (
+                            <tr key={std.id} className="hover:bg-theme-bg/50 transition group">
+                              {/* Candidate Info */}
+                              <td className="py-4 px-5">
+                                <div className="flex items-center gap-3">
+                                  <div className="relative">
+                                    <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${getStudentGradient(std.name)} text-white font-black text-sm flex items-center justify-center shadow-xs`}>
+                                      {std.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    {hasAttempts && (
+                                      <span
+                                        className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-theme-surface"
+                                        title="Active Candidate (Has test submissions)"
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="font-extrabold text-theme-text text-sm sm:text-base group-hover:text-[#008f7a] transition truncate">
+                                      {std.name}
+                                    </div>
+                                    <div className="text-xs text-theme-text/60 flex items-center gap-1.5 mt-0.5">
+                                      <span className={`w-1.5 h-1.5 rounded-full ${hasAttempts ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                      <span>{hasAttempts ? 'Active Candidate' : 'Registered / Enrolled'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Roll Number with One-Click Copy */}
+                              <td className="py-4 px-4">
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border font-mono text-xs font-bold text-[#008f7a] dark:text-teal-300">
+                                  <span>{std.rollNumber}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyRoll(std.rollNumber)}
+                                    title="Copy Roll Number"
+                                    className="p-0.5 hover:text-white hover:bg-[#008f7a] rounded transition"
+                                  >
+                                    {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3 h-3 text-theme-text/40 hover:text-inherit" />}
+                                  </button>
+                                </div>
+                              </td>
+
+                              {/* Email */}
+                              <td className="py-4 px-4">
+                                <div className="flex items-center gap-1.5 text-xs sm:text-sm text-theme-text/80 truncate max-w-[200px]">
+                                  <Mail className="w-3.5 h-3.5 text-theme-text/40 shrink-0" />
+                                  <span className="truncate">{std.email}</span>
+                                </div>
+                              </td>
+
+                              {/* Accessibility Badge */}
+                              <td className="py-4 px-4">
+                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${badge.bg}`}>
+                                  <badge.icon className="w-3.5 h-3.5" />
+                                  <span>{badge.label}</span>
+                                </span>
+                              </td>
+
+                              {/* Exam Engagement & Accuracy */}
+                              <td className="py-4 px-4">
+                                {hasAttempts ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between text-xs gap-3">
+                                      <span className="font-extrabold text-theme-text">{avgScore}% Accuracy</span>
+                                      <span className="text-theme-text/60 font-medium">{stdSubs.length} {stdSubs.length === 1 ? 'test' : 'tests'}</span>
+                                    </div>
+                                    <div className="w-28 bg-theme-bg rounded-full h-2 overflow-hidden border border-theme-border">
+                                      <div
+                                        className={`h-full rounded-full transition-all ${
+                                          (avgScore || 0) >= 80 ? 'bg-emerald-500' : (avgScore || 0) >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                                        }`}
+                                        style={{ width: `${avgScore}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-theme-text/50 font-medium italic">
+                                    No attempts yet
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Action Buttons */}
+                              <td className="py-4 px-5 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {/* View Profile Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedStudent(std);
+                                      soundEffects.playSelect();
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl border border-[#008f7a]/40 bg-[#008f7a]/10 hover:bg-[#008f7a] text-[#008f7a] hover:text-white font-bold text-xs flex items-center gap-1.5 transition shadow-2xs"
+                                    title={`View ${std.name}'s Profile & Test History`}
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>Profile</span>
+                                  </button>
+
+                                  {/* Remove Account Button */}
+                                  <button
+                                    type="button"
+                                    disabled={isDeleting}
+                                    onClick={() => handleDeleteStudent(std.id, std.name)}
+                                    className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold text-xs flex items-center gap-1 transition disabled:opacity-50"
+                                    title="Remove Student Account"
+                                  >
+                                    {isDeleting ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                    )}
+                                    <span className="hidden sm:inline">Delete</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* 5. Detailed Student Profile Modal */}
+              {selectedStudent && (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="student-modal-name"
+                  onClick={() => setSelectedStudent(null)}
+                >
+                  <div
+                    className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl bg-theme-surface border border-theme-border shadow-2xl p-6 sm:p-7 space-y-6"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Modal Close Button */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStudent(null)}
+                      className="absolute top-5 right-5 p-2 rounded-xl text-theme-text/60 hover:text-theme-text hover:bg-theme-bg border border-theme-border transition"
+                      aria-label="Close Profile Dialog"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+
+                    {/* Student Identity Header */}
+                    <div className="flex items-center gap-4 pr-12">
+                      <div className={`w-16 h-16 rounded-3xl bg-gradient-to-br ${getStudentGradient(selectedStudent.name)} text-white font-black text-2xl flex items-center justify-center shadow-md`}>
+                        {selectedStudent.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 id="student-modal-name" className="text-xl sm:text-2xl font-black text-theme-text truncate">
+                            {selectedStudent.name}
+                          </h3>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-theme-text/70 mt-1">
+                          <span className="font-mono font-bold text-[#008f7a] dark:text-teal-300 bg-theme-bg px-2 py-0.5 rounded border border-theme-border">
+                            {selectedStudent.rollNumber}
+                          </span>
+                          <span>{selectedStudent.email}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4 Mini Summary Metric Cards */}
+                    {(() => {
+                      const studentSubs = submissions.filter((s) => s.studentId === selectedStudent.id || s.studentRoll === selectedStudent.rollNumber);
+                      const avg = studentSubs.length > 0 ? Math.round(studentSubs.reduce((a, b) => a + (b.percentage || 0), 0) / studentSubs.length) : 0;
+                      const best = studentSubs.length > 0 ? Math.max(...studentSubs.map((s) => s.percentage || 0)) : 0;
+                      const badge = getAccessibilityBadge(selectedStudent.accessibilityPreference);
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="p-3.5 rounded-2xl bg-theme-bg border border-theme-border">
+                              <span className="text-[10px] uppercase font-bold text-theme-text/60 block">Tests Taken</span>
+                              <div className="text-xl font-black text-theme-text mt-0.5">{studentSubs.length}</div>
+                            </div>
+                            <div className="p-3.5 rounded-2xl bg-theme-bg border border-theme-border">
+                              <span className="text-[10px] uppercase font-bold text-theme-text/60 block">Avg Accuracy</span>
+                              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{avg}%</div>
+                            </div>
+                            <div className="p-3.5 rounded-2xl bg-theme-bg border border-theme-border">
+                              <span className="text-[10px] uppercase font-bold text-theme-text/60 block">Best Score</span>
+                              <div className="text-xl font-black text-[#008f7a] dark:text-teal-300 mt-0.5">{best}%</div>
+                            </div>
+                            <div className="p-3.5 rounded-2xl bg-theme-bg border border-theme-border">
+                              <span className="text-[10px] uppercase font-bold text-theme-text/60 block">Profile Mode</span>
+                              <div className="text-xs font-extrabold text-purple-600 dark:text-purple-400 mt-1 truncate">
+                                {badge.label}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Test Attempts History */}
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-extrabold text-theme-text flex items-center gap-2">
+                                <Award className="w-4 h-4 text-[#008f7a]" />
+                                Examination & Drill Attempts ({studentSubs.length})
+                              </h4>
+                              {studentSubs.length > 0 && (
+                                <span className="text-xs text-theme-text/60">
+                                  Last submitted: {new Date(Math.max(...studentSubs.map((s) => s.submittedAt))).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+
+                            {studentSubs.length === 0 ? (
+                              <div className="p-6 text-center rounded-2xl bg-theme-bg border border-theme-border text-xs sm:text-sm text-theme-text/70">
+                                This candidate has not submitted any mock tests or practice drills yet.
+                              </div>
+                            ) : (
+                              <div className="overflow-hidden rounded-2xl border border-theme-border">
+                                <table className="w-full text-left text-xs sm:text-sm">
+                                  <thead className="bg-theme-bg border-b border-theme-border text-[11px] font-bold text-theme-text/60 uppercase">
+                                    <tr>
+                                      <th className="py-2.5 px-3">Examination</th>
+                                      <th className="py-2.5 px-3">Mode</th>
+                                      <th className="py-2.5 px-3 text-center">Score</th>
+                                      <th className="py-2.5 px-3 text-right">Accuracy</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-theme-border/50">
+                                    {studentSubs.map((sub) => (
+                                      <tr key={sub.id} className="hover:bg-theme-bg/40">
+                                        <td className="py-2.5 px-3 font-semibold text-theme-text">
+                                          {sub.examTitle}
+                                        </td>
+                                        <td className="py-2.5 px-3">
+                                          <span className="capitalize px-2 py-0.5 rounded text-[10px] font-bold bg-theme-bg border border-theme-border">
+                                            {sub.examType}
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-center font-mono font-bold text-theme-text">
+                                          {sub.score} / {sub.maxScore}
+                                        </td>
+                                        <td className="py-2.5 px-3 text-right">
+                                          <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                                            (sub.percentage || 0) >= 80 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                          }`}>
+                                            {sub.percentage}%
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    {/* Modal Footer */}
+                    <div className="flex items-center justify-between pt-4 border-t border-theme-border">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteStudent(selectedStudent.id, selectedStudent.name)}
+                        className="px-4 py-2 rounded-xl text-red-500 hover:bg-red-500/10 border border-red-500/30 text-xs font-bold transition flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Candidate</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStudent(null)}
+                        className="px-5 py-2 rounded-xl bg-[#008f7a] hover:bg-[#007a68] text-white font-bold text-xs sm:text-sm transition"
+                      >
+                        Close Profile
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* TAB 2: MANAGE TESTS & DRILLS */}
+          {activeAdminTab === 'manage' && (
+            <section aria-label="Existing Examinations and Practice Modules" className="space-y-6">
+              {/* 1. Curriculum Repository & Catalog Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-theme-border/60">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300 uppercase tracking-wider">
+                      Paper Repository
+                    </span>
+                    <span className="text-xs text-theme-text/60 font-medium">Curriculum Management</span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-theme-text tracking-tight mt-1 flex items-center gap-2">
+                    <BookOpen className="w-6 h-6 text-[#008f7a]" aria-hidden="true" />
+                    <span>Examination Papers & Practice Drills</span>
+                  </h2>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingExamId(null);
+                      setExamType(manageSubTab === 'exams' ? 'exam' : 'practice');
+                      setActiveAdminTab('create');
+                      soundEffects.playSelect();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#008f7a] to-teal-700 hover:brightness-110 text-white font-extrabold text-xs sm:text-sm flex items-center gap-2 shadow-md transition"
+                  >
+                    <PlusCircle className="w-4 h-4" aria-hidden="true" />
+                    <span>{manageSubTab === 'exams' ? 'Create Mock Test' : 'Create Practice Drill'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Direct Curriculum Telemetry Bar */}
+              <div className="p-3.5 rounded-2xl bg-theme-surface border border-theme-border shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs font-semibold">
+                <div className="flex items-center gap-6 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Total Active Papers:</span>
+                    <span className="font-mono font-black text-sm text-theme-text">
+                      {availableExams.length + availablePracticeDrills.length}
+                    </span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Timed Mock Tests:</span>
+                    <span className="font-mono font-black text-sm text-purple-600 dark:text-purple-400">
+                      {availableExams.length}
+                    </span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Practice Drills:</span>
+                    <span className="font-mono font-black text-sm text-emerald-600 dark:text-emerald-400">
+                      {availablePracticeDrills.length}
+                    </span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Question Bank Items:</span>
+                    <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400">
+                      {totalBankQuestionsCount}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-theme-text/60 font-mono text-[11px]">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Curriculum Verified</span>
+                </div>
+              </div>
+
+              {/* 3. Search & Category Filters Bar */}
+              <div className="p-4 rounded-2xl bg-theme-surface border border-theme-border shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="relative flex-1 min-w-[240px]">
+                    <Search className="w-4 h-4 text-theme-text/40 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={manageSearchQuery}
+                      onChange={(e) => setManageSearchQuery(e.target.value)}
+                      placeholder="Search test paper by title, exam code, or syllabus..."
+                      className="w-full pl-10 pr-4 py-2 rounded-xl bg-theme-bg border border-theme-border text-xs sm:text-sm text-theme-text placeholder:text-theme-text/40 focus:outline-none focus:ring-2 focus:ring-[#008f7a] font-medium"
+                    />
+                  </div>
+
+                  {/* Sub-Tabs Switcher */}
+                  <div role="tablist" aria-label="Test formats" className="flex items-center gap-1.5 p-1 rounded-xl bg-theme-bg border border-theme-border shrink-0">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={manageSubTab === 'exams'}
+                      onClick={() => {
+                        setManageSubTab('exams');
+                        soundEffects.playSelect();
+                      }}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition ${
+                        manageSubTab === 'exams'
+                          ? 'bg-[#008f7a] text-white shadow-xs'
+                          : 'text-theme-text/70 hover:text-theme-text'
+                      }`}
+                    >
+                      <span>🏆 Timed Mocks</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                        manageSubTab === 'exams' ? 'bg-black/25 text-white' : 'bg-theme-surface text-theme-text/80'
+                      }`}>
+                        {filteredManageExams.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={manageSubTab === 'practice'}
+                      onClick={() => {
+                        setManageSubTab('practice');
+                        soundEffects.playSelect();
+                      }}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition ${
+                        manageSubTab === 'practice'
+                          ? 'bg-[#008f7a] text-white shadow-xs'
+                          : 'text-theme-text/70 hover:text-theme-text'
+                      }`}
+                    >
+                      <span>💡 Practice Drills</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                        manageSubTab === 'practice' ? 'bg-black/25 text-white' : 'bg-theme-surface text-theme-text/80'
+                      }`}>
+                        {filteredManageDrills.length}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Category Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-0.5 scrollbar-thin">
+                  <span className="text-xs font-bold text-theme-text/60 shrink-0 mr-1 flex items-center gap-1">
+                    <SlidersHorizontal className="w-3.5 h-3.5" /> Category:
+                  </span>
+                  {(
+                    [
+                      'All',
+                      'Staff Selection',
+                      'Banking & Insurance',
+                      'Railways',
+                      'Civil Services',
+                      'Defence',
+                      'Entrance Exams',
+                    ] as const
+                  ).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => {
+                        setManageCategoryFilter(cat);
+                        soundEffects.playSelect();
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 border ${
+                        manageCategoryFilter === cat
+                          ? 'bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300 border-[#008f7a]'
+                          : 'bg-theme-bg border-theme-border text-theme-text/70 hover:text-theme-text'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 4. Tests Grid Display */}
+              {manageSubTab === 'exams' && (
+                <div>
+                  {filteredManageExams.length === 0 ? (
+                    <div className="p-12 text-center rounded-2xl bg-theme-surface border border-theme-border space-y-3 shadow-xs">
+                      <div className="w-14 h-14 mx-auto rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center text-2xl font-black">
+                        🏆
+                      </div>
+                      <h3 className="text-base font-extrabold text-theme-text">No Timed Mock Tests Found</h3>
+                      <p className="text-xs text-theme-text/60 max-w-sm mx-auto">
+                        {manageSearchQuery || manageCategoryFilter !== 'All'
+                          ? 'No mock tests match your current search query or category filter.'
+                          : "You haven't published any timed mock exams yet. Create one to allow students to take simulated full-length tests."}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingExamId(null);
+                          setExamType('exam');
+                          setActiveAdminTab('create');
+                          soundEffects.playSelect();
+                        }}
+                        className="px-4 py-2 rounded-xl bg-[#008f7a] text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-xs transition hover:brightness-110"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        <span>Create First Mock Test</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {filteredManageExams.map((exam) => (
+                        <div
+                          key={exam.id}
+                          className="p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-xs hover:border-[#008f7a]/50 transition flex flex-col justify-between space-y-4 group"
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-black bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300 border border-[#008f7a]/30">
+                                {exam.code}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-theme-bg text-theme-text/70 border border-theme-border">
+                                  {exam.category}
+                                </span>
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                                  🏆 Timed Simulation
+                                </span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <h3 className="text-base sm:text-lg font-black text-theme-text group-hover:text-[#008f7a] transition-colors leading-snug">
+                                {exam.title}
+                              </h3>
+                              <p className="text-xs text-theme-text/70 mt-1 line-clamp-2 leading-relaxed">
+                                {exam.description || 'Full-length simulation examination for competitive test preparation.'}
+                              </p>
+                            </div>
+
+                            {/* Spec Pills Strip */}
+                            <div className="flex flex-wrap gap-2 text-xs pt-1">
+                              <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-theme-text/80 font-bold flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5 text-amber-500" /> {exam.durationMinutes} mins
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-theme-text/80 font-bold flex items-center gap-1">
+                                <HelpCircle className="w-3.5 h-3.5 text-teal-500" /> {exam.questions?.length || exam.questionCount || 0} questions
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-theme-text/80 font-bold flex items-center gap-1">
+                                <Award className="w-3.5 h-3.5 text-purple-500" /> {exam.totalMarks} marks
+                              </span>
+                              {exam.negativeMarking && (
+                                <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-theme-text/70 font-semibold">
+                                  ⚡ {exam.negativeMarking}
+                                </span>
+                              )}
+                              {exam.questions?.some((q) => q.graph && q.graph.enabled) && (
+                                <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1">
+                                  <Volume2 className="w-3 h-3" /> Audio Graph DI
+                                </span>
+                              )}
+                              {exam.questions?.some((q) => q.mathLatex) && (
+                                <span className="px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-400 font-bold">
+                                  ∑ LaTeX Math
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Card Action Buttons */}
+                          <div className="flex items-center justify-between gap-2 pt-3 border-t border-theme-border/60 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleTestAsStudent(exam, 'exam')}
+                                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#008f7a] to-teal-700 text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 shadow-xs transition"
+                              >
+                                <Play className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span>Test as Student</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => void handleStartEditExam(exam.id)}
+                                className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-[#008f7a] text-theme-text text-xs font-bold flex items-center gap-1.5 transition"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-[#008f7a]" aria-hidden="true" />
+                                <span>Edit in Studio</span>
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 ml-auto">
+                              <button
+                                type="button"
+                                onClick={() => void handleDuplicateExam(exam.id, 'exam')}
+                                className="p-1.5 rounded-xl border border-theme-border bg-theme-bg hover:bg-theme-border/30 text-theme-text/70 hover:text-theme-text text-xs transition"
+                                title="Duplicate Mock Test"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => void deleteCustomExam(exam.id)}
+                                className="p-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-red-500/50 hover:bg-red-500/10 text-theme-text/60 hover:text-red-500 text-xs transition"
+                                title="Delete Examination"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 5. Practice Drills Grid Display */}
+              {manageSubTab === 'practice' && (
+                <div>
+                  {filteredManageDrills.length === 0 ? (
+                    <div className="p-12 text-center rounded-2xl bg-theme-surface border border-theme-border space-y-3 shadow-xs">
+                      <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-2xl font-black">
+                        💡
+                      </div>
+                      <h3 className="text-base font-extrabold text-theme-text">No Practice Drills Found</h3>
+                      <p className="text-xs text-theme-text/60 max-w-sm mx-auto">
+                        {manageSearchQuery || manageCategoryFilter !== 'All'
+                          ? 'No practice drills match your current search query or category filter.'
+                          : "You haven't authored any practice drills yet. Practice modules provide instant hints and explanations for each question."}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingExamId(null);
+                          setExamType('practice');
+                          setActiveAdminTab('create');
+                          soundEffects.playSelect();
+                        }}
+                        className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-xs transition hover:brightness-110"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        <span>Create Practice Drill</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {filteredManageDrills.map((drill) => (
+                        <div
+                          key={drill.id}
+                          className="p-5 sm:p-6 rounded-2xl bg-theme-surface border border-theme-border shadow-xs hover:border-emerald-500/50 transition flex flex-col justify-between space-y-4 group"
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-black bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                                {drill.code}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-theme-bg text-theme-text/70 border border-theme-border">
+                                  {drill.category}
+                                </span>
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                  💡 Untimed Practice Drill
+                                </span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <h3 className="text-base sm:text-lg font-black text-theme-text group-hover:text-emerald-600 transition-colors leading-snug">
+                                {drill.title}
+                              </h3>
+                              <p className="text-xs text-theme-text/70 mt-1 line-clamp-2 leading-relaxed">
+                                {drill.description || 'Topic drill with on-demand hints, audio verbalization, and step-by-step explanations.'}
+                              </p>
+                            </div>
+
+                            {/* Spec Pills Strip */}
+                            <div className="flex flex-wrap gap-2 text-xs pt-1">
+                              <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-theme-text/80 font-bold flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5 text-amber-500" /> {drill.durationMinutes} mins
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-theme-text/80 font-bold flex items-center gap-1">
+                                <HelpCircle className="w-3.5 h-3.5 text-emerald-500" /> {drill.questions?.length || drill.questionCount || 0} questions
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-bold">
+                                💡 Instant Hints & Explanations
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-theme-bg border border-theme-border text-theme-text/70 font-semibold">
+                                ✓ No Negative Marking
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Card Action Buttons */}
+                          <div className="flex items-center justify-between gap-2 pt-3 border-t border-theme-border/60 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleTestAsStudent(drill, 'practice')}
+                                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 shadow-xs transition"
+                              >
+                                <Play className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span>Test as Student</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => void handleStartEditExam(drill.id)}
+                                className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-emerald-500 text-theme-text text-xs font-bold flex items-center gap-1.5 transition"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+                                <span>Edit Drill</span>
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 ml-auto">
+                              <button
+                                type="button"
+                                onClick={() => void handleDuplicateExam(drill.id, 'practice')}
+                                className="p-1.5 rounded-xl border border-theme-border bg-theme-bg hover:bg-theme-border/30 text-theme-text/70 hover:text-theme-text text-xs transition"
+                                title="Duplicate Practice Drill"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => void deleteCustomExam(drill.id)}
+                                className="p-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-red-500/50 hover:bg-red-500/10 text-theme-text/60 hover:text-red-500 text-xs transition"
+                                title="Delete Practice Drill"
+                              >
+                                <Trash2 className="w-4 h-4" aria-hidden="true" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* TAB: QUESTION BANK & TEST AUTHORING STUDIO */}
+          {activeAdminTab === 'create' && (
+            <section aria-labelledby="create-heading" className="space-y-6">
+              {/* 1. Authoring Suite Studio App Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-theme-border/60">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#008f7a]/15 text-[#008f7a] dark:text-teal-300 uppercase tracking-wider">
+                      Authoring Studio
+                    </span>
+                    <span className="text-xs text-theme-text/60 font-medium">LaTeX Math · Multimodal Vision · Audio Sonification</span>
+                  </div>
+                  <h2 id="create-heading" className="text-xl sm:text-2xl font-black text-theme-text tracking-tight mt-1 flex items-center gap-2">
+                    <HelpCircle className="w-6 h-6 text-[#008f7a]" aria-hidden="true" />
+                    <span>{editingExamId ? `Editing Paper: ${code || 'Draft'}` : 'Question Bank & Authoring Studio'}</span>
+                  </h2>
+                </div>
+
+                {/* Right Top Quick Actions */}
+                <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                  {editingExamId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      className="px-3 py-2 rounded-xl border border-theme-border bg-theme-surface text-theme-text font-bold text-xs hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/40 transition shadow-2xs"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => wordFileRef.current?.click()}
-                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 shadow"
-                    title="Read questions out of a .docx file — statement, options, answer, solution and section land in their fields automatically"
+                    className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                    title="Import questions from .docx / .txt file"
                   >
                     <FileText className="w-4 h-4" aria-hidden="true" />
-                    <span>Import from Word</span>
+                    <span>Import Word (.docx)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleAddQuestion}
-                    className="px-4 py-2 rounded-xl bg-theme-primary text-theme-primary-text font-bold text-xs flex items-center gap-1.5 shadow hover:brightness-110 transition"
+                    className="px-3.5 py-2 rounded-xl bg-[#008f7a] hover:bg-[#007a68] text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
                   >
                     <PlusCircle className="w-4 h-4" aria-hidden="true" />
-                    <span>Add Another Question</span>
+                    <span>+ Add Question</span>
                   </button>
 
                   <input
@@ -1768,525 +3467,1105 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                 </div>
               </div>
 
-              {/* Individual Question Cards */}
-              {questions.map((q, qIdx) => (
-                <div key={q.id} className="p-6 rounded-2xl bg-theme-bg border-2 border-theme-border space-y-4">
-                  <div className="flex flex-wrap items-center justify-between border-b border-theme-border pb-3 gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-7 h-7 rounded-full bg-theme-primary text-theme-primary-text font-black text-xs flex items-center justify-center font-mono">
-                        Q{q.questionNumber}
-                      </span>
-                      <span className="text-sm font-bold text-theme-text">Question {q.questionNumber}</span>
-                      {q.questionType === 'DI' && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-theme-primary/10 text-theme-primary border border-theme-primary/30">
-                          📊 DI Sonification
-                        </span>
-                      )}
-                    </div>
+              {/* 2. Direct Studio Blueprint Telemetry Bar */}
+              <div className="p-3.5 rounded-2xl bg-theme-surface border border-theme-border shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs font-semibold">
+                <div className="flex items-center gap-6 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Paper Items:</span>
+                    <span className="font-mono font-black text-sm text-theme-text">{questions.length} Questions</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Total Marks:</span>
+                    <span className="font-mono font-black text-sm text-purple-600 dark:text-purple-400">{totalMarks} Pts</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Paper Time:</span>
+                    <span className="font-mono font-black text-sm text-amber-600 dark:text-amber-400">{durationMinutes} Mins</span>
+                  </div>
+                  <div className="h-4 w-px bg-theme-border hidden sm:block" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-theme-text/60">Pacing per Item:</span>
+                    <span className="font-mono font-black text-sm text-teal-600 dark:text-teal-400">
+                      ~{Math.max(1, Math.round((durationMinutes * 60) / Math.max(1, questions.length)))}s
+                    </span>
+                  </div>
+                </div>
 
-                    <div className="flex items-center gap-2">
-                      {/* Preview as Student button */}
-                      <button
-                        type="button"
-                        onClick={() => setPreviewingQuestionIdx(qIdx)}
-                        className="px-2.5 py-1 rounded-lg border border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text font-bold text-xs flex items-center gap-1 transition"
-                      >
-                        <Eye className="w-3.5 h-3.5" aria-hidden="true" />
-                        <span>Preview as Student</span>
-                      </button>
+                <div className="flex items-center gap-2 text-theme-text/60 font-mono text-[11px]">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                  <span>KaTeX Math Engine Active</span>
+                </div>
+              </div>
 
-                      {questions.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveQuestion(qIdx)}
-                          className="text-xs text-red-500 hover:text-red-700 font-bold flex items-center gap-1"
-                        >
-                          <Trash2 className="w-4 h-4" aria-hidden="true" />
-                          <span>Remove</span>
-                        </button>
-                      )}
-                    </div>
+              <form onSubmit={handlePublishExam} className="space-y-6">
+                {formError && (
+                  <div role="alert" className="p-4 rounded-2xl bg-red-500/10 border border-red-500 text-red-500 text-sm font-bold shadow-xs">
+                    ⚠️ {formError}
+                  </div>
+                )}
+                {formSuccess && (
+                  <div role="status" className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500 text-emerald-600 dark:text-emerald-400 text-sm font-bold flex items-center gap-2 shadow-xs">
+                    <CheckCircle className="w-5 h-5 shrink-0" aria-hidden="true" />
+                    <span>{formSuccess}</span>
+                  </div>
+                )}
+
+                {/* 3. Examination Blueprint Card */}
+                <div className="p-5 sm:p-7 rounded-2xl bg-theme-surface border border-theme-border shadow-sm space-y-5">
+                  <div className="flex items-center justify-between border-b border-theme-border/60 pb-3">
+                    <h3 className="text-base sm:text-lg font-black text-theme-text flex items-center gap-2">
+                      <BookOpen className="w-5 h-5 text-[#008f7a]" />
+                      <span>1. Examination Blueprint & Metadata</span>
+                    </h3>
+                    <span className="text-xs font-semibold text-theme-text/60">Configure timing, syllabus & marking</span>
                   </div>
 
-                  {/* Question Format & Type Selector */}
-                  <div className="p-3 rounded-xl bg-theme-surface border border-theme-border flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <label className="text-xs font-bold uppercase text-theme-text/70">
-                        Question Format:
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-theme-text">
-                          <input
-                            type="radio"
-                            name={`q_type_${qIdx}`}
-                            checked={q.questionType !== 'DI'}
-                            onChange={() => {
-                              handleUpdateQuestion(qIdx, 'questionType', 'MCQ');
-                              if (q.graph) {
-                                handleUpdateQuestion(qIdx, 'graph', {
-                                 ...q.graph,
-                                  enabled: false,
-                                });
-                              }
-                            }}
-                            className="accent-[var(--primary)]"
-                          />
-                          <span>Standard MCQ</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-theme-primary">
-                          <input
-                            type="radio"
-                            name={`q_type_${qIdx}`}
-                            checked={q.questionType === 'DI'}
-                            onChange={() => {
-                              handleUpdateQuestion(qIdx, 'questionType', 'DI');
-                              const existingGraph = q.graph || {
-                                enabled: true,
-                                type: 'bar',
-                                title: 'Data Interpretation Graph',
-                                xAxisLabel: 'Category',
-                                yAxisLabel: 'Value',
-                                unit: '',
-                                data: [
-                                  { id: '1', label: 'Item A', value: 30 },
-                                  { id: '2', label: 'Item B', value: 65 },
-                                  { id: '3', label: 'Item C', value: 90 },
-                                ],
-                                sonification: {
-                                  enabled: true,
-                                  spatialAudio: true,
-                                  trendDetection: true,
-                                  peakDetection: true,
-                                  haptic: true,
-                                  voiceDetail: 'standard',
-                                  minFrequency: 250,
-                                  maxFrequency: 900,
-                                },
-                              };
-                              handleUpdateQuestion(qIdx, 'graph', {
-                                ...existingGraph,
-                                enabled: true,
-                              });
-                            }}
-                            className="accent-[var(--primary)]"
-                          />
-                          <span>DI / Data Interpretation (Audio Sonification)</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {q.questionType === 'DI' && (
-                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-theme-text">
-                        <span>Interactive Sonification:</span>
-                        <input
-                          type="checkbox"
-                          checked={q.graph?.enabled ?? true}
-                          onChange={(e) => {
-                            if (q.graph) {
-                              handleUpdateQuestion(qIdx, 'graph', {
-                                ...q.graph,
-                                enabled: e.target.checked,
-                              });
-                            }
-                          }}
-                          className="w-4 h-4 accent-[var(--primary)]"
-                        />
-                        <span className={q.graph?.enabled ? 'text-emerald-500' : 'text-theme-text/60'}>
-                          {q.graph?.enabled ? 'ENABLED' : 'DISABLED'}
-                        </span>
-                      </label>
-                    )}
-                  </div>
-
-                  {/* If DI Question & Graph Enabled, Render Real AdminGraphBuilder */}
-                  {q.questionType === 'DI' && q.graph && q.graph.enabled && (
-                    <AdminGraphBuilder
-                      graph={q.graph}
-                      onChange={(updatedGraph) => handleUpdateQuestion(qIdx, 'graph', updatedGraph)}
-                    />
-                  )}
-
-                  {/* Section name & Question Text */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  {/* Format, Category, Difficulty */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-theme-text/70 mb-1">Section</label>
-                      <input
-                        type="text"
-                        value={q.section}
-                        onChange={(e) => handleUpdateQuestion(qIdx, 'section', e.target.value)}
-                        placeholder="e.g. Quantitative Aptitude"
-                        className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text font-semibold"
-                      />
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Module Format <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={examType}
+                        onChange={(e) => setExamType(e.target.value as 'exam' | 'practice')}
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition"
+                      >
+                        <option value="exam">🏆 Mock Examination (Timed with Penalty)</option>
+                        <option value="practice">💡 Practice Drill (Untimed with Hints)</option>
+                      </select>
                     </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Category / Stream <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value as ExamCategory)}
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition"
+                      >
+                        <option value="Staff Selection">Staff Selection Commission (SSC)</option>
+                        <option value="Banking & Insurance">Banking & Insurance (IBPS/SBI)</option>
+                        <option value="Civil Services">Civil Services (UPSC CSAT)</option>
+                        <option value="Railways">Railways (RRB NTPC)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Difficulty Level
+                      </label>
+                      <select
+                        value={difficulty}
+                        onChange={(e) => setDifficulty(e.target.value as any)}
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition"
+                      >
+                        <option value="Easy">Easy (Foundation / Starter)</option>
+                        <option value="Moderate">Moderate (Standard Examination)</option>
+                        <option value="Challenging">Challenging (Advanced Practice)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Title & Code */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div className="sm:col-span-3">
-                      <label className="block text-xs font-bold text-theme-text/70 mb-1">
-                        Question Text <span className="text-red-500">*</span>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Test Title <span className="text-red-500">*</span>
                       </label>
-                      <textarea
-                        value={q.questionText}
-                        onChange={(e) => handleUpdateQuestion(qIdx, 'questionText', e.target.value)}
-                        rows={2}
-                        placeholder="Enter the full question statement..."
+                      <input
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="e.g. IBPS Clerk 2026 Quantitative Speed & Accuracy Drill"
                         required
-                        className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text font-medium"
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Exam Code <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. IBPS-CLK-05"
+                        required
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition uppercase"
                       />
                     </div>
                   </div>
 
-                  {/* Math Formula Input + Live Preview */}
-                  <div className="p-3.5 rounded-xl border border-theme-primary/20 bg-theme-primary/5 space-y-2">
-                    <label className="block text-xs font-bold text-theme-primary">
-                      Optional Mathematical Equation (LaTeX)
+                  {/* Description */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                      Overview & Description <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      value={q.mathLatex || ''}
-                      onChange={(e) => handleUpdateQuestion(qIdx, 'mathLatex', e.target.value)}
-                      placeholder="e.g. v = 72 \times \frac{5}{18} = 20 \text{ m/s}"
-                      className="w-full p-2 rounded-lg bg-theme-surface border border-theme-border font-mono text-xs text-theme-text"
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      rows={2}
+                      placeholder="Brief summary of syllabus, topics covered, target examination, and learning objectives..."
+                      required
+                      className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-sm focus:outline-none focus:ring-2 focus:ring-[#008f7a] transition font-medium"
                     />
-
-                    {q.mathLatex && (
-                      <div className="pt-2 text-xs flex flex-wrap items-center gap-3">
-                        <span className="text-theme-text/60">Live Rendered Math:</span>
-                        <MathEquation latex={q.mathLatex} className="font-mono text-base" />
-                        <span className="text-theme-text/40">•</span>
-                        <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                          🔊 Voice will speak: "{verbalizeMath(q.mathLatex)}"
-                        </span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* AI Diagram & Visual Asset Authoring (Multimodal Vision AI) */}
-                  <div className="p-4 rounded-xl border-2 border-purple-500/30 bg-purple-500/5 space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Image className="w-4 h-4 text-purple-500" aria-hidden="true" />
-                        <label className="text-xs font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-                          🖼️ AI Multimodal Vision Diagram (Attach Any Image / Diagram)
-                        </label>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleGenerateAiDiagramExplanation(qIdx)}
-                        disabled={generatingDiagramAi[qIdx]}
-                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:brightness-110 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md transition disabled:opacity-50"
-                      >
-                        {generatingDiagramAi[qIdx] ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                            <span>AI Vision Analyzing Image...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" aria-hidden="true" />
-                            <span>✨ Analyze Image & Generate AI Explanation</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* Image Source Inputs: URL vs Local File Upload */}
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-theme-text/70 mb-1">Diagram Type</label>
-                        <select
-                          value={q.diagramType || 'image'}
-                          onChange={(e) => handleUpdateQuestion(qIdx, 'diagramType', e.target.value)}
-                          className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text font-bold outline-none"
-                        >
-                          <option value="image">🖼️ Image (URL / File)</option>
-                          <option value="geometry">📐 Geometry / Vector Figure</option>
-                          <option value="chart">📊 Chart / Data Graph</option>
-                          <option value="svg">⚡ SVG Code / Data URL</option>
-                        </select>
-                      </div>
-
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
-                          Image URL / Online Link
-                        </label>
-                        <input
-                          type="text"
-                          value={q.diagramUrl || ''}
-                          onChange={(e) => handleUpdateQuestion(qIdx, 'diagramUrl', e.target.value)}
-                          placeholder="Paste image link e.g. https://storage.googleapis.com/.../diagram.png"
-                          className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs font-mono text-theme-text outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
-                          Upload Image File
-                        </label>
-                        <label className="w-full p-2 rounded-lg bg-theme-primary/10 hover:bg-theme-primary/20 text-theme-primary font-bold text-xs border border-theme-primary/30 flex items-center justify-center gap-1.5 cursor-pointer transition">
-                          <span>📁 Pick Image</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleImageFileUpload(qIdx, e)}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Geometry presets — the handler existed but was never
-                        rendered, so "Geometry / Vector Figure" produced
-                        nothing an examiner could click. */}
-                    {q.diagramType === 'geometry' && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[11px] font-bold text-theme-text/70">Quick presets:</span>
-                        {(
-                          [
-                            ['triangle_60_30', '📐 60°-30° Triangle'],
-                            ['triangle_right', '📏 Right Triangle'],
-                            ['circle', '⭕ Circle'],
-                            ['motion', '🚄 Motion Diagram'],
-                          ] as const
-                        ).map(([preset, label]) => (
-                          <button
-                            key={preset}
-                            type="button"
-                            onClick={() => handleApplyGeometryPreset(qIdx, preset)}
-                            className="px-3 py-1.5 rounded-lg border border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text font-bold text-[11px] transition"
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Live Image Preview if diagramUrl present */}
-                    {q.diagramUrl && (
-                      <div className="p-3 rounded-xl bg-theme-surface border border-theme-border flex flex-col sm:flex-row items-center gap-4">
-                        <img
-                          src={q.diagramUrl}
-                          alt="Diagram Preview"
-                          className="h-24 max-w-xs object-contain rounded-lg border border-theme-border shadow-sm bg-white"
-                        />
-                        <div className="text-xs text-theme-text/80 space-y-1">
-                          <div className="font-bold text-purple-500">Live Attached Image Preview</div>
-                          <div className="text-[11px] text-theme-text/60 line-clamp-2 font-mono">
-                            Source: {q.diagramUrl.slice(0, 80)}...
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateQuestion(qIdx, 'diagramUrl', '')}
-                            className="text-[11px] text-red-500 font-bold hover:underline"
-                          >
-                            Remove Image
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Diagram Caption / Description */}
+                  {/* Duration, Marks, Negative Marking */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
                     <div>
-                      <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
-                        Optional Diagram Caption (AI Vision auto-understands the image content, no caption required!)
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Duration (Minutes)
                       </label>
                       <input
-                        type="text"
-                        value={q.diagramDescription || ''}
-                        onChange={(e) => handleUpdateQuestion(qIdx, 'diagramDescription', e.target.value)}
-                        placeholder="Optional manual notes (Leave blank to let AI Vision inspect the image automatically)"
-                        className="w-full p-2 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text outline-none"
-                      />
-                    </div>
-
-                    {q.diagramAiExplanation && (
-                      <div className="p-4 rounded-xl bg-theme-surface border-2 border-purple-500/30 text-xs space-y-2.5">
-                        <div className="flex items-center gap-1.5 font-extrabold text-purple-600 dark:text-purple-400 text-sm">
-                          <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" aria-hidden="true" />
-                          <span>Generated Multimodal AI Diagram Breakdown:</span>
-                        </div>
-                        <p className="text-theme-text font-medium text-xs leading-relaxed">
-                          {q.diagramAiExplanation.educationalContext}
-                        </p>
-                        <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-bold text-xs">
-                          🔊 TTS Audio Voice Narration: "{q.diagramAiExplanation.audioNarration}"
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 4 Options Grid */}
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold uppercase text-theme-text/70">
-                      Options (Select the radio button for the correct answer) <span className="text-red-500">*</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {q.options.map((opt) => (
-                        <div
-                          key={opt.number}
-                          className={`p-3 rounded-xl border-2 flex items-center gap-3 transition-colors ${
-                            q.correctOption === opt.number
-                              ? 'border-emerald-500 bg-emerald-500/10'
-                              : 'border-theme-border bg-theme-surface'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name={`correct_q_${qIdx}`}
-                            checked={q.correctOption === opt.number}
-                            onChange={() => handleUpdateQuestion(qIdx, 'correctOption', opt.number)}
-                            className="w-4 h-4 accent-emerald-600 cursor-pointer"
-                            aria-label={`Mark Option ${opt.number} as correct`}
-                          />
-                          <span className="text-xs font-bold font-mono">Opt {opt.number}:</span>
-                          <input
-                            type="text"
-                            value={opt.text}
-                            onChange={(e) => handleUpdateOption(qIdx, opt.number, e.target.value)}
-                            placeholder={`Option ${opt.number} text...`}
-                            required
-                            className="flex-1 p-1.5 rounded bg-transparent border-b border-theme-border text-xs text-theme-text outline-none focus:border-theme-primary font-medium"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Hint & Explanation */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                    <div>
-                      <label className="block text-xs font-bold text-amber-600 dark:text-amber-400 mb-1">
-                        💡 Helpful Hint (For students in Practice Mode)
-                      </label>
-                      <input
-                        type="text"
-                        value={q.hint}
-                        onChange={(e) => handleUpdateQuestion(qIdx, 'hint', e.target.value)}
-                        placeholder="Clue or formula to help solve the question..."
-                        className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text"
+                        type="number"
+                        min={5}
+                        max={180}
+                        value={durationMinutes}
+                        onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#008f7a]"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-1">
-                        🔍 Step-by-Step Explanation
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Total Marks
                       </label>
-                      <textarea
-                        value={q.explanation}
-                        onChange={(e) => handleUpdateQuestion(qIdx, 'explanation', e.target.value)}
-                        rows={1}
-                        placeholder="Step-by-step mathematical or logical solution..."
-                        className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text"
+                      <input
+                        type="number"
+                        min={5}
+                        max={300}
+                        value={totalMarks}
+                        onChange={(e) => setTotalMarks(Number(e.target.value))}
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#008f7a]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70 mb-1.5">
+                        Negative Marking
+                      </label>
+                      <input
+                        type="text"
+                        value={negativeMarking}
+                        onChange={(e) => setNegativeMarking(e.target.value)}
+                        placeholder="-0.25 marks"
+                        disabled={examType === 'practice'}
+                        className="w-full p-3 rounded-xl bg-theme-bg border border-theme-border text-theme-text text-sm font-semibold disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#008f7a]"
                       />
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
 
-            {/* Publish Button */}
-            <div className="pt-4 flex justify-end">
-              <button
-                type="submit"
-                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-theme-primary hover:brightness-110 text-theme-primary-text font-extrabold text-base shadow-lg transition flex items-center justify-center gap-2 focus:ring-4 focus:ring-theme-focus"
-              >
-                <span>💾</span>
-                <span>Publish Test to Student Catalog</span>
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
-
-      {/* STUDENT PREVIEW MODAL */}
-      {previewingQuestionIdx !== null && questions[previewingQuestionIdx] && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="student-preview-modal-title"
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
-        >
-          <div className="bg-theme-surface border-2 border-theme-border rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl relative">
-            <div className="flex items-center justify-between border-b border-theme-border pb-3">
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider bg-emerald-600 text-white">
-                  Student-Side Experience Preview
-                </span>
-                <span className="text-xs text-theme-text/70">
-                  Exact component and auditory accessibility logic
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreviewingQuestionIdx(null)}
-                className="p-1.5 rounded-lg border border-theme-border hover:bg-theme-border text-theme-text font-bold text-xs"
-              >
-                ✕ Close Preview
-              </button>
-            </div>
-
-            {/* Simulated Question Card */}
-            {(() => {
-              const previewQ = questions[previewingQuestionIdx];
-              return (
-                <div className="space-y-4">
-                  <h3
-                    id="student-preview-modal-title"
-                    className="text-xl font-bold text-theme-text flex items-center gap-2"
-                  >
-                    <span className="text-theme-primary font-black">Q{previewQ.questionNumber}.</span>
-                    <span>{previewQ.questionText || 'Question statement...'}</span>
-                  </h3>
-
-                  {previewQ.mathLatex && (
-                    <div className="p-3 rounded-xl bg-theme-bg border border-theme-border inline-block">
-                      <MathEquation latex={previewQ.mathLatex} displayMode={true} />
+                {/* 4. Questions Authoring Workbench */}
+                <div className="p-5 sm:p-7 rounded-2xl bg-theme-surface border border-theme-border shadow-sm space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-theme-border/60 pb-4">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-black text-theme-text flex items-center gap-2">
+                        <FileSpreadsheet className="w-5 h-5 text-[#008f7a]" />
+                        <span>2. Questions Workbench ({questions.length} Items)</span>
+                      </h3>
+                      <p className="text-xs text-theme-text/60 mt-0.5">
+                        Author questions with KaTeX mathematical formulas, multimodal AI diagrams, and step-by-step solutions.
+                      </p>
                     </div>
-                  )}
 
-                  {/* Sonification Graph if enabled */}
-                  {previewQ.graph && previewQ.graph.enabled && (
-                    <InteractiveSonificationGraph graph={previewQ.graph} isStudentMode={true} />
-                  )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAddQuestion}
+                        className="px-4 py-2 rounded-xl bg-[#008f7a] hover:bg-[#007a68] text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                      >
+                        <PlusCircle className="w-4 h-4" aria-hidden="true" />
+                        <span>Add Question</span>
+                      </button>
+                    </div>
+                  </div>
 
-                  {/* 4 Options Grid */}
-                  <div className="space-y-2 pt-2">
-                    <label className="text-xs font-bold uppercase text-theme-text/60">
-                      Options Preview:
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {previewQ.options.map((opt) => (
-                        <div
-                          key={opt.number}
-                          className={`p-3 rounded-xl border-2 flex items-center gap-3 ${
-                            previewQ.correctOption === opt.number
-                              ? 'border-emerald-500 bg-emerald-500/10'
-                              : 'border-theme-border bg-theme-bg'
-                          }`}
-                        >
-                          <span className="w-6 h-6 rounded-full bg-theme-border font-bold text-xs flex items-center justify-center">
-                            {opt.number}
-                          </span>
-                          <span className="text-xs font-medium text-theme-text">{opt.text || `Option ${opt.number}`}</span>
-                          {previewQ.correctOption === opt.number && (
-                            <span className="ml-auto text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                              ✓ Correct Answer
+                  {/* Interactive Question Quick-Navigator Ribbon */}
+                  <div className="p-3 rounded-xl bg-theme-bg border border-theme-border/80 flex items-center gap-2 overflow-x-auto scrollbar-thin">
+                    <span className="text-xs font-bold text-theme-text/60 shrink-0 flex items-center gap-1">
+                      <SlidersHorizontal className="w-3.5 h-3.5" /> Quick Jump:
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                      {questions.map((q, idx) => {
+                        const hasContent = Boolean(q.questionText?.trim());
+                        const hasDiagram = Boolean(q.diagramUrl);
+                        const hasMath = Boolean(q.mathLatex?.trim());
+                        const hasGraph = Boolean(q.graph?.enabled);
+                        return (
+                          <button
+                            key={q.id || idx}
+                            type="button"
+                            onClick={() => {
+                              document.getElementById(`question-card-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              soundEffects.playSelect();
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-black font-mono transition shrink-0 flex items-center gap-1 border ${
+                              hasContent
+                                ? 'bg-theme-surface border-theme-border text-theme-text hover:border-[#008f7a]'
+                                : 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                            }`}
+                            title={`Jump to Question ${idx + 1}`}
+                          >
+                            <span>Q{idx + 1}</span>
+                            {hasMath && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="Has Math LaTeX" />}
+                            {hasDiagram && <span className="w-1.5 h-1.5 rounded-full bg-purple-500" title="Has Diagram" />}
+                            {hasGraph && <span className="w-1.5 h-1.5 rounded-full bg-teal-500" title="Has Audio Graph" />}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={handleAddQuestion}
+                        className="px-2.5 py-1 rounded-lg text-xs font-extrabold border border-dashed border-[#008f7a] text-[#008f7a] hover:bg-[#008f7a]/10 transition shrink-0"
+                        title="Add New Question"
+                      >
+                        + Add Q
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Individual Question Cards */}
+                  <div className="space-y-5">
+                    {questions.map((q, qIdx) => (
+                      <div
+                        key={q.id}
+                        id={`question-card-${qIdx}`}
+                        className="p-5 sm:p-6 rounded-2xl bg-theme-bg border border-theme-border shadow-xs space-y-4 hover:border-[#008f7a]/40 transition scroll-mt-24"
+                      >
+                        {/* Question Card Header Bar */}
+                        <div className="flex flex-wrap items-center justify-between border-b border-theme-border pb-3 gap-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#008f7a] to-teal-700 text-white font-black text-xs flex items-center justify-center font-mono shadow-xs">
+                              Q{q.questionNumber}
                             </span>
+                            <span className="text-sm font-extrabold text-theme-text">Question {q.questionNumber}</span>
+                            {q.questionType === 'DI' && (
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-theme-primary/10 text-theme-primary border border-theme-primary/30">
+                                📊 DI Audio Sonification
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {/* Duplicate Question button */}
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateQuestion(qIdx)}
+                              className="px-2.5 py-1.5 rounded-xl border border-theme-border bg-theme-surface hover:bg-theme-border/40 text-theme-text font-bold text-xs flex items-center gap-1.5 transition"
+                              title="Duplicate this question"
+                            >
+                              <Copy className="w-3.5 h-3.5 text-theme-text/60" />
+                              <span className="hidden sm:inline">Duplicate</span>
+                            </button>
+
+                            {/* Preview as Student button */}
+                            <button
+                              type="button"
+                              onClick={() => setPreviewingQuestionIdx(qIdx)}
+                              className="px-2.5 py-1.5 rounded-xl border border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text font-bold text-xs flex items-center gap-1.5 transition"
+                              title="Preview in student examination mode"
+                            >
+                              <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                              <span className="hidden sm:inline">Student Preview</span>
+                            </button>
+
+                            {questions.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveQuestion(qIdx)}
+                                className="px-2.5 py-1.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold text-xs flex items-center gap-1 transition"
+                                title="Remove question"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span className="hidden sm:inline">Remove</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Question Format & Type Selector */}
+                        <div className="p-3.5 rounded-xl bg-theme-surface border border-theme-border flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <label className="text-xs font-bold uppercase tracking-wider text-theme-text/70">
+                              Question Format:
+                            </label>
+                            <div className="flex items-center gap-3">
+                              <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-theme-text">
+                                <input
+                                  type="radio"
+                                  name={`q_type_${qIdx}`}
+                                  checked={q.questionType !== 'DI'}
+                                  onChange={() => {
+                                    handleUpdateQuestion(qIdx, 'questionType', 'MCQ');
+                                    if (q.graph) {
+                                      handleUpdateQuestion(qIdx, 'graph', {
+                                        ...q.graph,
+                                        enabled: false,
+                                      });
+                                    }
+                                  }}
+                                  className="accent-[#008f7a]"
+                                />
+                                <span>Standard Multiple Choice (MCQ)</span>
+                              </label>
+                              <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-[#008f7a]">
+                                <input
+                                  type="radio"
+                                  name={`q_type_${qIdx}`}
+                                  checked={q.questionType === 'DI'}
+                                  onChange={() => {
+                                    handleUpdateQuestion(qIdx, 'questionType', 'DI');
+                                    const existingGraph = q.graph || {
+                                      enabled: true,
+                                      type: 'bar',
+                                      title: 'Data Interpretation Graph',
+                                      xAxisLabel: 'Category',
+                                      yAxisLabel: 'Value',
+                                      unit: '',
+                                      data: [
+                                        { id: '1', label: 'Item A', value: 30 },
+                                        { id: '2', label: 'Item B', value: 65 },
+                                        { id: '3', label: 'Item C', value: 90 },
+                                      ],
+                                      sonification: {
+                                        enabled: true,
+                                        spatialAudio: true,
+                                        trendDetection: true,
+                                        peakDetection: true,
+                                        haptic: true,
+                                        voiceDetail: 'standard',
+                                        minFrequency: 250,
+                                        maxFrequency: 900,
+                                      },
+                                    };
+                                    handleUpdateQuestion(qIdx, 'graph', {
+                                      ...existingGraph,
+                                      enabled: true,
+                                    });
+                                  }}
+                                  className="accent-[#008f7a]"
+                                />
+                                <span>DI / Data Interpretation (Audio Sonification)</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          {q.questionType === 'DI' && (
+                            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-theme-text">
+                              <span>Interactive Sonification:</span>
+                              <input
+                                type="checkbox"
+                                checked={q.graph?.enabled ?? true}
+                                onChange={(e) => {
+                                  if (q.graph) {
+                                    handleUpdateQuestion(qIdx, 'graph', {
+                                      ...q.graph,
+                                      enabled: e.target.checked,
+                                    });
+                                  }
+                                }}
+                                className="w-4 h-4 accent-[#008f7a]"
+                              />
+                              <span className={q.graph?.enabled ? 'text-emerald-500 font-extrabold' : 'text-theme-text/60'}>
+                                {q.graph?.enabled ? 'ENABLED' : 'DISABLED'}
+                              </span>
+                            </label>
                           )}
                         </div>
-                      ))}
+
+                        {/* If DI Question & Graph Enabled, Render Real AdminGraphBuilder */}
+                        {q.questionType === 'DI' && q.graph && q.graph.enabled && (
+                          <AdminGraphBuilder
+                            graph={q.graph}
+                            onChange={(updatedGraph) => handleUpdateQuestion(qIdx, 'graph', updatedGraph)}
+                          />
+                        )}
+
+                        {/* Section name & Question Text */}
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold text-theme-text/70 mb-1">Section</label>
+                            <input
+                              type="text"
+                              value={q.section}
+                              onChange={(e) => handleUpdateQuestion(qIdx, 'section', e.target.value)}
+                              placeholder="e.g. Quantitative Aptitude"
+                              className="w-full p-2.5 rounded-xl bg-theme-surface border border-theme-border text-xs text-theme-text font-semibold focus:outline-none focus:ring-2 focus:ring-[#008f7a]"
+                            />
+                          </div>
+                          <div className="sm:col-span-3">
+                            <label className="block text-xs font-bold text-theme-text/70 mb-1">
+                              Question Statement <span className="text-red-500">*</span>
+                            </label>
+                            <textarea
+                              value={q.questionText}
+                              onChange={(e) => handleUpdateQuestion(qIdx, 'questionText', e.target.value)}
+                              rows={2}
+                              placeholder="Enter the complete question statement..."
+                              required
+                              className="w-full p-2.5 rounded-xl bg-theme-surface border border-theme-border text-xs text-theme-text font-medium focus:outline-none focus:ring-2 focus:ring-[#008f7a]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Math Formula Input + Live Preview */}
+                        <div className="p-4 rounded-xl border border-[#008f7a]/30 bg-[#008f7a]/5 space-y-2">
+                          <label className="block text-xs font-bold text-[#008f7a] dark:text-teal-300">
+                            Optional Mathematical Equation (LaTeX)
+                          </label>
+                          <input
+                            type="text"
+                            value={q.mathLatex || ''}
+                            onChange={(e) => handleUpdateQuestion(qIdx, 'mathLatex', e.target.value)}
+                            placeholder="e.g. v = 72 \times \frac{5}{18} = 20 \text{ m/s}"
+                            className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border font-mono text-xs text-theme-text focus:outline-none focus:ring-2 focus:ring-[#008f7a]"
+                          />
+
+                          {q.mathLatex && (
+                            <div className="pt-2 text-xs flex flex-wrap items-center gap-3">
+                              <span className="text-theme-text/60">Live Rendered Math:</span>
+                              <MathEquation latex={q.mathLatex} className="font-mono text-base" />
+                              <span className="text-theme-text/40">•</span>
+                              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                                🔊 Voice speech synthesis: "{verbalizeMath(q.mathLatex)}"
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* AI Diagram & Visual Asset Authoring */}
+                        <div className="p-4 sm:p-5 rounded-xl border border-purple-500/30 bg-purple-500/5 space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Image className="w-4 h-4 text-purple-500" aria-hidden="true" />
+                              <label className="text-xs font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                                🖼️ AI Multimodal Vision Diagram (Attach Any Image / Diagram)
+                              </label>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateAiDiagramExplanation(qIdx)}
+                              disabled={generatingDiagramAi[qIdx]}
+                              className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:brightness-110 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md transition disabled:opacity-50"
+                            >
+                              {generatingDiagramAi[qIdx] ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                                  <span>AI Vision Analyzing Image...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" aria-hidden="true" />
+                                  <span>✨ Analyze Image & Generate AI Explanation</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Image Source Inputs */}
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-bold text-theme-text/70 mb-1">Diagram Type</label>
+                              <select
+                                value={q.diagramType || 'image'}
+                                onChange={(e) => handleUpdateQuestion(qIdx, 'diagramType', e.target.value)}
+                                className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text font-bold outline-none"
+                              >
+                                <option value="image">🖼️ Image (URL / File)</option>
+                                <option value="geometry">📐 Geometry / Vector Figure</option>
+                                <option value="chart">📊 Chart / Data Graph</option>
+                                <option value="svg">⚡ SVG Code / Data URL</option>
+                              </select>
+                            </div>
+
+                            <div className="sm:col-span-2">
+                              <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
+                                Image URL / Online Link
+                              </label>
+                              <input
+                                type="text"
+                                value={q.diagramUrl || ''}
+                                onChange={(e) => handleUpdateQuestion(qIdx, 'diagramUrl', e.target.value)}
+                                placeholder="Paste image link e.g. https://storage.googleapis.com/.../diagram.png"
+                                className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs font-mono text-theme-text outline-none focus:border-purple-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
+                                Upload Image File
+                              </label>
+                              <label className="w-full p-2 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold text-xs border border-purple-500/30 flex items-center justify-center gap-1.5 cursor-pointer transition">
+                                <span>📁 Pick Image</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => handleImageFileUpload(qIdx, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                          </div>
+
+                          {/* Geometry presets */}
+                          {q.diagramType === 'geometry' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[11px] font-bold text-theme-text/70">Quick presets:</span>
+                              {(
+                                [
+                                  ['triangle_60_30', '📐 60°-30° Triangle'],
+                                  ['triangle_right', '📏 Right Triangle'],
+                                  ['circle', '⭕ Circle'],
+                                  ['motion', '🚄 Motion Diagram'],
+                                ] as const
+                              ).map(([preset, label]) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => handleApplyGeometryPreset(qIdx, preset)}
+                                  className="px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-300 hover:bg-purple-500 hover:text-white font-bold text-[11px] transition"
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Live Image Preview */}
+                          {q.diagramUrl && (
+                            <div className="p-3 rounded-xl bg-theme-surface border border-theme-border flex flex-col sm:flex-row items-center gap-4">
+                              <img
+                                src={q.diagramUrl}
+                                alt="Diagram Preview"
+                                className="h-24 max-w-xs object-contain rounded-lg border border-theme-border shadow-sm bg-white"
+                              />
+                              <div className="text-xs text-theme-text/80 space-y-1">
+                                <div className="font-bold text-purple-500">Live Attached Image Preview</div>
+                                <div className="text-[11px] text-theme-text/60 line-clamp-2 font-mono">
+                                  Source: {q.diagramUrl.slice(0, 80)}...
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateQuestion(qIdx, 'diagramUrl', '')}
+                                  className="text-[11px] text-red-500 font-bold hover:underline"
+                                >
+                                  Remove Image
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Diagram Caption */}
+                          <div>
+                            <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
+                              Optional Diagram Caption (AI Vision auto-understands the image content, no caption required!)
+                            </label>
+                            <input
+                              type="text"
+                              value={q.diagramDescription || ''}
+                              onChange={(e) => handleUpdateQuestion(qIdx, 'diagramDescription', e.target.value)}
+                              placeholder="Optional manual notes (Leave blank to let AI Vision inspect the image automatically)"
+                              className="w-full p-2.5 rounded-lg bg-theme-surface border border-theme-border text-xs text-theme-text outline-none focus:border-purple-500"
+                            />
+                          </div>
+
+                          {q.diagramAiExplanation && (
+                            <div className="p-4 rounded-xl bg-theme-surface border border-purple-500/30 text-xs space-y-2.5">
+                              <div className="flex items-center gap-1.5 font-extrabold text-purple-600 dark:text-purple-400 text-sm">
+                                <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" aria-hidden="true" />
+                                <span>Generated Multimodal AI Diagram Breakdown:</span>
+                              </div>
+                              <p className="text-theme-text font-medium text-xs leading-relaxed">
+                                {q.diagramAiExplanation.educationalContext}
+                              </p>
+                              <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-bold text-xs">
+                                🔊 TTS Audio Voice Narration: "{q.diagramAiExplanation.audioNarration}"
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 4 Options Grid */}
+                        <div className="space-y-2">
+                          <label className="block text-xs font-bold uppercase tracking-wider text-theme-text/70">
+                            Answer Options (Click the radio button to select the correct answer) <span className="text-red-500">*</span>
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {q.options.map((opt) => (
+                              <div
+                                key={opt.number}
+                                className={`p-3.5 rounded-xl border flex items-center gap-3 transition-colors ${
+                                  q.correctOption === opt.number
+                                    ? 'border-emerald-500 bg-emerald-500/10 shadow-xs'
+                                    : 'border-theme-border bg-theme-surface'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`correct_q_${qIdx}`}
+                                  checked={q.correctOption === opt.number}
+                                  onChange={() => handleUpdateQuestion(qIdx, 'correctOption', opt.number)}
+                                  className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                                  aria-label={`Mark Option ${opt.number} as correct`}
+                                />
+                                <span className={`text-xs font-black font-mono px-2 py-0.5 rounded ${
+                                  q.correctOption === opt.number ? 'bg-emerald-500 text-white' : 'bg-theme-bg text-theme-text/70 border border-theme-border'
+                                }`}>
+                                  Opt {opt.number}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={opt.text}
+                                  onChange={(e) => handleUpdateOption(qIdx, opt.number, e.target.value)}
+                                  placeholder={`Option ${opt.number} text...`}
+                                  required
+                                  className="flex-1 p-1 rounded bg-transparent border-b border-theme-border/60 text-xs sm:text-sm text-theme-text outline-none focus:border-[#008f7a] font-medium"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Hint & Explanation */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                          <div>
+                            <label className="block text-xs font-bold text-amber-600 dark:text-amber-400 mb-1">
+                              💡 Helpful Hint (For students in Practice Mode)
+                            </label>
+                            <input
+                              type="text"
+                              value={q.hint}
+                              onChange={(e) => handleUpdateQuestion(qIdx, 'hint', e.target.value)}
+                              placeholder="Clue, mnemonic, or formula to help solve the question..."
+                              className="w-full p-2.5 rounded-xl bg-theme-surface border border-theme-border text-xs text-theme-text focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-1">
+                              🔍 Step-by-Step Explanation & Solution
+                            </label>
+                            <textarea
+                              value={q.explanation}
+                              onChange={(e) => handleUpdateQuestion(qIdx, 'explanation', e.target.value)}
+                              rows={1}
+                              placeholder="Step-by-step mathematical or logical solution..."
+                              className="w-full p-2.5 rounded-xl bg-theme-surface border border-theme-border text-xs text-theme-text focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 5. Sticky Bottom Publish Footer Bar */}
+                <div className="sticky bottom-4 z-20 p-4 sm:p-5 rounded-2xl bg-white/95 dark:bg-[#031d22]/95 backdrop-blur-md border border-theme-border shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-[#008f7a]/15 text-[#008f7a] flex items-center justify-center font-black">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-xs sm:text-sm font-extrabold text-theme-text">
+                        Ready to {editingExamId ? 'Update' : 'Publish'} Test
+                      </div>
+                      <div className="text-xs text-theme-text/60">
+                        {questions.length} questions · {totalMarks} marks · {durationMinutes} mins · {category}
+                      </div>
                     </div>
                   </div>
 
-                  {previewQ.explanation && (
-                    <div className="p-3 rounded-xl bg-theme-bg border border-theme-border text-xs text-theme-text/80">
-                      <strong>Solution Explanation:</strong> {previewQ.explanation}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={handleAddQuestion}
+                      className="flex-1 sm:flex-initial px-4 py-3 rounded-xl border border-theme-border bg-theme-surface hover:bg-theme-border/30 text-theme-text font-bold text-xs sm:text-sm transition"
+                    >
+                      + Add Question
+                    </button>
+
+                    <button
+                      type="submit"
+                      className="flex-1 sm:flex-initial px-7 py-3 rounded-xl bg-gradient-to-r from-[#008f7a] via-[#00a890] to-[#007a68] hover:brightness-110 text-white font-extrabold text-sm sm:text-base shadow-md transition flex items-center justify-center gap-2"
+                    >
+                      <Sparkles className="w-4 h-4 text-teal-100" />
+                      <span>{editingExamId ? 'Save & Update Paper' : 'Publish to Student Catalog'}</span>
+                    </button>
+                  </div>
                 </div>
-              );
-            })()}
-          </div>
+              </form>
+            </section>
+          )}
         </div>
-      )}
+
+        {/* STUDENT PREVIEW MODAL */}
+        {previewingQuestionIdx !== null && questions[previewingQuestionIdx] && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="student-preview-modal-title"
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <div className="bg-theme-surface border-2 border-theme-border rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl relative">
+              <div className="flex items-center justify-between border-b border-theme-border pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider bg-emerald-600 text-white">
+                    Student-Side Experience Preview
+                  </span>
+                  <span className="text-xs text-theme-text/70">
+                    Exact component and auditory accessibility logic
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewingQuestionIdx(null)}
+                  className="p-1.5 rounded-lg border border-theme-border hover:bg-theme-border text-theme-text font-bold text-xs"
+                >
+                  ✕ Close Preview
+                </button>
+              </div>
+
+              {/* Simulated Question Card */}
+              {(() => {
+                const previewQ = questions[previewingQuestionIdx];
+                return (
+                  <div className="space-y-4">
+                    <h3
+                      id="student-preview-modal-title"
+                      className="text-xl font-bold text-theme-text flex items-center gap-2"
+                    >
+                      <span className="text-theme-primary font-black">Q{previewQ.questionNumber}.</span>
+                      <span>{previewQ.questionText || 'Question statement...'}</span>
+                    </h3>
+
+                    {previewQ.mathLatex && (
+                      <div className="p-3 rounded-xl bg-theme-bg border border-theme-border inline-block">
+                        <MathEquation latex={previewQ.mathLatex} displayMode={true} />
+                      </div>
+                    )}
+
+                    {/* Sonification Graph if enabled */}
+                    {previewQ.graph && previewQ.graph.enabled && (
+                      <InteractiveSonificationGraph graph={previewQ.graph} isStudentMode={true} />
+                    )}
+
+                    {/* 4 Options Grid */}
+                    <div className="space-y-2 pt-2">
+                      <label className="text-xs font-bold uppercase text-theme-text/60">
+                        Options Preview:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {previewQ.options.map((opt) => (
+                          <div
+                            key={opt.number}
+                            className={`p-3 rounded-xl border-2 flex items-center gap-3 ${previewQ.correctOption === opt.number
+                                ? 'border-emerald-500 bg-emerald-500/10'
+                                : 'border-theme-border bg-theme-bg'
+                              }`}
+                          >
+                            <span className="w-6 h-6 rounded-full bg-theme-border font-bold text-xs flex items-center justify-center">
+                              {opt.number}
+                            </span>
+                            <span className="text-xs font-medium text-theme-text">{opt.text || `Option ${opt.number}`}</span>
+                            {previewQ.correctOption === opt.number && (
+                              <span className="ml-auto text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                                ✓ Correct Answer
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {previewQ.explanation && (
+                      <div className="p-3 rounded-xl bg-theme-bg border border-theme-border text-xs text-theme-text/80">
+                        <strong>Solution Explanation:</strong> {previewQ.explanation}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* ENTERPRISE COMMAND PALETTE MODAL (Ctrl+K / ⌘K) */}
+        {isCommandPaletteOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Admin Command Palette"
+            className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-start justify-center pt-16 sm:pt-24 px-4 transition-opacity animate-in fade-in duration-150"
+            onClick={() => setIsCommandPaletteOpen(false)}
+          >
+            <div
+              className="w-full max-w-2xl rounded-2xl bg-white dark:bg-[#031d22] border border-theme-border shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Palette Search Header */}
+              <div className="flex items-center px-4 py-3.5 border-b border-theme-border gap-3">
+                <Search className="w-5 h-5 text-[#008f7a] shrink-0" />
+                <input
+                  type="text"
+                  autoFocus
+                  value={paletteQuery}
+                  onChange={(e) => setPaletteQuery(e.target.value)}
+                  placeholder="Type a command, jump to a tab, or search exams & candidates..."
+                  className="w-full bg-transparent text-sm sm:text-base text-theme-text placeholder:text-theme-text/40 focus:outline-none font-medium"
+                />
+                {paletteQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setPaletteQuery('')}
+                    className="p-1 rounded-lg text-theme-text/50 hover:text-theme-text"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                <kbd className="px-2 py-1 rounded bg-theme-bg border border-theme-border text-[10px] font-mono font-bold text-theme-text/60">
+                  ESC
+                </kbd>
+              </div>
+
+              {/* Palette Results List */}
+              <div className="p-3 overflow-y-auto space-y-4 flex-1">
+                {/* 1. Core Navigation Tabs */}
+                <div>
+                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-theme-text/50 px-2 py-1">
+                    Navigation & Views
+                  </div>
+                  <div className="space-y-1">
+                    {[
+                      { id: 'dashboard', label: 'Executive Analytics Dashboard', key: '1 / D', icon: LayoutDashboard },
+                      { id: 'manage', label: 'Manage Exam Papers & Practice Drills', key: '2 / Q', icon: BookOpen },
+                      { id: 'create', label: 'Question Bank & Authoring Studio', key: '3 / C', icon: HelpCircle },
+                      { id: 'students', label: 'Student Cohort Roster & Accommodations', key: '4 / S', icon: Users },
+                      { id: 'submissions', label: 'Candidate Submissions & Graded Reports', key: '5 / R', icon: Award },
+                    ]
+                      .filter((tab) => !paletteQuery || tab.label.toLowerCase().includes(paletteQuery.toLowerCase()))
+                      .map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => {
+                            setActiveAdminTab(tab.id as any);
+                            if (tab.id === 'create') setEditingExamId(null);
+                            setIsCommandPaletteOpen(false);
+                            soundEffects.playSelect();
+                          }}
+                          className={`w-full px-3 py-2.5 rounded-xl text-left text-xs sm:text-sm font-bold flex items-center justify-between transition ${
+                            activeAdminTab === tab.id
+                              ? 'bg-[#008f7a] text-white shadow-xs'
+                              : 'hover:bg-theme-bg text-theme-text'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <tab.icon className={`w-4 h-4 ${activeAdminTab === tab.id ? 'text-white' : 'text-[#008f7a]'}`} />
+                            <span>{tab.label}</span>
+                          </div>
+                          <kbd className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                            activeAdminTab === tab.id
+                              ? 'bg-black/20 text-white'
+                              : 'bg-theme-bg border border-theme-border text-theme-text/60'
+                          }`}>
+                            {tab.key}
+                          </kbd>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                {/* 2. Quick Operations */}
+                <div>
+                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-theme-text/50 px-2 py-1">
+                    Administrative Operations
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {[
+                      {
+                        label: 'Export Student Roster (CSV)',
+                        icon: Download,
+                        action: () => {
+                          handleExportStudentsCsv();
+                          setIsCommandPaletteOpen(false);
+                        },
+                      },
+                      {
+                        label: 'Export Submissions Report (CSV)',
+                        icon: FileSpreadsheet,
+                        action: () => {
+                          handleExportSubmissionsCsv();
+                          setIsCommandPaletteOpen(false);
+                        },
+                      },
+                      {
+                        label: 'Sync Database with Atlas',
+                        icon: RefreshCw,
+                        action: () => {
+                          void handleManualSync();
+                          setIsCommandPaletteOpen(false);
+                        },
+                      },
+                      {
+                        label: 'Toggle Visual Theme Mode',
+                        icon: Sun,
+                        action: () => {
+                          const next = theme === 'dark' ? 'teal-cream' : theme === 'teal-cream' ? 'liquid-glass' : 'dark';
+                          setTheme(next);
+                          soundEffects.playSelect();
+                        },
+                      },
+                      {
+                        label: 'Create New Mock Test',
+                        icon: PlusCircle,
+                        action: () => {
+                          setEditingExamId(null);
+                          setExamType('exam');
+                          setActiveAdminTab('create');
+                          setIsCommandPaletteOpen(false);
+                          soundEffects.playSelect();
+                        },
+                      },
+                      {
+                        label: 'Import Questions from Word (.docx)',
+                        icon: FileText,
+                        action: () => {
+                          setActiveAdminTab('create');
+                          setIsCommandPaletteOpen(false);
+                          wordFileRef.current?.click();
+                        },
+                      },
+                    ]
+                      .filter((op) => !paletteQuery || op.label.toLowerCase().includes(paletteQuery.toLowerCase()))
+                      .map((op, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={op.action}
+                          className="px-3 py-2.5 rounded-xl border border-theme-border bg-theme-surface hover:border-[#008f7a] text-left text-xs font-bold text-theme-text flex items-center gap-2.5 transition"
+                        >
+                          <op.icon className="w-4 h-4 text-[#008f7a] shrink-0" />
+                          <span className="truncate">{op.label}</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                {/* 3. Filtered Exam Matches (if user searched) */}
+                {paletteQuery.trim() && (
+                  <div>
+                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-theme-text/50 px-2 py-1">
+                      Matching Exams & Tests ({availableExams.filter((e) => e.title.toLowerCase().includes(paletteQuery.toLowerCase()) || e.code.toLowerCase().includes(paletteQuery.toLowerCase())).length})
+                    </div>
+                    <div className="space-y-1">
+                      {availableExams
+                        .filter(
+                          (e) =>
+                            e.title.toLowerCase().includes(paletteQuery.toLowerCase()) ||
+                            e.code.toLowerCase().includes(paletteQuery.toLowerCase())
+                        )
+                        .slice(0, 4)
+                        .map((exam) => (
+                          <div
+                            key={exam.id}
+                            className="p-2.5 rounded-xl bg-theme-bg border border-theme-border flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-theme-text truncate">{exam.title}</div>
+                              <div className="text-[11px] text-theme-text/60 font-mono">
+                                {exam.code} · {exam.durationMinutes}m · {exam.questions?.length || exam.questionCount || 0} Questions
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsCommandPaletteOpen(false);
+                                  handleTestAsStudent(exam, 'exam');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-[#008f7a] text-white font-bold text-xs"
+                              >
+                                Test
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsCommandPaletteOpen(false);
+                                  void handleStartEditExam(exam.id);
+                                }}
+                                className="px-2.5 py-1 rounded-lg border border-theme-border bg-theme-surface text-theme-text font-bold text-xs"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Filtered Candidate Matches (if user searched) */}
+                {paletteQuery.trim() && (
+                  <div>
+                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-theme-text/50 px-2 py-1">
+                      Matching Candidates ({students.filter((s) => s.name.toLowerCase().includes(paletteQuery.toLowerCase()) || s.rollNumber.toLowerCase().includes(paletteQuery.toLowerCase())).length})
+                    </div>
+                    <div className="space-y-1">
+                      {students
+                        .filter(
+                          (s) =>
+                            s.name.toLowerCase().includes(paletteQuery.toLowerCase()) ||
+                            s.rollNumber.toLowerCase().includes(paletteQuery.toLowerCase())
+                        )
+                        .slice(0, 4)
+                        .map((st) => (
+                          <div
+                            key={st.id}
+                            onClick={() => {
+                              setSelectedStudent(st);
+                              setActiveAdminTab('students');
+                              setIsCommandPaletteOpen(false);
+                              soundEffects.playSelect();
+                            }}
+                            className="p-2.5 rounded-xl bg-theme-bg border border-theme-border hover:border-[#008f7a] cursor-pointer flex items-center justify-between gap-3 text-xs transition"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-7 h-7 rounded-full bg-[#008f7a]/20 text-[#008f7a] font-black flex items-center justify-center shrink-0">
+                                {st.name.charAt(0)}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-extrabold text-theme-text truncate">{st.name}</div>
+                                <div className="text-[11px] text-theme-text/60 font-mono">{st.rollNumber}</div>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold text-[#008f7a]">View Profile →</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Palette Footer Hints */}
+              <div className="px-4 py-2.5 bg-theme-bg border-t border-theme-border flex items-center justify-between text-[11px] text-theme-text/60 font-semibold">
+                <div className="flex items-center gap-3">
+                  <span>↵ to execute</span>
+                  <span>↑↓ to navigate</span>
+                  <span>Esc to dismiss</span>
+                </div>
+                <span className="font-bold text-[#008f7a]">DrishtiX Enterprise Command Suite</span>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

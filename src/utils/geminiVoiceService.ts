@@ -493,7 +493,7 @@ CRITICAL SYSTEM RULES (STRICT COMPLIANCE REQUIRED):
 - "CHECK_TIMER": Read remaining time
 - "SUBMIT_EXAM": Open submit modal
 - "ANALYTICS": View analytics
-- "LIST_EXAMS": List available exams
+- "LIST_EXAMS": List available exams or tests on this page (e.g. "which tests are available", "is page par kon kon se test available hai", "kaun kaun se test hai", "available exams", "list tests", "tests ke naam batao", "kon se test hai", "is page par kya test hai")
 - "EXAM_INTEGRITY_REFUSAL": Triggered when user asks to solve or reveal answers in test
 - "GENERAL_QUERY": General conversation or help
 
@@ -801,6 +801,70 @@ Return ONLY a valid JSON object matching this schema:
 
     const all = [...examStore.availableExams, ...examStore.availablePracticeDrills];
     const matchedRequestedExam = matchExamFromQuery(rawQuery, parsed.param, all);
+
+    // List Available Exams / Tests Interceptor
+    // MUST BE EVALUATED BEFORE isReturnCatalogIntent so "list mock tests" or "which tests are available" or "is page par kon kon se test available hai" lists test details instead of silently returning to catalog!
+    const isListExamsIntent =
+      !matchedRequestedExam &&
+      (
+        actionUpper === 'LIST_EXAMS' ||
+        actionUpper === 'LIST_TESTS' ||
+        actionUpper === 'AVAILABLE_EXAMS' ||
+        actionUpper === 'AVAILABLE_TESTS' ||
+        queryLower.includes('list exam') ||
+        queryLower.includes('list test') ||
+        queryLower.includes('list mock') ||
+        queryLower.includes('available exam') ||
+        queryLower.includes('available test') ||
+        queryLower.includes('avalable') ||
+        queryLower.includes('exams ke naam') ||
+        queryLower.includes('test ke naam') ||
+        queryLower.includes('tests ke naam') ||
+        queryLower.includes('kaun kaun') ||
+        queryLower.includes('kon kon') ||
+        queryLower.includes('kaun se') ||
+        queryLower.includes('kon se') ||
+        queryLower.includes('konsa') ||
+        queryLower.includes('kaun sa') ||
+        queryLower.includes('kya kya') ||
+        queryLower.includes('uplabdh') ||
+        queryLower.includes('which test') ||
+        queryLower.includes('what test') ||
+        queryLower.includes('which exam') ||
+        queryLower.includes('what exam') ||
+        ((queryLower.includes('page') || queryLower.includes('yahan') || queryLower.includes('yaha')) &&
+          (queryLower.includes('test') || queryLower.includes('exam') || queryLower.includes('mock')))
+      );
+
+    if (isListExamsIntent) {
+      if (context.portalTab === 'practice' && !queryLower.includes('mock')) {
+        const drills = context.availableDrills;
+        const names = drills.map((d, idx) => `${idx + 1}. ${d.title}`).join('; ');
+        const reply = `On this practice page, there are ${drills.length} Practice Drills available: ${names}. Say "Start Practice Drill" to begin.`;
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'LIST_PRACTICE_DRILLS',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: 'Listed Available Practice Drills',
+        };
+      }
+
+      const exams = context.availableExams;
+      const names = exams
+        .map((e, idx) => `${idx + 1}. ${e.title} (${e.durationMinutes} mins, ${e.questionCount} questions)`)
+        .join('; ');
+      const reply = `On this page, there are ${exams.length} Mock Examinations available: ${names}. Say "Start SSC CGL" or "Start Exam 1" to begin.`;
+      useAnnouncerStore.getState().announce(reply, 'assertive', true);
+      return {
+        success: true,
+        intent: 'LIST_EXAMS',
+        userQuery: rawQuery,
+        assistantReply: reply,
+        actionExecuted: 'Listed Available Mock Exams',
+      };
+    }
 
     // Return to Catalog / Mock Test Page / Choose Another Exam Interceptor
     // MUST BE EVALUATED BEFORE isStartExamIntent so phrases like "open mock test page" or "go on mocktest page" navigate to catalog!

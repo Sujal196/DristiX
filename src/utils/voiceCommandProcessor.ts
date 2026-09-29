@@ -160,9 +160,12 @@ function normalizePhonetics(raw: string): string {
   text = text.replace(/(सॉल्यूशन|हल|एक्सप्लेनेशन|समझाइए|समझाओ|solution|explanation|explain)/gi, 'solution');
 
   // 10. Exam lists / inquiries
-  text = text.replace(/(मॉक\s*टेस्ट|मॉकटेस्ट|mock\s*test|mocktest)/gi, 'mocktest');
-  text = text.replace(/(कितने|कितना|कौन कौन से|kaun kaun|kitne|list|available)/gi, 'list');
-  text = text.replace(/(एग्जाम|परीक्षा|टेस्ट|exam|test)/gi, 'exam');
+  text = text.replace(/(मॉक\s*टेस्ट्स?|मॉकटेस्ट|mock\s*tests?|mocktest)/gi, 'mocktest');
+  text = text.replace(
+    /(कितने|कितना|कौन कौन से|कौन-कौन से|कौन-कौन|कौन सा|कौन से|कौन-सा|कौन-सी|कौन सी|क्या क्या|क्या-क्या|उपलब्ध|kaun kaun se|kon kon se|kaun kaun|kon kon|koun koun|kaun se|kon se|koun se|konsa|kousa|kaun sa|kaun si|kon si|kya kya|kitne|kitna|list|lists|available|avalable|uplabdh|show\s*all|which|what)/gi,
+    'list'
+  );
+  text = text.replace(/(एग्जाम्स?|परीक्षाएं|परीक्षा|टेस्ट्स?|exams?|tests?|pariksha)/gi, 'exam');
 
   return text;
 }
@@ -240,19 +243,45 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   // ==========================================
   // 1. QUERY AVAILABLE EXAMS & TESTS
   // ==========================================
-  if (
+  const isExamListQuery =
     normalized.includes('list exam') ||
+    normalized.includes('exam list') ||
     (normalized.includes('exam') && normalized.includes('list')) ||
     (normalized.includes('kitne') && normalized.includes('exam')) ||
     normalized.includes('available exam') ||
     rawLower.includes('exams ke naam') ||
-    rawLower.includes('kaun kaun se')
-  ) {
+    rawLower.includes('test ke naam') ||
+    rawLower.includes('tests ke naam') ||
+    rawLower.includes('kaun kaun') ||
+    rawLower.includes('kon kon') ||
+    rawLower.includes('kon se') ||
+    rawLower.includes('kaun se') ||
+    rawLower.includes('konsa') ||
+    rawLower.includes('kaun sa') ||
+    rawLower.includes('kya kya') ||
+    rawLower.includes('uplabdh') ||
+    rawLower.includes('available') ||
+    rawLower.includes('avalable') ||
+    rawLower.includes('what exams') ||
+    rawLower.includes('which exams') ||
+    rawLower.includes('what tests') ||
+    rawLower.includes('which tests') ||
+    ((rawLower.includes('page') || rawLower.includes('yahan') || rawLower.includes('yaha')) &&
+      (rawLower.includes('test') || rawLower.includes('exam') || rawLower.includes('mock')));
+
+  if (isExamListQuery) {
+    if (context.portalTab === 'practice' && !rawLower.includes('mock')) {
+      const drills = context.availableDrills;
+      const names = drills.map((d, idx) => `${idx + 1}. ${d.title}`).join('; ');
+      const reply = `On this practice page, there are ${drills.length} Practice Drills available: ${names}. Say "Start Practice Drill" to begin.`;
+      return makeReply('LIST_PRACTICE_DRILLS', reply, 'List Available Practice Drills');
+    }
+
     const exams = context.availableExams;
     const names = exams
       .map((e, idx) => `${idx + 1}. ${e.title} (${e.durationMinutes} mins, ${e.questionCount} questions)`)
       .join('; ');
-    const reply = `There are ${exams.length} Mock Examinations available: ${names}. Say "Start SSC CGL" or "Start Exam 1" to begin.`;
+    const reply = `On this page, there are ${exams.length} Mock Examinations available: ${names}. Say "Start SSC CGL" or "Start Exam 1" to begin.`;
     return makeReply('LIST_EXAMS', reply, 'List Available Exams');
   }
 
