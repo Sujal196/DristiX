@@ -10,6 +10,8 @@ html {
   font-size: calc(16px * var(--font-scale, 1));
   scroll-behavior: smooth;
   text-size-adjust: 100%;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
 }
 
 /* Smooth scrolling is motion too: honour the system setting. */
@@ -29,6 +31,9 @@ body {
   padding: 0;
   overflow-x: hidden;
   min-height: 100vh;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Accessible custom scrollbars */

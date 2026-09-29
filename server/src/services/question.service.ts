@@ -24,6 +24,7 @@ export interface QuestionLike {
   id: string;
   section: string;
   questionNumber: number;
+  questionType?: 'MCQ' | 'DI' | null;
   questionText: string;
   mathLatex?: string | null;
   diagramUrl?: string | null;
@@ -35,6 +36,7 @@ export interface QuestionLike {
     keyPoints?: string[];
     audioNarration?: string;
   } | null;
+  graph?: any;
   options: QuestionOptionLike[];
   correctOption: number;
   explanation: string;
@@ -75,6 +77,7 @@ export function toPublicQuestion(
     })),
   };
 
+  if (question.questionType) base.questionType = question.questionType as any;
   if (question.mathLatex) base.mathLatex = question.mathLatex;
   if (question.diagramUrl) base.diagramUrl = question.diagramUrl;
   if (question.diagramType) base.diagramType = question.diagramType as any;
@@ -85,6 +88,31 @@ export function toPublicQuestion(
       educationalContext: question.diagramAiExplanation.educationalContext ?? '',
       keyPoints: question.diagramAiExplanation.keyPoints ?? [],
       audioNarration: question.diagramAiExplanation.audioNarration ?? '',
+    };
+  }
+  if (question.graph && question.graph.enabled) {
+    base.graph = {
+      enabled: question.graph.enabled,
+      type: question.graph.type || 'bar',
+      title: question.graph.title || '',
+      xAxisLabel: question.graph.xAxisLabel || '',
+      yAxisLabel: question.graph.yAxisLabel || '',
+      unit: question.graph.unit || '',
+      data: (question.graph.data || []).map((d: any) => ({
+        id: String(d.id || d.label),
+        label: String(d.label),
+        value: Number(d.value) || 0,
+      })),
+      sonification: {
+        enabled: question.graph.sonification?.enabled ?? true,
+        spatialAudio: question.graph.sonification?.spatialAudio ?? true,
+        trendDetection: question.graph.sonification?.trendDetection ?? true,
+        peakDetection: question.graph.sonification?.peakDetection ?? true,
+        haptic: question.graph.sonification?.haptic ?? true,
+        voiceDetail: question.graph.sonification?.voiceDetail || 'standard',
+        minFrequency: question.graph.sonification?.minFrequency ?? 250,
+        maxFrequency: question.graph.sonification?.maxFrequency ?? 900,
+      },
     };
   }
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { env } from '../env.js';
 import {
   NoUsableModelError,
+  resetResolvedModels,
   resolveGeminiModel,
   resolveGroqModel,
   resolveWhisperModel,
@@ -254,6 +255,7 @@ async function callGeminiMultimodal(
   }
 
   const model = await resolveGeminiModel();
+  console.log(`[dristix] gemini vision request via ${model}`);
   const parts: any[] = [];
 
   // Put image data FIRST so Gemini Vision processes pixels before reading instructions
@@ -268,33 +270,66 @@ async function callGeminiMultimodal(
 
   parts.push({ text: prompt });
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1024,
-        },
-      }),
-      signal: AbortSignal.timeout(30000),
-    }
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig: {
+            temperature: 0.1,
+            // 1024 cut the JSON off mid-string on a plain text-only request
+            // ("Unterminated string in JSON at position 1336") — the reply
+            // died in keyPoints/audioNarration and could never parse.
+            maxOutputTokens: 2048,
+          },
+        }),
+        signal: AbortSignal.timeout(30000),
+      }
+    );
+  } catch (err) {
+    // Timeout or dropped connection: the cached model may be the problem, so
+    // let the next request re-resolve instead of failing the same way forever.
+    console.error('[dristix] gemini vision request failed', err);
+    resetResolvedModels();
+    throw err;
+  }
 
   if (!response.ok) {
     const detail = await response.text();
     console.error('[dristix] gemini vision error', response.status, detail.slice(0, 400));
+    // Rate limits and provider outages invalidate the cached pick; dropping it
+    // means the retry probes again and can land on a healthy model.
+    if (response.status === 429 || response.status >= 500) resetResolvedModels();
     throw new HttpError(502, 'provider_error', 'The AI Vision provider returned an error.');
   }
 
   const data = (await response.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    promptFeedback?: { blockReason?: string };
   };
 
-  return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('').trim() ?? '';
+  const candidate = data.candidates?.[0];
+  const reply = candidate?.content?.parts?.map((p) => p.text ?? '').join('').trim() ?? '';
+
+  // Name the real cause instead of letting JSON.parse report a confusing
+  // "Unterminated string" on whatever partial text arrived.
+  if (candidate?.finishReason === 'MAX_TOKENS') {
+    throw new HttpError(502, 'provider_truncated', 'The AI model ran out of output tokens and cut its reply short.');
+  }
+  if (!reply) {
+    const blocked = data.promptFeedback?.blockReason;
+    throw new HttpError(
+      502,
+      'provider_error',
+      blocked ? `The AI provider blocked the request (${blocked}).` : 'The AI provider returned an empty reply.'
+    );
+  }
+
+  return reply;
 }
 
 const explainDiagramSchema = z.object({
@@ -355,6 +390,33 @@ aiRouter.post(
       }
     }
 
+    // An examiner explicitly asked for pixel analysis. Continuing without the
+    // image would hand Gemini the vision prompt in text-only mode, where it
+    // happily invents shapes and colours instead of admitting it saw nothing —
+    // exactly the silent-degradation class this route was cleaned up to stop.
+    if (body.diagramUrl?.trim() && !imageData) {
+      throw new HttpError(
+        400,
+        'image_unreadable',
+        'The diagram image could not be loaded or decoded, so no visual analysis was run. Please re-upload the image.'
+      );
+    }
+
+    // Node decodes malformed base64 leniently (it just drops the odd
+    // characters), so a corrupted data URL used to sail past the check above
+    // and reach Gemini as a pixel payload Google rejects — the examiner then
+    // saw a generic provider error instead of "your upload is broken".
+    if (imageData) {
+      const compact = imageData.data.replace(/\s+/g, '');
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact) || compact.length < 8 || compact.length % 4 !== 0) {
+        throw new HttpError(
+          400,
+          'image_unreadable',
+          'The diagram image data is not valid base64, so no visual analysis was run. Please re-upload the image.'
+        );
+      }
+    }
+
     console.log(
       '[dristix] explain-diagram vision image payload:',
       imageData
@@ -395,51 +457,61 @@ Respond ONLY with a valid JSON object matching this exact structure (no markdown
   "audioNarration": "A fluent, clear spoken description of this specific diagram detailing all visible shapes, labeled points, marked angles, and lines designed for text-to-speech audio narration."
 }`;
 
-    let reply = '';
-    try {
-      if (env.GEMINI_API_KEY) {
-        reply = await callGeminiMultimodal(prompt, imageData);
-      } else if (env.GROQ_API_KEY) {
-        const groqRes = await callGroq({
-          provider: 'groq',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          maxTokens: 1024,
-        });
-        reply = groqRes.reply;
-      } else {
-        throw new HttpError(503, 'provider_unavailable', 'No AI provider is configured on server.');
+    let parsed: Record<string, unknown> | undefined;
+    let parseError = '';
+
+    // Two attempts, but only for malformed replies: a model occasionally cuts
+    // its JSON short or wraps it in stray markdown, which is worth one retry.
+    // Provider-level failures (HttpError) escape immediately — retrying those
+    // inside the request would only add latency to a request that will fail.
+    for (let attempt = 1; attempt <= 2 && !parsed; attempt++) {
+      try {
+        let reply = '';
+        if (env.GEMINI_API_KEY) {
+          reply = await callGeminiMultimodal(prompt, imageData);
+        } else if (env.GROQ_API_KEY) {
+          const groqRes = await callGroq({
+            provider: 'groq',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.3,
+            maxTokens: 2048,
+          });
+          reply = groqRes.reply;
+        } else {
+          throw new HttpError(503, 'provider_unavailable', 'No AI provider is configured on server.');
+        }
+
+        // Sanitize potential markdown code block formatting
+        const cleanJson = reply.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();
+        parsed = JSON.parse(cleanJson) as Record<string, unknown>;
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        parseError = err instanceof Error ? err.message : String(err);
+        console.error(`[dristix] explain-diagram attempt ${attempt} produced unparseable reply:`, parseError);
       }
-
-      // Sanitize potential markdown code block formatting
-      let cleanJson = reply.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();
-      let parsed = JSON.parse(cleanJson);
-
-      res.json({
-        visualBreakdown: Array.isArray(parsed.visualBreakdown) ? parsed.visualBreakdown : [body.diagramDescription || 'Visual diagram representation.'],
-        educationalContext: typeof parsed.educationalContext === 'string' ? parsed.educationalContext : 'Diagram illustrates question geometry/data.',
-        keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : ['Observe diagram labels carefully.'],
-        audioNarration: typeof parsed.audioNarration === 'string' ? parsed.audioNarration : (body.diagramDescription || body.questionText),
-      });
-    } catch (err: any) {
-      console.error('[dristix] explain-diagram fallback triggered', err);
-      // Smart offline / fallback diagram breakdown
-      const fallbackDesc = body.diagramDescription || 'Diagram illustration for question.';
-      res.json({
-        visualBreakdown: [
-          `Format: ${body.diagramType || 'Visual Diagram'}`,
-          `Overview: ${fallbackDesc}`,
-          `Formula Context: ${body.mathLatex || 'Standard Geometry/Data'}`
-        ],
-        educationalContext: `The diagram provides visual context for: "${body.questionText}". Key values and geometric/data positions should be used to apply the relevant formula.`,
-        keyPoints: [
-          'Identify given variables from the diagram.',
-          'Apply step-by-step problem-solving methods.',
-          'Verify calculated values against options.'
-        ],
-        audioNarration: `Diagram explanation: ${fallbackDesc}. Question states ${body.questionText}.`,
-      });
     }
+
+    if (!parsed) {
+      // This used to answer with a canned paragraph and HTTP 200, so a dead
+      // provider was indistinguishable from a successful analysis and nobody
+      // ever fixed the provider. Fail with a real status instead.
+      console.error('[dristix] explain-diagram failed after retries');
+      throw new HttpError(502, 'ai_unavailable', `AI Vision could not analyze the diagram (${parseError}).`);
+    }
+
+    // Shape normalisation only — the analysis itself already happened.
+    res.json({
+      visualBreakdown: Array.isArray(parsed.visualBreakdown)
+        ? (parsed.visualBreakdown as string[])
+        : [body.diagramDescription || 'Visual diagram representation.'],
+      educationalContext:
+        typeof parsed.educationalContext === 'string' ? parsed.educationalContext : 'Diagram illustrates question geometry/data.',
+      keyPoints: Array.isArray(parsed.keyPoints) ? (parsed.keyPoints as string[]) : ['Observe diagram labels carefully.'],
+      audioNarration:
+        typeof parsed.audioNarration === 'string'
+          ? parsed.audioNarration
+          : body.diagramDescription || body.questionText,
+    });
   })
 );
 

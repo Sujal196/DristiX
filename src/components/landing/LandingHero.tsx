@@ -1,41 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
-  BadgeCheck,
-  Ear,
-  Keyboard,
-  Contrast,
-  Languages,
-  BarChart3,
-  Play,
-  Volume2,
+  BadgeCheck, Ear, Keyboard, Contrast,
+  Languages, BarChart3, Volume2, ArrowRight,
+  Shield,
 } from 'lucide-react';
 
 interface LandingHeroProps {
   onSignIn: () => void;
 }
 
-/**
- * Lines the demo speaks, verbatim from the product's own confirmation copy
- * (src/utils/optionSpeech.ts and the catalogue loader). Invented marketing
- * dialogue in the hero would prove nothing; these strings are what a real
- * candidate actually hears.
- */
 const DEMO_LINES = [
-  'Option 3 selected: 60 degrees. Say "Next question" to continue.',
+  'Option C selected: 120 degrees. Say "Next question" to continue.',
   'Question 3 of 10. Section: Quantitative Aptitude.',
-  '"SSC CGL Tier-1 Comprehensive Mock Test" has been opened successfully!',
-];
-
-const TOP_CHIPS = [
-  { icon: Ear, label: 'Question Read Aloud' },
-  { icon: Keyboard, label: 'Keyboard Navigation' },
-  { icon: Contrast, label: 'High Contrast Themes' },
-];
-
-const BOTTOM_CHIPS = [
-  { icon: Languages, label: 'Multi-language Voice' },
-  { icon: BarChart3, label: 'Personalized Progress' },
-  { icon: Volume2, label: 'Spoken Confirmations' },
+  '"SSC CGL Tier-1 Comprehensive Mock Test" opened successfully!',
 ];
 
 const OPTIONS = [
@@ -45,286 +22,299 @@ const OPTIONS = [
   { key: 'D', text: '180 degrees' },
 ];
 
-/**
- * Read once at module load. Reduced-motion users get the first confirmation
- * line at rest with no interval at all, so nothing is ever hidden behind an
- * animation that may not run.
- */
+const BADGE_ROWS = [
+  [
+    { icon: Shield,    label: 'WCAG 2.1 AA',  sub: 'Certified' },
+    { icon: Ear,       label: 'Screen Reader', sub: 'Optimized' },
+    { icon: Keyboard,  label: 'Keyboard',      sub: 'Complete' },
+  ],
+  [
+    { icon: Contrast,  label: '4 Themes',      sub: 'High Contrast' },
+    { icon: Languages, label: 'Hindi + EN',    sub: 'Voice' },
+    { icon: BarChart3, label: 'Analytics',     sub: 'Personalized' },
+  ],
+];
+
 const REDUCED_MOTION =
   typeof window !== 'undefined' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/**
- * Hero for the public landing page.
- *
- * The right-hand column is not a picture of the product: it is the product's
- * exam interface rebuilt from the same tokens, with the assistant speaking its
- * real confirmation line underneath. The brief asked for a CSS/SVG visual
- * rather than an asset, and geometry that describes what the software does
- * carries more weight than an illustration of a person using it.
- */
 export const LandingHero: React.FC<LandingHeroProps> = ({ onSignIn }) => {
-  const [lineIndex, setLineIndex] = useState(0);
-  // The first confirmation is on screen before any timer runs, so the panel is
-  // never briefly blank.
-  const [charCount, setCharCount] = useState(DEMO_LINES[0].length);
+  const [lineIdx, setLineIdx]   = useState(0);
+  const [chars,   setChars]     = useState(DEMO_LINES[0].length);
+  const cardRef = useRef<HTMLDivElement>(null);
 
+  /* ── Typewriter ── */
   useEffect(() => {
     if (REDUCED_MOTION) return;
-
-    let index = 0;
-    let count = DEMO_LINES[0].length;
-    let typing = false;
-    let hold = 40;
-
-    const tick = window.setInterval(() => {
-      if (hold > 0) {
-        hold -= 1;
-        return;
-      }
-
-      const line = DEMO_LINES[index];
+    let idx = 0, count = DEMO_LINES[0].length, typing = false, hold = 40;
+    const id = window.setInterval(() => {
+      if (hold-- > 0) return;
+      const len = DEMO_LINES[idx].length;
       if (typing) {
-        count += 1;
-        if (count >= line.length) {
-          count = line.length;
-          typing = false;
-          hold = 44; // ~2s to read the finished line
-        }
+        if (++count >= len) { count = len; typing = false; hold = 48; }
       } else {
         count -= 3;
-        if (count <= 0) {
-          count = 0;
-          typing = true;
-          index = (index + 1) % DEMO_LINES.length;
-          hold = 10;
-        }
+        if (count <= 0) { count = 0; typing = true; idx = (idx + 1) % DEMO_LINES.length; hold = 10; }
       }
-
-      setLineIndex(index);
-      setCharCount(count);
+      setLineIdx(idx); setChars(count);
     }, 45);
-
-    return () => window.clearInterval(tick);
+    return () => clearInterval(id);
   }, []);
 
-  const activeLine = DEMO_LINES[lineIndex];
-  const visibleLine = activeLine.slice(0, charCount);
+  /* ── 3-D card tilt on mouse move ── */
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card || REDUCED_MOTION) return;
+    const onMove = (e: MouseEvent) => {
+      const r = card.getBoundingClientRect();
+      const x = ((e.clientX - r.left) / r.width  - 0.5) * 10;
+      const y = ((e.clientY - r.top)  / r.height - 0.5) * -10;
+      card.style.transform = `perspective(900px) rotateX(${y}deg) rotateY(${x}deg) translateY(-4px)`;
+    };
+    const onLeave = () => { card.style.transform = ''; };
+    card.addEventListener('mousemove', onMove);
+    card.addEventListener('mouseleave', onLeave);
+    return () => { card.removeEventListener('mousemove', onMove); card.removeEventListener('mouseleave', onLeave); };
+  }, []);
+
+  const visibleLine = DEMO_LINES[lineIdx].slice(0, chars);
 
   return (
-    <section id="top" className="dx-wash dx-hero-ambient border-b-2 border-theme-border/70 overflow-hidden relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 lg:py-24 grid lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-14 items-center relative z-10">
-        {/* ---------------- Copy column ---------------- */}
-        <div className="max-w-[42rem]">
-          <p className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border-2 border-theme-border/80 bg-theme-surface/90 text-xs font-black uppercase tracking-wider text-theme-text shadow-sm backdrop-blur-sm">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
-            <BadgeCheck className="w-4 h-4 text-theme-primary shrink-0" aria-hidden="true" />
-            100% WCAG 2.1 AA Compliant · Designed for Everyone
-          </p>
+    <section id="top" className="dx-hero-full" aria-label="DristiX hero">
+      {/* Ambient orbs */}
+      <div className="dx-orb dx-orb-1" aria-hidden="true" />
+      <div className="dx-orb dx-orb-2" aria-hidden="true" />
+      <div className="dx-orb dx-orb-3" aria-hidden="true" />
 
-          <h1 className="mt-6 text-4xl sm:text-5xl xl:text-6xl font-black leading-[1.04] tracking-[-0.03em] text-balance text-theme-text">
-            Learn. Practice. Achieve.
-            <br />
-            <span className="text-theme-primary drop-shadow-sm">With No Barriers.</span>
-          </h1>
+      <div className="dx-hero-inner max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-12 xl:gap-20 items-center py-20 lg:py-28">
 
-          <p className="mt-6 text-base sm:text-lg leading-relaxed max-w-[68ch] text-theme-text-secondary font-medium">
-            DristiX delivers mock tests, practice drills and previous-year papers built for
-            candidates who are blind, low-vision or keyboard-only — and for everyone else who
-            simply wants a faster exam experience. Every question can be read aloud, every answer
-            can be spoken back, and no action on the screen requires a mouse.
-          </p>
+          {/* ══ LEFT: Copy ══ */}
+          <div>
+            {/* Live badge */}
+            <div className="dx-label-pill mb-7 dx-rise w-fit">
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="dx-pulse-ring absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              100% Accessible · WCAG 2.1 AA
+            </div>
 
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={onSignIn}
-              className="h-12 px-7 rounded-xl bg-theme-primary text-theme-primary-text font-black text-base dx-glow-button hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 shadow-md"
-            >
-              Start Practicing
-              <Play className="w-4.5 h-4.5 fill-current" aria-hidden="true" />
-            </button>
-            <a
-              href="#why"
-              className="h-12 px-6 rounded-xl border-2 border-theme-border bg-theme-bg font-extrabold text-base text-theme-text hover:bg-theme-surface-elevated hover:border-theme-primary/60 transition-all duration-200 active:scale-95 inline-flex items-center no-underline shadow-sm"
-            >
-              See how it works
-            </a>
+            {/* Headline — 3 staggered lines */}
+            <h1 className="leading-[1.02] tracking-[-0.045em] dx-rise text-theme-text">
+              <span className="block text-5xl sm:text-6xl xl:text-7xl font-black">Exam Portal</span>
+              <span className="block text-5xl sm:text-6xl xl:text-7xl font-black dx-shimmer-text mt-1">That Speaks</span>
+              <span className="block text-5xl sm:text-6xl xl:text-7xl font-black dx-gradient-text mt-1">Your Language.</span>
+            </h1>
+
+            {/* Sub */}
+            <p className="mt-7 text-base sm:text-lg leading-relaxed max-w-[54ch] text-theme-text/70 font-medium dx-rise-delay">
+              DristiX delivers mock tests and practice drills built for candidates who are
+              blind, low-vision or keyboard-only — and for everyone who wants a faster exam
+              experience. Every question reads itself. No mouse ever required.
+            </p>
+
+            {/* CTAs */}
+            <div className="mt-10 flex flex-wrap items-center gap-4 dx-rise-delay-2">
+              <button
+                type="button"
+                onClick={onSignIn}
+                className="dx-btn-primary h-14 px-9 text-base flex items-center gap-3 group"
+              >
+                <span className="relative z-10">Start Practicing Free</span>
+                <ArrowRight
+                  className="relative z-10 w-5 h-5 transition-transform group-hover:translate-x-1"
+                  aria-hidden="true"
+                />
+              </button>
+              <a
+                href="#why"
+                className="h-14 px-7 rounded-2xl border-2 border-theme-border font-extrabold text-base text-theme-text hover:border-theme-primary hover:text-theme-primary transition-all duration-200 active:scale-95 inline-flex items-center no-underline backdrop-blur-sm"
+                style={{ background: 'color-mix(in srgb, var(--bg-surface) 50%, transparent)' }}
+              >
+                See how it works
+              </a>
+            </div>
+
+            {/* Micro-stats */}
+            <div className="mt-10 pt-8 dx-divider dx-rise-delay-3" />
+            <div className="grid grid-cols-3 gap-6 mt-8 dx-rise-delay-3">
+              {[
+                { val: '100%', lbl: 'Hands-Free Voice' },
+                { val: '4',    lbl: 'Contrast Themes'  },
+                { val: '0',    lbl: 'Mouse Needed'      },
+              ].map(({ val, lbl }, i) => (
+                <div key={lbl} className={i > 0 ? 'border-l border-theme-border/40 pl-6' : ''}>
+                  <div className="text-3xl xl:text-4xl font-black dx-gradient-text">{val}</div>
+                  <div className="mt-1 text-xs font-bold text-theme-text-secondary leading-tight">{lbl}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Trust row */}
+            <div className="mt-8 flex items-center gap-3 flex-wrap dx-rise-delay-4">
+              {['WCAG 2.1 AA', 'axe-core Audited', 'Screen Reader First', 'Open-source'].map((t) => (
+                <span key={t}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold"
+                  style={{
+                    background: 'color-mix(in srgb, var(--primary) 8%, var(--bg-surface))',
+                    border: '1px solid color-mix(in srgb, var(--primary) 20%, transparent)',
+                    color: 'var(--primary)',
+                  }}>
+                  <BadgeCheck className="w-3 h-3" aria-hidden="true" />
+                  {t}
+                </span>
+              ))}
+            </div>
           </div>
 
-          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2.5 list-none m-0 p-0 text-sm font-bold text-theme-text-secondary">
-            <li className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-theme-primary/10 grid place-items-center text-theme-primary shrink-0">
-                <Keyboard className="w-3.5 h-3.5" aria-hidden="true" />
-              </span>
-              No mouse required
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-theme-primary/10 grid place-items-center text-theme-primary shrink-0">
-                <Languages className="w-3.5 h-3.5" aria-hidden="true" />
-              </span>
-              Hindi &amp; English voice replies
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-theme-primary/10 grid place-items-center text-theme-primary shrink-0">
-                <Contrast className="w-3.5 h-3.5" aria-hidden="true" />
-              </span>
-              Four contrast themes
-            </li>
-          </ul>
-        </div>
-
-        {/* ---------------- Demonstration column ---------------- */}
-        <div className="relative dx-rise">
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 400 320"
-            className="hidden sm:block absolute -inset-x-6 -inset-y-8 w-[calc(100%+3rem)] h-[calc(100%+4rem)] pointer-events-none opacity-40"
-            preserveAspectRatio="none"
-          >
-            <path
-              d="M6 40 C 120 6, 280 6, 394 44"
-              fill="none"
-              stroke="var(--primary)"
-              strokeWidth="2"
-              className="dx-wire"
-            />
-            <path
-              d="M6 276 C 120 312, 280 312, 394 272"
-              fill="none"
-              stroke="var(--primary)"
-              strokeWidth="2"
-              className="dx-wire"
-            />
-          </svg>
-
-          <div className="relative flex flex-col gap-3.5">
+          {/* ══ RIGHT: Live Exam Preview ══ */}
+          <div className="flex flex-col gap-3.5">
+            {/* Top chips */}
             <ul className="grid grid-cols-3 gap-3 list-none m-0 p-0">
-              {TOP_CHIPS.map(({ icon: Icon, label }) => (
-                <li
-                  key={label}
-                  className="dx-chip-card flex items-center justify-center gap-2 px-2 py-2.5 rounded-xl border-2 border-theme-border/80 bg-theme-surface/90 text-center shadow-sm backdrop-blur-xs"
-                >
-                  <Icon className="w-4 h-4 shrink-0 text-theme-primary" aria-hidden="true" />
-                  <span className="text-xs font-extrabold leading-tight text-theme-text">
-                    {label}
-                  </span>
+              {BADGE_ROWS[0].map(({ icon: Icon, label, sub }) => (
+                <li key={label} className="dx-chip-card rounded-2xl p-3.5 text-center flex flex-col items-center gap-1.5">
+                  <div className="w-9 h-9 rounded-xl grid place-items-center mb-1 dx-glow-icon"
+                    style={{ background: 'color-mix(in srgb, var(--primary) 15%, var(--bg-surface))' }}>
+                    <Icon className="w-4 h-4 text-theme-primary" aria-hidden="true" />
+                  </div>
+                  <div className="text-[11px] font-black text-theme-text leading-tight">{label}</div>
+                  <div className="text-[10px] font-semibold text-theme-text-secondary">{sub}</div>
                 </li>
               ))}
             </ul>
 
-            {/* The exam interface, rebuilt from the app's own tokens. */}
-            <div className="dx-hero-card rounded-2xl border-2 border-theme-border/90 bg-theme-surface shadow-2xl overflow-hidden">
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b-2 border-theme-border bg-theme-surface-elevated/90">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
-                  <span className="text-xs font-black uppercase tracking-wider text-theme-text-secondary">
-                    SSC-CGL · Mock 01
+            {/* Exam card with 3-D tilt */}
+            <div ref={cardRef} className="dx-hero-card rounded-3xl overflow-hidden" style={{ transition: 'transform 0.18s cubic-bezier(0.16,1,0.3,1), box-shadow 0.4s' }}>
+              {/* Card top bar */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b"
+                style={{
+                  background: 'color-mix(in srgb, var(--bg-surface-elevated) 70%, transparent)',
+                  borderColor: 'color-mix(in srgb, var(--primary) 20%, transparent)',
+                }}>
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="dx-pulse-ring absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
                   </span>
+                  <span className="text-xs font-black uppercase tracking-widest text-theme-text/75">SSC-CGL · Mock 01</span>
                 </div>
-                <span
-                  className="px-2.5 py-1 rounded-lg border-2 border-theme-border bg-theme-bg text-xs font-black tabular-nums text-theme-text shadow-xs"
-                  aria-hidden="true"
-                >
-                  ⏱️ 00:42:18
+                <span className="px-3 py-1 rounded-xl text-xs font-black tabular-nums"
+                  style={{
+                    background: 'color-mix(in srgb, var(--bg-page) 60%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--border-color) 50%, transparent)',
+                    color: 'var(--text-primary)',
+                    backdropFilter: 'blur(8px)',
+                  }}>
+                  ⏱ 00:42:18
                 </span>
               </div>
 
-              <div className="px-4 sm:px-5 pt-4 pb-3">
-                <div className="flex items-center justify-between gap-3 text-xs font-extrabold text-theme-text-secondary">
-                  <span>Question 3 of 10</span>
-                  <span className="px-2 py-0.5 rounded bg-theme-primary/10 text-theme-primary border border-theme-primary/20">Quantitative Aptitude</span>
+              {/* Question */}
+              <div className="px-5 sm:px-6 pt-5 pb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold text-theme-text-secondary">Question 3 of 10</span>
+                  <span className="px-2.5 py-1 rounded-lg text-[11px] font-black"
+                    style={{
+                      background: 'color-mix(in srgb, var(--primary) 12%, transparent)',
+                      color: 'var(--primary)',
+                      border: '1px solid color-mix(in srgb, var(--primary) 28%, transparent)',
+                    }}>
+                    Quantitative Aptitude
+                  </span>
                 </div>
-
-                <p className="mt-2.5 text-sm sm:text-[15px] font-extrabold leading-snug text-theme-text">
+                <p className="text-[13px] sm:text-sm font-extrabold leading-snug text-theme-text">
                   What is the measure of each interior angle of an equilateral triangle?
                 </p>
 
-                {/* Static illustration with option letters */}
-                <ul className="mt-3.5 flex flex-col gap-2 list-none m-0 p-0">
-                  {OPTIONS.map((option) => {
-                    const selected = option.key === 'C';
+                <ul className="mt-4 flex flex-col gap-2 list-none m-0 p-0">
+                  {OPTIONS.map((opt) => {
+                    const sel = opt.key === 'C';
                     return (
-                      <li
-                        key={option.key}
-                        className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl border-2 text-sm transition-all ${
-                          selected
-                            ? 'border-theme-primary dx-chip-fill font-extrabold text-theme-text shadow-sm'
-                            : 'border-theme-border/70 bg-theme-bg/60 text-theme-text-secondary'
-                        }`}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={`w-5 h-5 shrink-0 rounded-full border-2 grid place-items-center text-[10px] font-black ${
-                            selected
-                              ? 'border-theme-primary bg-theme-primary text-theme-primary-text'
-                              : 'border-theme-border bg-theme-surface text-theme-text-secondary'
-                          }`}
-                        >
-                          {selected ? '✓' : ''}
+                      <li key={opt.key}
+                        className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border text-[13px] transition-all"
+                        style={sel ? {
+                          background: 'color-mix(in srgb, var(--primary) 12%, transparent)',
+                          borderColor: 'var(--primary)',
+                          fontWeight: 700,
+                        } : {
+                          background: 'color-mix(in srgb, var(--bg-page) 55%, transparent)',
+                          borderColor: 'color-mix(in srgb, var(--border-color) 55%, transparent)',
+                          color: 'var(--text-secondary)',
+                        }}>
+                        <span className={`w-5 h-5 shrink-0 rounded-full grid place-items-center text-[10px] font-black border`}
+                          style={sel ? {
+                            background: 'var(--primary)',
+                            borderColor: 'var(--primary)',
+                            color: 'var(--primary-text)',
+                            boxShadow: '0 0 8px var(--primary-glow)',
+                          } : {
+                            background: 'color-mix(in srgb, var(--bg-surface) 80%, transparent)',
+                            borderColor: 'color-mix(in srgb, var(--border-color) 70%, transparent)',
+                          }}>
+                          {sel ? '✓' : ''}
                         </span>
-                        <span className="w-5 shrink-0 font-black">{option.key}.</span>
-                        <span className="font-semibold">{option.text}</span>
-                        {selected ? <span className="sr-only">(selected)</span> : null}
+                        <span className="font-black" style={{ color: 'var(--primary)', width: '1.1rem', flexShrink: 0 }}>{opt.key}.</span>
+                        <span>{opt.text}</span>
+                        {sel && <BadgeCheck className="w-4 h-4 ml-auto text-theme-primary" aria-hidden="true" />}
                       </li>
                     );
                   })}
                 </ul>
               </div>
 
-              {/* The assistant, mid-confirmation. */}
-              <div className="dx-chip-fill border-t-2 border-theme-border/80 px-4 sm:px-5 py-3.5">
+              {/* Voice strip */}
+              <div className="border-t px-5 py-4"
+                style={{
+                  background: 'color-mix(in srgb, var(--bg-page) 65%, transparent)',
+                  borderColor: 'color-mix(in srgb, var(--primary) 18%, transparent)',
+                }}>
                 <div className="flex items-start gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="mt-0.5 w-8 h-8 shrink-0 grid place-items-center rounded-xl bg-theme-primary text-theme-primary-text shadow-sm"
-                  >
-                    <Volume2 className="w-4 h-4" />
-                  </span>
+                  <div className="mt-0.5 w-9 h-9 shrink-0 grid place-items-center rounded-xl text-theme-primary-text shadow-lg"
+                    style={{ background: 'var(--primary-gradient)', boxShadow: '0 4px 16px var(--primary-glow)' }}>
+                    <Volume2 className="w-4 h-4" aria-hidden="true" />
+                  </div>
                   <div className="min-w-0 flex-1">
-                    <div
-                      aria-hidden="true"
-                      className="flex items-end gap-[4px] h-4 mb-2"
-                    >
-                      {[8, 14, 6, 16, 10, 14, 5, 15, 9].map((height, i) => (
-                        <span
-                          key={i}
-                          className="dx-bar w-[3px] rounded-full bg-theme-primary"
-                          style={{
-                            height: `${height}px`,
-                            animationDelay: `${i * 90}ms`,
-                          }}
-                        />
+                    <div className="flex items-end gap-[3px] h-4 mb-2" aria-hidden="true">
+                      {[6, 12, 5, 14, 8, 13, 4, 15, 7, 11].map((h, i) => (
+                        <span key={i} className="dx-bar w-[3px] rounded-full bg-theme-primary"
+                          style={{ height: `${h}px`, animationDelay: `${i * 80}ms` }} />
                       ))}
                     </div>
-                    <p className="min-h-[2.5rem] text-sm font-extrabold leading-snug text-theme-text">
+                    <p className="min-h-[2.25rem] text-[13px] font-extrabold leading-snug text-theme-text">
                       {visibleLine}
-                      <span aria-hidden="true" className="dx-caret inline-block w-[2.5px] h-[1em] align-middle bg-theme-primary ml-0.5" />
+                      <span aria-hidden="true" className="dx-caret inline-block w-[2px] h-[1em] align-middle bg-theme-primary ml-0.5" />
                     </p>
-                    <p className="sr-only">
-                      The assistant reads each question aloud and confirms an answer in full, for
-                      example: {DEMO_LINES[0]}
-                    </p>
+                    <p className="sr-only">Assistant reads: {DEMO_LINES[0]}</p>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* Bottom chips */}
             <ul className="grid grid-cols-3 gap-3 list-none m-0 p-0">
-              {BOTTOM_CHIPS.map(({ icon: Icon, label }) => (
-                <li
-                  key={label}
-                  className="dx-chip-card flex items-center justify-center gap-2 px-2 py-2.5 rounded-xl border-2 border-theme-border/80 bg-theme-surface/90 text-center shadow-sm backdrop-blur-xs"
-                >
-                  <Icon className="w-4 h-4 shrink-0 text-theme-primary" aria-hidden="true" />
-                  <span className="text-xs font-extrabold leading-tight text-theme-text">
-                    {label}
-                  </span>
+              {BADGE_ROWS[1].map(({ icon: Icon, label, sub }) => (
+                <li key={label} className="dx-chip-card rounded-2xl p-3.5 text-center flex flex-col items-center gap-1.5">
+                  <div className="w-9 h-9 rounded-xl grid place-items-center mb-1"
+                    style={{ background: 'color-mix(in srgb, var(--primary) 15%, var(--bg-surface))' }}>
+                    <Icon className="w-4 h-4 text-theme-primary" aria-hidden="true" />
+                  </div>
+                  <div className="text-[11px] font-black text-theme-text leading-tight">{label}</div>
+                  <div className="text-[10px] font-semibold text-theme-text-secondary">{sub}</div>
                 </li>
               ))}
             </ul>
           </div>
         </div>
+      </div>
+
+      {/* Scroll indicator */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 opacity-80" aria-hidden="true">
+        <span className="text-[10px] font-bold text-theme-text-secondary uppercase tracking-[0.15em]">scroll</span>
+        <span className="w-5 h-8 rounded-full border-2 border-theme-border/70 flex items-start justify-center pt-1.5">
+          <span className="w-1 h-2 rounded-full bg-theme-primary animate-bounce" />
+        </span>
       </div>
     </section>
   );

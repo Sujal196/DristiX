@@ -56,8 +56,8 @@ export const A11yInspector: React.FC = () => {
 
   return (
     <>
-      {/* Floating A11y Badge Trigger */}
-      <div className="fixed bottom-4 right-4 z-40">
+      {/* Floating A11y Badge Trigger (positioned on left to avoid overlapping Voice Assistant Orb on right) */}
+      <div className="fixed bottom-4 left-4 z-40">
         <button
           type="button"
           onClick={handleOpen}
@@ -68,10 +68,10 @@ export const A11yInspector: React.FC = () => {
           <span>a11y Audit</span>
           {auditResults && (
             <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
                 auditResults.violations.length === 0
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-red-600 text-white'
+                  ? 'bg-theme-success text-white'
+                  : 'bg-theme-danger text-white'
               }`}
             >
               {auditResults.violations.length === 0 ? 'Pass' : `${auditResults.violations.length} Fail`}
@@ -134,49 +134,89 @@ export const A11yInspector: React.FC = () => {
                 <>
                   {/* Summary Cards */}
                   <div className="grid grid-cols-3 gap-2 text-center text-xs sm:text-sm font-bold">
-                    <div className="p-3 rounded-lg border-2 border-emerald-600 bg-emerald-500/10 text-emerald-600">
+                    <div className="p-3 rounded-lg border-2 border-theme-success bg-theme-success/15 text-theme-success">
                       <span className="block text-xl font-black">{auditResults.passes.length}</span>
-                      <span>Passed Rules</span>
+                      <span className="font-extrabold">Passed Rules</span>
                     </div>
-                    <div className="p-3 rounded-lg border-2 border-theme-border bg-theme-bg">
+                    <div className="p-3 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text">
                       <span className="block text-xl font-black">{auditResults.passes.length + auditResults.violations.length}</span>
-                      <span>Tested Rules</span>
+                      <span className="font-extrabold">Tested Rules</span>
                     </div>
                     <div
                       className={`p-3 rounded-lg border-2 ${
                         auditResults.violations.length === 0
-                          ? 'border-emerald-600 bg-emerald-500/10 text-emerald-600'
-                          : 'border-red-600 bg-red-500/10 text-red-600'
+                          ? 'border-theme-success bg-theme-success/15 text-theme-success'
+                          : 'border-theme-danger bg-theme-danger/15 text-theme-danger'
                       }`}
                     >
                       <span className="block text-xl font-black">{auditResults.violations.length}</span>
-                      <span>Violations</span>
+                      <span className="font-extrabold">Violations</span>
                     </div>
                   </div>
 
                   {auditResults.violations.length === 0 ? (
-                    <div className="p-4 rounded-lg border-2 border-emerald-600 bg-emerald-500/10 text-emerald-600 flex items-start gap-3">
-                      <CheckCircle2 className="w-6 h-6 flex-shrink-0 mt-0.5" aria-hidden="true" />
+                    <div className="p-4 rounded-lg border-2 border-theme-success bg-theme-success/15 text-theme-success flex items-start gap-3">
+                      <CheckCircle2 className="w-6 h-6 flex-shrink-0 mt-0.5 text-theme-success" aria-hidden="true" />
                       <div>
-                        <strong className="block text-base font-bold">
+                        <strong className="block text-base font-black text-theme-success">
                           Zero WCAG 2.1 AA Violations Detected!
                         </strong>
-                        <p className="text-xs text-theme-text mt-1 leading-relaxed">
+                        <p className="text-xs text-theme-text mt-1 leading-relaxed font-medium">
                           All tested criteria for color contrast, semantic form labels, accessible landmark roles, heading levels, and keyboard focus indicators passed automated axe-core scrutiny.
                         </p>
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      <h3 className="font-bold text-sm text-red-500 flex items-center gap-1.5">
-                        <AlertCircle className="w-4 h-4" aria-hidden="true" />
+                    <div className="space-y-3">
+                      <h3 className="font-black text-sm text-theme-danger flex items-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 text-theme-danger" aria-hidden="true" />
                         <span>Violations to address ({auditResults.violations.length}):</span>
                       </h3>
                       {auditResults.violations.map((v) => (
-                        <div key={v.id} className="p-3 rounded border border-red-500 bg-red-500/10 text-xs space-y-1">
-                          <strong className="block font-bold">{v.help} ({v.id})</strong>
-                          <p className="text-theme-text-secondary">{v.description}</p>
-                          <span className="text-[10px] font-mono block text-red-400">Impact: {v.impact}</span>
+                        <div key={v.id} className="p-3.5 rounded-lg border-2 border-theme-danger bg-theme-danger/10 text-xs space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <strong className="block font-black text-theme-text text-sm">{v.help} ({v.id})</strong>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-theme-danger text-white shrink-0">
+                              {v.impact || 'serious'}
+                            </span>
+                          </div>
+                          <p className="text-theme-text font-medium leading-relaxed">{v.description}</p>
+
+                          {/* Detailed Node Breakdowns */}
+                          {v.nodes && v.nodes.length > 0 && (
+                            <div className="mt-2 space-y-2 pt-2 border-t border-theme-danger/30">
+                              <span className="block text-[11px] font-bold text-theme-text uppercase tracking-wider">
+                                Affected DOM Elements ({v.nodes.length}):
+                              </span>
+                              {v.nodes.map((node, nIdx) => (
+                                <div key={nIdx} className="p-2.5 rounded bg-theme-surface border border-theme-border text-[11px] space-y-1.5">
+                                  {node.target && (
+                                    <div className="flex items-start gap-1">
+                                      <span className="font-bold text-theme-text-secondary shrink-0">Target:</span>
+                                      <code className="font-mono bg-theme-bg px-1.5 py-0.5 rounded text-theme-text border border-theme-border break-all">
+                                        {node.target.join(' ')}
+                                      </code>
+                                    </div>
+                                  )}
+                                  {node.failureSummary && (
+                                    <div className="text-theme-danger font-semibold bg-theme-danger/10 p-1.5 rounded">
+                                      {node.failureSummary}
+                                    </div>
+                                  )}
+                                  {node.html && (
+                                    <details className="mt-1">
+                                      <summary className="cursor-pointer text-[10px] font-bold text-theme-text-secondary hover:text-theme-text">
+                                        View HTML snippet
+                                      </summary>
+                                      <pre className="mt-1 p-2 rounded bg-theme-bg border border-theme-border text-[10px] font-mono text-theme-text overflow-x-auto whitespace-pre-wrap break-all">
+                                        {node.html}
+                                      </pre>
+                                    </details>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

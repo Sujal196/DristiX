@@ -167,6 +167,28 @@ export function matchExamFromQuery(
     if (ssc) return ssc;
   }
 
+  // 8b. Data Interpretation / Chart Analysis / Sonification
+  const isDI =
+    combined.includes('data interpretation') ||
+    combined.includes('chart analysis') ||
+    combined.includes('sonification') ||
+    combined.includes('graph analysis') ||
+    combined.includes('di drill') ||
+    combined.includes('di test') ||
+    combined.includes('di exam') ||
+    combined.includes('di-data-01') ||
+    combined.includes('data drill');
+
+  if (isDI) {
+    const di = allExams.find(
+      (e) =>
+        e.code === 'DI-DATA-01' ||
+        e.id.includes('DI-DATA') ||
+        e.title.toLowerCase().includes('data interpretation')
+    );
+    if (di) return di;
+  }
+
   // 9. Practice Drills / Topic-wise Arena
   const isPractice =
     combined.includes('practice') ||

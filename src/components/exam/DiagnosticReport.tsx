@@ -4,6 +4,7 @@ import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
 import { MathEquation } from '../common/MathEquation';
 import { AiDiagramViewer } from '../common/AiDiagramViewer';
+import { InteractiveSonificationGraph } from '../sonification/InteractiveSonificationGraph';
 import {
   Award,
   CheckCircle2,
@@ -18,11 +19,19 @@ import {
 } from 'lucide-react';
 
 export const DiagnosticReport: React.FC = () => {
-  const { questions, selectedOptions, markedForReview, getDiagnosticReport, resetExam, returnToCatalog } = useExamStore();
+  const { currentExam, questions, selectedOptions, markedForReview, getDiagnosticReport, resetExam, returnToCatalog } = useExamStore();
   const [filterType, setFilterType] = useState<'all' | 'correct' | 'incorrect' | 'marked'>('all');
   const [expandedQuestions, setExpandedQuestions] = useState<Record<string, boolean>>({});
 
   const report = getDiagnosticReport();
+
+  const negativeMarkingStr = String(currentExam?.negativeMarking || '');
+  const isPracticeMode = negativeMarkingStr.toLowerCase().includes('no negative') || negativeMarkingStr === '0';
+  const penaltyMatch = negativeMarkingStr.match(/(\d+(\.\d+)?)/);
+  const penaltyValue = !isPracticeMode && penaltyMatch ? penaltyMatch[1] : null;
+  const marksPerQ = currentExam?.totalMarks && questions.length > 0
+    ? Number((currentExam.totalMarks / questions.length).toFixed(1))
+    : 1;
 
   const handleReadSummary = () => {
     soundEffects.unlock();
@@ -35,8 +44,9 @@ export const DiagnosticReport: React.FC = () => {
   };
 
   const filteredQuestions = questions.filter((q) => {
-    const userAns = selectedOptions[q.id];
-    const isCorrect = userAns === q.correctOption;
+    const gradedQ = q as unknown as { isCorrect?: boolean; selectedOption?: number | null };
+    const userAns = selectedOptions[q.id] ?? (gradedQ.selectedOption !== null ? gradedQ.selectedOption : undefined);
+    const isCorrect = gradedQ.isCorrect !== undefined ? gradedQ.isCorrect : userAns === q.correctOption;
     const isMarked = !!markedForReview[q.id];
 
     if (filterType === 'correct') return isCorrect;
@@ -117,7 +127,7 @@ export const DiagnosticReport: React.FC = () => {
               Overall Score
             </span>
             <div className="text-2xl sm:text-3xl font-black mt-1">
-              {report.totalScore} <span className="text-sm font-normal text-theme-text-secondary">/ {report.maxScore}</span>
+              {Number(report.totalScore.toFixed(2))} <span className="text-sm font-normal text-theme-text-secondary">/ {report.maxScore}</span>
             </div>
           </div>
 
@@ -287,9 +297,10 @@ export const DiagnosticReport: React.FC = () => {
         {/* Questions List */}
         <div className="space-y-4">
           {filteredQuestions.map((q) => {
-            const userAnsNum = selectedOptions[q.id];
+            const gradedQ = q as unknown as { isCorrect?: boolean; selectedOption?: number | null };
+            const userAnsNum = selectedOptions[q.id] ?? (gradedQ.selectedOption !== null ? gradedQ.selectedOption : undefined);
             const isAnswered = userAnsNum !== undefined;
-            const isCorrect = userAnsNum === q.correctOption;
+            const isCorrect = gradedQ.isCorrect !== undefined ? gradedQ.isCorrect : userAnsNum === q.correctOption;
             const isMarked = !!markedForReview[q.id];
             const isExpanded = !!expandedQuestions[q.id];
 
@@ -317,13 +328,13 @@ export const DiagnosticReport: React.FC = () => {
                       {isCorrect && (
                         <span className="text-xs font-bold px-2 py-0.5 rounded border border-emerald-600 bg-emerald-600/20 text-emerald-500 flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                          <span>Correct (+2)</span>
+                          <span>Correct (+{marksPerQ})</span>
                         </span>
                       )}
                       {isAnswered && !isCorrect && (
                         <span className="text-xs font-bold px-2 py-0.5 rounded border border-red-600 bg-red-600/20 text-red-500 flex items-center gap-1">
                           <XCircle className="w-3.5 h-3.5" aria-hidden="true" />
-                          <span>Incorrect (-0.5)</span>
+                          <span>Incorrect {penaltyValue ? `(-${penaltyValue})` : '(No penalty)'}</span>
                         </span>
                       )}
                       {!isAnswered && (
@@ -347,6 +358,11 @@ export const DiagnosticReport: React.FC = () => {
                       <div className="my-2 p-2 rounded bg-theme-bg border border-theme-border inline-block">
                         <MathEquation latex={q.mathLatex} displayMode={true} />
                       </div>
+                    )}
+
+                    {/* Interactive Data Sonification Graph in Review Mode */}
+                    {q.graph && q.graph.enabled && (
+                      <InteractiveSonificationGraph graph={q.graph} isStudentMode={false} />
                     )}
 
                     {/* AI Diagram Viewer in Review Mode */}

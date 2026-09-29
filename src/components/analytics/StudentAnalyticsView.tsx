@@ -18,6 +18,8 @@ import {
   Sparkles,
   BarChart3,
   Calendar,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface StudentAnalyticsViewProps {
@@ -93,7 +95,7 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
       practiceCount,
       bestScorePercent: Math.round(best.percentage),
       bestScoreTitle: best.examTitle,
-      bestScoreMarks: `${best.score}/${best.maxScore}`,
+      bestScoreMarks: `${Number(best.score.toFixed(2))}/${best.maxScore}`,
       avgAccuracy: Math.round(sumPercentage / total),
       totalCorrect: sumCorrect,
       totalIncorrect: sumIncorrect,
@@ -113,6 +115,24 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
     });
   }, [studentSubmissions, typeFilter, searchQuery]);
 
+  // Pagination (5 items per page)
+  const ITEMS_PER_PAGE = 5;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setFocusedRowIndex(0);
+  }, [typeFilter, searchQuery]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredSubmissions.length / ITEMS_PER_PAGE));
+  }, [filteredSubmissions.length]);
+
+  const paginatedSubmissions = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredSubmissions.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredSubmissions, currentPage]);
+
   // Read full performance summary via speech synthesis
   const handleAnnounceSummary = () => {
     soundEffects.playSelect();
@@ -125,7 +145,7 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
   const handleSpeakResult = (sub: typeof studentSubmissions[0]) => {
     soundEffects.playSelect();
     const dateStr = new Date(sub.submittedAt).toLocaleDateString();
-    const msg = `Result for ${sub.examTitle}, code ${sub.examCode}. Attempted on ${dateStr}. Score achieved: ${sub.score} out of ${sub.maxScore} points, accuracy ${Math.round(sub.percentage)} percent. Correct: ${sub.correctCount}, Incorrect: ${sub.incorrectCount}, Unattempted: ${sub.unattemptedCount}.`;
+    const msg = `Result for ${sub.examTitle}, code ${sub.examCode}. Attempted on ${dateStr}. Score achieved: ${Number(sub.score.toFixed(2))} out of ${sub.maxScore} points, accuracy ${Math.round(sub.percentage)} percent. Correct: ${sub.correctCount}, Incorrect: ${sub.incorrectCount}, Unattempted: ${sub.unattemptedCount}.`;
     announce(msg, 'assertive', true);
   };
 
@@ -142,35 +162,35 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
 
   // Keyboard navigation for the table rows
   const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTableSectionElement>) => {
-    if (filteredSubmissions.length === 0) return;
+    if (paginatedSubmissions.length === 0) return;
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      const next = (focusedRowIndex + 1) % filteredSubmissions.length;
+      const next = (focusedRowIndex + 1) % paginatedSubmissions.length;
       setFocusedRowIndex(next);
       rowRefs.current[next]?.focus();
       soundEffects.playNavigate();
-      const sub = filteredSubmissions[next];
+      const sub = paginatedSubmissions[next];
       announce(
-        `Row ${next + 1}: ${sub.examTitle}, Score ${sub.score}/${sub.maxScore}, Accuracy ${Math.round(sub.percentage)} percent.`,
+        `Row ${next + 1}: ${sub.examTitle}, Score ${Number(sub.score.toFixed(2))}/${sub.maxScore}, Accuracy ${Math.round(sub.percentage)} percent.`,
         'polite',
         true
       );
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      const prev = (focusedRowIndex - 1 + filteredSubmissions.length) % filteredSubmissions.length;
+      const prev = (focusedRowIndex - 1 + paginatedSubmissions.length) % paginatedSubmissions.length;
       setFocusedRowIndex(prev);
       rowRefs.current[prev]?.focus();
       soundEffects.playNavigate();
-      const sub = filteredSubmissions[prev];
+      const sub = paginatedSubmissions[prev];
       announce(
-        `Row ${prev + 1}: ${sub.examTitle}, Score ${sub.score}/${sub.maxScore}, Accuracy ${Math.round(sub.percentage)} percent.`,
+        `Row ${prev + 1}: ${sub.examTitle}, Score ${Number(sub.score.toFixed(2))}/${sub.maxScore}, Accuracy ${Math.round(sub.percentage)} percent.`,
         'polite',
         true
       );
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const sub = filteredSubmissions[focusedRowIndex];
+      const sub = paginatedSubmissions[focusedRowIndex];
       if (sub) {
         handleSpeakResult(sub);
       }
@@ -430,25 +450,25 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
         </div>
 
         {/* Submissions Table with Keyboard Arrow Navigation */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-xl border border-theme-border">
           <table className="w-full text-left text-sm border-collapse">
             <thead>
-              <tr className="border-b-2 border-theme-border text-xs uppercase font-bold text-theme-text/70">
-                <th scope="col" className="p-3">Test Title & Code</th>
-                <th scope="col" className="p-3">Type</th>
-                <th scope="col" className="p-3">Date Completed</th>
-                <th scope="col" className="p-3">Score Achieved</th>
-                <th scope="col" className="p-3">Accuracy</th>
-                <th scope="col" className="p-3">Answers Breakdown</th>
-                <th scope="col" className="p-3 text-right">Actions</th>
+              <tr className="bg-theme-bg/80 border-b-2 border-theme-border text-xs uppercase font-bold text-theme-text/70">
+                <th scope="col" className="py-3 px-4">Test Title & Code</th>
+                <th scope="col" className="py-3 px-4">Type</th>
+                <th scope="col" className="py-3 px-4">Date Completed</th>
+                <th scope="col" className="py-3 px-4">Score Achieved</th>
+                <th scope="col" className="py-3 px-4">Accuracy</th>
+                <th scope="col" className="py-3 px-4">Answers Breakdown</th>
+                <th scope="col" className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody
               tabIndex={0}
               onKeyDown={handleTableKeyDown}
-              className="divide-y divide-theme-border focus:outline-none"
+              className="divide-y divide-theme-border focus:outline-none bg-theme-surface"
             >
-              {filteredSubmissions.length === 0 ? (
+              {paginatedSubmissions.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-theme-text/60">
                     <HelpCircle className="w-8 h-8 text-theme-text/40 mx-auto mb-2" aria-hidden="true" />
@@ -457,7 +477,7 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
                   </td>
                 </tr>
               ) : (
-                filteredSubmissions.map((sub, idx) => {
+                paginatedSubmissions.map((sub, idx) => {
                   const isFocused = focusedRowIndex === idx;
                   const isTopScore = sub.percentage === stats.bestScorePercent;
 
@@ -476,23 +496,23 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
                       }`}
                     >
                       {/* Test Title & Code */}
-                      <td className="p-3">
+                      <td className="py-3.5 px-4 align-middle">
                         <div className="font-bold text-theme-text flex items-center gap-1.5">
                           {isTopScore && <span title="Personal Best Score">🏆</span>}
-                          <span>{sub.examTitle}</span>
+                          <span className="line-clamp-1">{sub.examTitle}</span>
                         </div>
-                        <span className="text-xs font-mono text-theme-primary mt-0.5 block">
+                        <span className="text-xs font-mono text-theme-primary mt-0.5 block font-semibold">
                           {sub.examCode}
                         </span>
                       </td>
 
                       {/* Type Badge */}
-                      <td className="p-3">
+                      <td className="py-3.5 px-4 align-middle whitespace-nowrap">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${
+                          className={`px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center justify-center border whitespace-nowrap ${
                             sub.examType === 'practice'
-                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30'
-                              : 'bg-blue-500/10 text-blue-500 border border-blue-500/30'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                              : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
                           }`}
                         >
                           {sub.examType === 'practice' ? 'Practice Drill' : 'Timed Exam'}
@@ -500,71 +520,77 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
                       </td>
 
                       {/* Date */}
-                      <td className="p-3 text-xs text-theme-text/80 whitespace-nowrap">
-                        {new Date(sub.submittedAt).toLocaleDateString()}{' '}
-                        <span className="text-theme-text/50">
+                      <td className="py-3.5 px-4 align-middle text-xs text-theme-text/80 whitespace-nowrap">
+                        <div className="font-semibold text-theme-text">
+                          {new Date(sub.submittedAt).toLocaleDateString()}
+                        </div>
+                        <div className="text-theme-text/50 font-mono text-[11px] mt-0.5">
                           {new Date(sub.submittedAt).toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit',
                           })}
-                        </span>
+                        </div>
                       </td>
 
                       {/* Score Achieved */}
-                      <td className="p-3 font-bold text-theme-text whitespace-nowrap">
-                        <span className="text-base">{sub.score}</span>
+                      <td className="py-3.5 px-4 align-middle font-bold text-theme-text whitespace-nowrap">
+                        <span className="text-base font-extrabold">{Number(sub.score.toFixed(2))}</span>
                         <span className="text-xs text-theme-text/60"> / {sub.maxScore} pts</span>
                       </td>
 
                       {/* Accuracy */}
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`font-black text-sm ${
-                              sub.percentage >= 80
-                                ? 'text-emerald-500'
-                                : sub.percentage >= 60
-                                ? 'text-amber-500'
-                                : 'text-red-500'
-                            }`}
-                          >
-                            {Math.round(sub.percentage)}%
+                      <td className="py-3.5 px-4 align-middle whitespace-nowrap">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-xs font-bold border inline-flex items-center justify-center ${
+                            sub.percentage >= 80
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                              : sub.percentage >= 60
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                              : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                          }`}
+                        >
+                          {Math.round(sub.percentage)}%
+                        </span>
+                      </td>
+
+                      {/* Breakdown */}
+                      <td className="py-3.5 px-4 align-middle text-xs whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">
+                            {sub.correctCount} Correct
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold">
+                            {sub.incorrectCount} Incorrect
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-theme-border/40 text-theme-text/70 font-medium">
+                            {sub.unattemptedCount} Skipped
                           </span>
                         </div>
                       </td>
 
-                      {/* Breakdown */}
-                      <td className="p-3 text-xs whitespace-nowrap">
-                        <span className="text-emerald-500 font-bold">{sub.correctCount} Correct</span>
-                        <span className="text-theme-text/40 mx-1">•</span>
-                        <span className="text-red-500 font-bold">{sub.incorrectCount} Incorrect</span>
-                        <span className="text-theme-text/40 mx-1">•</span>
-                        <span className="text-theme-text/60">{sub.unattemptedCount} Skipped</span>
-                      </td>
-
                       {/* Action Buttons */}
-                      <td className="p-3 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <td className="py-3.5 px-4 align-middle text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => handleSpeakResult(sub)}
-                            className="p-1.5 rounded-lg border border-theme-border bg-theme-bg hover:border-yellow-400 text-theme-text text-xs font-semibold flex items-center gap-1 focus:outline-none focus:ring-4 focus:ring-yellow-400"
+                            className="px-2.5 py-1.5 rounded-lg border border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text text-xs font-semibold flex items-center gap-1.5 focus:outline-none focus:ring-4 focus:ring-yellow-400 transition"
                             title="Speak result aloud"
                             aria-label={`Read result for ${sub.examTitle} aloud`}
                           >
-                            <Volume2 className="w-3.5 h-3.5 text-yellow-400" aria-hidden="true" />
-                            <span className="hidden xl:inline">Speak</span>
+                            <Volume2 className="w-3.5 h-3.5 text-theme-primary" aria-hidden="true" />
+                            <span>Speak</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => handleRetakeTest(sub)}
-                            className="p-1.5 rounded-lg border border-theme-border bg-theme-primary text-theme-primary-text text-xs font-semibold flex items-center gap-1 hover:bg-theme-primary-hover focus:outline-none focus:ring-4 focus:ring-yellow-400"
+                            className="px-3 py-1.5 rounded-lg border border-theme-primary bg-theme-primary text-white text-xs font-bold flex items-center gap-1.5 hover:bg-theme-primary/90 focus:outline-none focus:ring-4 focus:ring-yellow-400 transition shadow-xs"
                             title="Retake this test"
                             aria-label={`Retake test ${sub.examTitle}`}
                           >
                             <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
-                            <span className="hidden xl:inline">Retake</span>
+                            <span>Retake</span>
                           </button>
                         </div>
                       </td>
@@ -575,6 +601,60 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {filteredSubmissions.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-theme-border">
+            <div className="text-xs text-theme-text/70 font-medium">
+              Showing <span className="font-bold text-theme-text">{Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredSubmissions.length)}</span> to{' '}
+              <span className="font-bold text-theme-text">{Math.min(currentPage * ITEMS_PER_PAGE, filteredSubmissions.length)}</span> of{' '}
+              <span className="font-bold text-theme-text">{filteredSubmissions.length}</span> submissions
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="px-3 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-xs hover:border-theme-primary hover:text-theme-primary disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Previous</span>
+              </button>
+
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-8 h-8 rounded-lg font-bold text-xs transition border-2 ${
+                      currentPage === page
+                        ? 'bg-theme-primary text-white border-theme-primary shadow-xs'
+                        : 'bg-theme-bg border-theme-border text-theme-text hover:border-theme-primary'
+                    }`}
+                    aria-label={`Page ${page}`}
+                    aria-current={currentPage === page ? 'page' : undefined}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="px-3 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-xs hover:border-theme-primary hover:text-theme-primary disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                aria-label="Next page"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     </main>
   );

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Volume2, VolumeX, Contrast, Type, Settings, ArrowRight } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Volume2, VolumeX, Contrast, Type, Settings, LogIn, UserPlus } from 'lucide-react';
 import {
   usePreferencesStore,
   type ThemeMode,
@@ -13,7 +13,6 @@ interface LandingHeaderProps {
   onRegister: () => void;
 }
 
-/** Page order, so the nav reads exactly as the page scrolls. */
 const NAV_ITEMS = [
   { label: 'Home', href: '#top' },
   { label: 'Features', href: '#features' },
@@ -21,31 +20,28 @@ const NAV_ITEMS = [
   { label: 'Why DristiX', href: '#why' },
 ] as const;
 
-const THEME_ORDER: ThemeMode[] = ['light-hc', 'dark-hc', 'yellow-black', 'cream-dark'];
-
+const THEME_ORDER: ThemeMode[] = ['teal-cream', 'liquid-glass', 'dark', 'high-contrast'];
 const THEME_NAMES: Record<ThemeMode, string> = {
-  'light-hc': 'high contrast light',
-  'dark-hc': 'high contrast dark',
-  'yellow-black': 'yellow on black',
-  'cream-dark': 'warm sepia',
+  'teal-cream':     'Teal & Cream (Light)',
+  'liquid-glass':   'Liquid Glass (Frosted Light)',
+  'dark':           'Charcoal Dark (Emerald Green)',
+  'high-contrast':  'High Contrast (Black & Yellow)',
 };
-
 const TEXT_SIZES: TextScale[] = [100, 125, 150, 175, 200];
 
-const say = (message: string) =>
-  useAnnouncerStore.getState().announce(message, 'polite', true);
+const say = (msg: string) =>
+  useAnnouncerStore.getState().announce(msg, 'polite', true);
 
-/**
- * The landing control bar.
- *
- * Every control is a real preference, not a decorative icon: this is a product
- * for candidates who may need large type, a different contrast theme or spoken
- * output *before* they ever reach a form, and making them sign in first to get
- * them would be exactly the barrier the product removes.
- */
 export const LandingHeader: React.FC<LandingHeaderProps> = ({ onSignIn, onRegister }) => {
   const { theme, setTheme, fontSize, setFontSize, ttsEnabled, setTtsEnabled } =
     usePreferencesStore();
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const cycleTheme = () => {
     const next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
@@ -62,142 +58,63 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({ onSignIn, onRegist
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
-    // Announced after the engine is switched, so turning it on is confirmed
-    // aloud and turning it off is confirmed on screen only.
-    useAnnouncerStore
-      .getState()
-      .announce(next ? 'Spoken output enabled.' : 'Spoken output disabled.', 'polite', next);
+    useAnnouncerStore.getState().announce(
+      next ? 'Spoken output enabled.' : 'Spoken output disabled.',
+      'polite',
+      next,
+    );
   };
 
-  const controlClass =
-    'h-10 w-10 shrink-0 grid place-items-center rounded-xl border-2 border-theme-border bg-theme-bg text-theme-text transition-all duration-200 hover:bg-theme-surface-elevated hover:border-theme-primary hover:scale-105 active:scale-95 shadow-sm';
-  const controlKbd =
-    'absolute -bottom-1.5 -right-1.5 px-1 rounded bg-theme-surface-elevated border border-theme-border text-[10px] font-black leading-tight hidden sm:block shadow-xs';
+  const iconBtn =
+    'h-9 w-9 shrink-0 grid place-items-center rounded-xl border border-theme-border/60 bg-theme-surface/40 text-theme-text backdrop-blur-sm transition-all duration-200 hover:bg-theme-surface hover:border-theme-primary hover:text-theme-primary active:scale-95 shadow-sm';
 
   return (
-    <header role="banner" className="sticky top-0 z-40 dx-glass border-b-2 border-theme-border/70 shadow-sm transition-all">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center gap-x-5 gap-y-3">
+    <header
+      role="banner"
+      className="sticky top-0 z-50 transition-all duration-300"
+      style={{
+        background: scrolled
+          ? 'color-mix(in srgb, var(--bg-page) 85%, transparent)'
+          : 'color-mix(in srgb, var(--bg-page) 60%, transparent)',
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        borderBottom: scrolled
+          ? '1px solid color-mix(in srgb, var(--border-color) 60%, transparent)'
+          : '1px solid color-mix(in srgb, var(--border-color) 30%, transparent)',
+        boxShadow: scrolled ? '0 4px 32px rgba(0,0,0,0.12)' : 'none',
+      }}
+    >
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-6">
+
         {/* Brand */}
-        <a
-          href="#top"
-          className="order-1 flex items-center gap-3 rounded-lg shrink-0 no-underline group"
-        >
-          <span
-            aria-hidden="true"
-            className="w-10 h-10 shrink-0 grid place-items-center rounded-xl bg-theme-primary text-theme-primary-text font-black text-sm shadow-md group-hover:scale-105 transition-transform"
-          >
-            DX
-          </span>
-          <span className="leading-tight">
-            <span className="block font-black text-xl text-theme-text tracking-tight group-hover:text-theme-primary transition-colors">
+        <a href="#top" className="flex items-center gap-3 rounded-xl no-underline group shrink-0">
+          <div className="relative w-9 h-9">
+            <div
+              className="absolute inset-0 rounded-xl transition-transform group-hover:scale-110"
+              style={{ background: 'var(--primary-gradient)', boxShadow: '0 4px 16px var(--primary-glow)' }}
+            />
+            <span className="absolute inset-0 grid place-items-center text-theme-primary-text font-black text-sm rounded-xl">
+              DX
+            </span>
+          </div>
+          <div>
+            <span className="block font-black text-lg text-theme-text tracking-tight leading-tight group-hover:text-theme-primary transition-colors">
               DristiX
             </span>
-            <span className="block text-xs font-semibold text-theme-text-secondary">
-              Accessible Examination &amp; Practice Portal
+            <span className="block text-[10px] font-bold text-theme-text-secondary leading-tight tracking-wide uppercase">
+              Accessible Exam Portal
             </span>
-          </span>
+          </div>
         </a>
 
-        {/* Controls + account actions */}
-        <div className="order-2 lg:order-3 ml-auto flex items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-2" role="group" aria-label="Accessibility controls">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={toggleTts}
-                aria-pressed={ttsEnabled}
-                title={ttsEnabled ? 'Spoken output is on. Turn off.' : 'Spoken output is off. Turn on.'}
-                aria-label={
-                  ttsEnabled
-                    ? 'Spoken output is on. Activate to turn it off.'
-                    : 'Spoken output is off. Activate to turn it on.'
-                }
-                className={`${controlClass} ${
-                  ttsEnabled ? 'bg-theme-primary text-theme-primary-text border-theme-primary' : ''
-                }`}
-              >
-                {ttsEnabled ? (
-                  <Volume2 className="w-5 h-5" aria-hidden="true" />
-                ) : (
-                  <VolumeX className="w-5 h-5" aria-hidden="true" />
-                )}
-              </button>
-            </div>
-
-            <div className="relative hidden sm:block">
-              <button
-                type="button"
-                onClick={cycleTheme}
-                title={`Colour theme: ${THEME_NAMES[theme]}. Activate for the next theme.`}
-                aria-label={`Colour theme is ${THEME_NAMES[theme]}. Activate to change it.`}
-                className={`${controlClass} hidden sm:grid`}
-              >
-                <Contrast className="w-5 h-5" aria-hidden="true" />
-              </button>
-            </div>
-
-            <div className="relative hidden sm:block">
-              <button
-                type="button"
-                onClick={cycleTextSize}
-                title={`Text size: ${fontSize} percent. Activate for the next size.`}
-                aria-label={`Text size is ${fontSize} percent. Activate to increase it.`}
-                className={`${controlClass} font-black text-sm hidden sm:grid`}
-              >
-                <Type className="w-5 h-5" aria-hidden="true" />
-                <span className="sr-only">Text size</span>
-              </button>
-              <span aria-hidden="true" className={controlKbd}>
-                {fontSize}%
-              </span>
-            </div>
-
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => useExamStore.getState().setSettingsOpen(true)}
-                title="Full accessibility settings"
-                aria-label="Open full accessibility settings"
-                className={controlClass}
-              >
-                <Settings className="w-5 h-5" aria-hidden="true" />
-              </button>
-              <span aria-hidden="true" className={controlKbd}>
-                A
-              </span>
-            </div>
-          </div>
-
-          <div className="hidden sm:block w-px self-stretch bg-theme-border/60" aria-hidden="true" />
-
-          <button
-            type="button"
-            onClick={onSignIn}
-            className="h-10 px-4 rounded-xl border-2 border-theme-border bg-theme-bg font-extrabold text-sm text-theme-text hover:bg-theme-surface-elevated hover:border-theme-primary/50 transition-all duration-200 active:scale-95 shadow-sm"
-          >
-            Login
-          </button>
-          <button
-            type="button"
-            onClick={onRegister}
-            className="h-10 px-5 rounded-xl bg-theme-primary text-theme-primary-text font-extrabold text-sm hover:brightness-110 active:scale-95 transition-all duration-200 shadow-md flex items-center gap-2"
-          >
-            Sign Up
-            <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-          </button>
-        </div>
-
-        {/* Primary navigation */}
-        <nav
-          aria-label="Primary"
-          className="order-3 lg:order-2 w-full lg:w-auto lg:mx-auto -mt-1 lg:mt-0"
-        >
-          <ul className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 list-none m-0 p-0">
+        {/* Nav — desktop */}
+        <nav aria-label="Primary navigation" className="hidden lg:block">
+          <ul className="flex items-center gap-1 list-none m-0 p-0">
             {NAV_ITEMS.map((item) => (
-              <li key={item.href} className="shrink-0">
+              <li key={item.href}>
                 <a
                   href={item.href}
-                  className="block px-3.5 py-1.5 rounded-xl text-sm font-extrabold text-theme-text no-underline hover:bg-theme-surface-elevated hover:text-theme-primary transition-all duration-150"
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-theme-text/80 no-underline hover:bg-theme-surface/60 hover:text-theme-primary transition-all duration-150 block"
                 >
                   {item.label}
                 </a>
@@ -205,6 +122,79 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({ onSignIn, onRegist
             ))}
           </ul>
         </nav>
+
+        {/* Right: controls + auth */}
+        <div className="flex items-center gap-2">
+          {/* Accessibility controls */}
+          <div className="flex items-center gap-1.5" role="group" aria-label="Accessibility controls">
+            <button
+              type="button"
+              onClick={toggleTts}
+              aria-pressed={ttsEnabled}
+              aria-label={ttsEnabled ? 'Spoken output on — tap to disable' : 'Spoken output off — tap to enable'}
+              title={ttsEnabled ? 'Disable spoken output' : 'Enable spoken output'}
+              className={`${iconBtn} ${ttsEnabled ? '!bg-theme-primary !text-theme-primary-text !border-theme-primary' : ''}`}
+            >
+              {ttsEnabled ? <Volume2 className="w-4 h-4" aria-hidden="true" /> : <VolumeX className="w-4 h-4" aria-hidden="true" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={cycleTheme}
+              title={`Theme: ${THEME_NAMES[theme]} — tap to change`}
+              aria-label={`Colour theme: ${THEME_NAMES[theme]}. Tap to change.`}
+              className={`${iconBtn} hidden sm:grid`}
+            >
+              <Contrast className="w-4 h-4" aria-hidden="true" />
+            </button>
+
+            <button
+              type="button"
+              onClick={cycleTextSize}
+              title={`Text size: ${fontSize}% — tap to change`}
+              aria-label={`Text size: ${fontSize}%. Tap to change.`}
+              className={`${iconBtn} hidden sm:grid`}
+            >
+              <Type className="w-4 h-4" aria-hidden="true" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => useExamStore.getState().setSettingsOpen(true)}
+              title="Full accessibility settings"
+              aria-label="Open full accessibility settings"
+              className={iconBtn}
+            >
+              <Settings className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="hidden sm:block w-px h-5 self-center bg-theme-border/50 mx-1" aria-hidden="true" />
+
+          {/* Auth buttons */}
+          <button
+            type="button"
+            onClick={onSignIn}
+            className="h-9 px-4 rounded-xl border border-theme-border/60 bg-theme-surface/40 backdrop-blur-sm font-bold text-sm text-theme-text hover:bg-theme-surface hover:border-theme-primary hover:text-theme-primary transition-all duration-200 active:scale-95 hidden sm:flex items-center gap-2 shadow-sm"
+          >
+            <LogIn className="w-4 h-4" aria-hidden="true" />
+            <span>Login</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onRegister}
+            className="h-9 px-5 rounded-xl font-black text-sm text-theme-primary-text transition-all duration-200 active:scale-95 flex items-center gap-2 shadow-md hover:scale-105"
+            style={{
+              background: 'var(--primary-gradient)',
+              boxShadow: '0 4px 16px var(--primary-glow)',
+            }}
+          >
+            <UserPlus className="w-4 h-4" aria-hidden="true" />
+            <span>Sign Up</span>
+          </button>
+        </div>
       </div>
     </header>
   );

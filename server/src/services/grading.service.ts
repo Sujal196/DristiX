@@ -65,7 +65,7 @@ export function gradeAttempt(
   const totalQuestions = questions.length;
   const unattemptedCount = Math.max(0, totalQuestions - attemptedCount);
   const maxScore = totalQuestions;
-  const totalScore = correctCount - incorrectCount * negativePerWrong;
+  const totalScore = Number((correctCount - incorrectCount * negativePerWrong).toFixed(2));
   const scorePercentage =
     totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
 

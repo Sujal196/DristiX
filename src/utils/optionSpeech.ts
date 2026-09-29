@@ -1,4 +1,4 @@
-import { verbalizeMath } from './mathVerbalizer';
+import { verbalizeMath, verbalizeForSpeech } from './mathVerbalizer';
 import type { QuestionItem } from '../../shared/types';
 
 /**
@@ -20,9 +20,10 @@ export function describeOptionSelection(
   const option = question?.options.find((o) => o.number === optionNumber);
   if (!option) return `Option ${optionNumber} selected.`;
 
-  const optionSpeech = option.mathLatex
+  const rawOptionSpeech = option.mathLatex
     ? `${option.text}, ${verbalizeMath(option.mathLatex)}`
     : option.text;
+  const optionSpeech = verbalizeForSpeech(rawOptionSpeech);
 
   return `Option ${optionNumber} selected: ${optionSpeech}.`;
 }

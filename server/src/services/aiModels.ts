@@ -22,24 +22,75 @@ export class NoUsableModelError extends Error {
 
 /** Fast models first — this path is used while a student is mid-sentence. */
 const GEMINI_CANDIDATES = [
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro',
-  'gemini-2.0-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-flash-latest',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-flash-lite-latest',
+  'gemini-2.5-flash-lite',
 ];
 
 /**
  * Valid Groq model candidates for general text generation and voice command processing.
  */
 const GROQ_CANDIDATES = [
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
-  'llama3-70b-8192',
-  'llama3-8b-8192',
-  'mixtral-8x7b-32768',
-  'gemma2-9b-it',
-  'deepseek-r1-distill-llama-70b',
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.8-27b',
+  'allam-2-7b',
+  'openai/gpt-oss-20b',
 ];
+
+/**
+ * Races every candidate at once and returns the first success in priority
+ * order.
+ *
+ * Probing serially meant a cold server paid for up to four 15-second timeouts
+ * before it could answer anything — an admin clicking "Analyze Image" waited
+ * a minute and gave up. Firing them all concurrently keeps the priority list's
+ * ordering (an earlier candidate still wins) while the wall-clock cost is a
+ * single probe's latency. Resolving early — as soon as every better candidate
+ * has provably failed — means a fast first hit is not held hostage by a
+ * slower probe still in flight.
+ */
+async function firstUsable(
+  candidates: string[],
+  probe: (model: string) => Promise<boolean>
+): Promise<string | null> {
+  // An empty list would otherwise leave the promise pending forever and hang
+  // the request — the Groq path can genuinely produce one when the provider's
+  // model listing comes back without anything usable.
+  if (candidates.length === 0) return null;
+
+  const results = new Array<boolean | undefined>(candidates.length).fill(undefined);
+
+  return new Promise<string | null>((resolve) => {
+    const settle = (): void => {
+      for (let i = 0; i < candidates.length; i++) {
+        if (results[i] === true) {
+          resolve(candidates[i]);
+          return;
+        }
+        if (results[i] === undefined) return; // still probing — a better candidate may yet win
+      }
+      resolve(null);
+    };
+
+    for (let i = 0; i < candidates.length; i++) {
+      // Rejections are folded to `false`: a probe that threw would otherwise
+      // sit `undefined` forever and stall resolution.
+      void Promise.resolve(probe(candidates[i])).then(
+        (ok) => {
+          results[i] = ok;
+          settle();
+        },
+        () => {
+          results[i] = false;
+          settle();
+        }
+      );
+    }
+  });
+}
 
 let geminiModel: string | null = null;
 let groqModel: string | null = null;
@@ -134,11 +185,10 @@ export async function resolveGeminiModel(): Promise<string> {
   const key = env.GEMINI_API_KEY;
   if (!key) throw new NoUsableModelError('gemini', []);
 
-  for (const model of GEMINI_CANDIDATES) {
-    if (await probeGemini(model, key)) {
-      geminiModel = model;
-      return model;
-    }
+  const hit = await firstUsable(GEMINI_CANDIDATES, (model) => probeGemini(model, key));
+  if (hit) {
+    geminiModel = hit;
+    return hit;
   }
 
   // Nothing from the preference list worked. Fall back to whatever the
@@ -194,15 +244,13 @@ export async function resolveGroqModel(): Promise<string> {
     // fall back to the hardcoded candidates
   }
 
-  for (const model of candidates) {
-    if (await probeGroq(model, key)) {
-      groqModel = model;
-      return model;
-    }
+  const hit = await firstUsable(candidates, (model) => probeGroq(model, key));
+  if (hit) {
+    groqModel = hit;
+    return hit;
   }
 
-  throw new NoUsableModelError('groq', candidates);
-}
+  throw new NoUsableModelError('groq', candidates);}
 
 /** Test hook: forgets resolved models so a restart is not needed after a key change. */
 export function resetResolvedModels(): void {

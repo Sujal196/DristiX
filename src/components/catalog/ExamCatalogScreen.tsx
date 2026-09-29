@@ -5,6 +5,17 @@ import { soundEffects } from '../../utils/soundEffects';
 import { EXAM_CATEGORIES } from '../../data/examCategories';
 import type { Exam } from '../../../shared/types';
 import type { ExamCategory } from '../../data/examCategories';
+import {
+  Trophy,
+  Lightbulb,
+  Compass,
+  Filter,
+  Search,
+  Volume2,
+  ShieldCheck,
+  Keyboard,
+  Sparkles,
+} from 'lucide-react';
 
 export const ExamCatalogScreen: React.FC = () => {
   const {
@@ -228,486 +239,583 @@ export const ExamCatalogScreen: React.FC = () => {
     <main
       id="main-content"
       tabIndex={-1}
-      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 focus:outline-none"
+      className="max-w-[1700px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-32 focus:outline-none"
       aria-label={
         portalTab === 'practice'
           ? 'Practice Arena and Topic Drills Portal'
           : 'Examination Catalog and Test Series Selection'
       }
     >
-      {/* Top Mode Segmented Switcher (Mock Exams vs Practice Arena) */}
-      <div
-        role="tablist"
-        aria-label="Portal Section Selector. Press T to switch between Mock Exams and Practice Arena."
-        className="mb-8 p-1.5 rounded-2xl bg-theme-surface/90 border-2 border-theme-border flex flex-col sm:flex-row gap-2 shadow-md backdrop-blur-xs"
-      >
-        <button
-          type="button"
-          role="tab"
-          id="tab-mock-exams"
-          aria-selected={portalTab === 'exams'}
-          aria-controls="panel-exam-catalog"
-          onClick={() => setPortalTab('exams')}
-          className={`flex-1 py-3.5 px-5 rounded-xl font-black text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-theme-focus ${
-            portalTab === 'exams'
-              ? 'bg-theme-primary text-theme-primary-text shadow-lg scale-[1.01]'
-              : 'text-theme-text hover:bg-theme-surface-elevated/70'
-          }`}
+      <div className="flex flex-col lg:flex-row gap-6 items-start w-full">
+        {/* Left Column: Accessible Navigation & Mode Sidebar */}
+        <aside
+          className="w-full lg:w-64 xl:w-72 shrink-0 space-y-3.5 lg:sticky lg:top-[104px]"
+          aria-label="Portal Navigation and Filters Sidebar"
         >
-          <span className="text-xl" aria-hidden="true">🏆</span>
-          <span>Mock Examinations (Timed Tests)</span>
-          <span className="text-xs px-2.5 py-0.5 rounded-full bg-black/20 dark:bg-white/20 font-mono font-bold">
-            {availableExams.length} Tests
-          </span>
-        </button>
+          {/* 1. Portal Mode Switcher Card (Mock Exams vs Practice Arena) */}
+          <div className="p-3.5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-2.5">
+            <div className="flex items-center justify-between pb-1.5 border-b border-theme-border">
+              <div className="flex items-center gap-2">
+                <Compass className="w-4 h-4 text-theme-primary" aria-hidden="true" />
+                <h2 className="text-xs font-black tracking-wider uppercase text-theme-text-secondary">
+                  Portal Mode
+                </h2>
+              </div>
+              <span className="text-[10px] px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text-secondary">
+                Shortcut: T
+              </span>
+            </div>
 
-        <button
-          type="button"
-          role="tab"
-          id="tab-practice-arena"
-          aria-selected={portalTab === 'practice'}
-          aria-controls="panel-exam-catalog"
-          onClick={() => setPortalTab('practice')}
-          className={`flex-1 py-3.5 px-5 rounded-xl font-black text-sm sm:text-base flex items-center justify-center gap-2.5 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-theme-focus ${
-            portalTab === 'practice'
-              ? 'bg-emerald-600 text-white shadow-lg scale-[1.01]'
-              : 'text-theme-text hover:bg-theme-surface-elevated/70'
-          }`}
-        >
-          <span className="text-xl" aria-hidden="true">💡</span>
-          <span>Practice Arena (Hints & Solutions)</span>
-          <span className="text-xs px-2.5 py-0.5 rounded-full bg-black/20 dark:bg-white/20 font-mono font-bold">
-            {availablePracticeDrills.length} Drills
-          </span>
-        </button>
-      </div>
-
-      {/* Hero Welcome Banner */}
-      <section
-        className={`mb-8 p-6 md:p-8 rounded-3xl bg-theme-surface border-2 shadow-md text-center md:text-left flex flex-col md:flex-row md:items-center md:justify-between gap-6 transition-all ${
-          portalTab === 'practice'
-            ? 'border-emerald-600/50 bg-emerald-500/5 shadow-emerald-500/5'
-            : 'border-theme-border/80'
-        }`}
-        aria-labelledby="catalog-heading"
-      >
-        <div className="max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-extrabold bg-theme-primary/10 text-theme-primary border border-theme-primary/30 mb-3.5">
-            <span>♿ 100% WCAG 2.1 AA Compliant</span>
-            <span>•</span>
-            <span>
-              {portalTab === 'practice'
-                ? 'Interactive Practice Drills'
-                : 'Full-Length Simulation Tests'}
-            </span>
-          </div>
-          <h1
-            id="catalog-heading"
-            className="text-3xl md:text-4xl font-black tracking-tight text-theme-text mb-3"
-          >
-            {portalTab === 'practice'
-              ? 'Interactive Practice Arena'
-              : 'Examination & Mock Test Series'}
-          </h1>
-          <p className="text-base md:text-lg text-theme-text/80 leading-relaxed font-medium">
-            {portalTab === 'practice' ? (
-              <>
-                Sharpen your concepts topic-by-topic. Includes instant <strong className="text-amber-500 font-bold">Helpful Hints</strong> and <strong className="text-emerald-500 font-bold">Step-by-Step Solutions</strong> with no timer pressure.
-              </>
-            ) : (
-              <>
-                Simulate real exam conditions with strict timers and negative marking. Designed for screen readers, keyboard-only operators, and low-vision candidates.
-              </>
-            )}
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              announce(
-                portalTab === 'practice'
-                  ? `Welcome to Practice Arena. There are ${availablePracticeDrills.length} practice drills available across Quantitative, Reasoning, Verbal, and General Awareness. Hints and step-by-step solutions are available on every question. Press Arrow keys to cycle, Enter to start, or T to switch back to Mock Exams.`
-                  : `Welcome to Examination Portal. There are ${availableExams.length} timed simulation tests. Press Arrow keys to cycle, Enter to start, or T to switch to Practice Arena.`,
-                'assertive',
-                true
-              );
-            }}
-            className="px-4 py-2.5 rounded-lg border-2 border-theme-primary bg-theme-surface hover:bg-theme-primary/10 text-theme-primary font-bold text-sm flex items-center justify-center gap-2 transition-colors focus:ring-4 focus:ring-theme-focus"
-            aria-label="Listen portal navigation instructions"
-          >
-            <span>🔊</span>
-            <span>Section Audio Guide</span>
-          </button>
-        </div>
-      </section>
-
-      {/* Accessible Keyboard Shortcut Reference Bar */}
-      <nav
-        aria-label="Catalog Quick Keyboard Shortcuts"
-        className="mb-6 p-3.5 rounded-xl bg-theme-surface border-2 border-theme-border flex flex-wrap items-center justify-between gap-3 text-xs"
-      >
-        <div className="flex items-center gap-2 font-bold text-theme-text">
-          <span className="text-base" aria-hidden="true">⌨️</span>
-          <span>Keyboard Shortcuts:</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-theme-text/80">
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">T</kbd>
-            <span className="font-semibold text-theme-primary">Toggle Exams / Practice</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">↑ / ↓</kbd>
-            <span>Navigate Cards</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">Enter</kbd>
-            <span>Start</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">O</kbd>
-            <span>Overview</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">1-4</kbd>
-            <span>Jump to Card</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">/</kbd>
-            <span>Search</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">C</kbd>
-            <span>Category</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text">S / Esc</kbd>
-            <span>Stop Audio</span>
-          </span>
-        </div>
-      </nav>
-
-      {/* Search and Category Filters */}
-      <section
-        id="panel-exam-catalog"
-        role="region"
-        aria-label={`Search and Filter ${portalTab === 'practice' ? 'Practice Drills' : 'Examinations'}`}
-        className="mb-8 space-y-4"
-      >
-        <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between">
-          {/* Search Box */}
-          <div className="relative flex-1 max-w-md">
-            <label htmlFor="exam-search-input" className="sr-only">
-              Search {portalTab === 'practice' ? 'practice drills' : 'examinations'} by title, code, or keyword (Press slash to focus)
-            </label>
-            <input
-              ref={searchInputRef}
-              id="exam-search-input"
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={`Search ${portalTab === 'practice' ? 'practice topics' : 'mock tests'} (Press / to focus)...`}
-              className="w-full px-4 py-3 pl-11 pr-20 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder-theme-text/50 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition-all"
-            />
-            <span
-              className="absolute left-3.5 top-3.5 text-theme-text/50 pointer-events-none text-base"
-              aria-hidden="true"
+            <div
+              role="tablist"
+              aria-label="Portal Section Selector. Press T to switch between Mock Exams and Practice Arena."
+              className="flex flex-col gap-2"
             >
-              🔍
-            </span>
-            <div className="absolute right-3 top-2.5 flex items-center gap-1.5">
-              {searchQuery ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    searchInputRef.current?.focus();
-                  }}
-                  className="text-xs px-2 py-1 rounded bg-theme-border text-theme-text hover:bg-theme-primary hover:text-white"
-                  aria-label="Clear search query"
+              {/* Mock Examinations Tab */}
+              <button
+                type="button"
+                role="tab"
+                id="tab-mock-exams"
+                aria-selected={portalTab === 'exams'}
+                aria-controls="panel-exam-catalog"
+                onClick={() => setPortalTab('exams')}
+                className={`w-full p-2.5 rounded-xl font-bold text-left transition-all duration-200 border-2 focus:outline-none focus:ring-4 focus:ring-theme-focus ${
+                  portalTab === 'exams'
+                    ? 'border-theme-primary bg-theme-primary text-theme-primary-text shadow-md scale-[1.01]'
+                    : 'border-theme-border bg-theme-surface hover:bg-theme-surface-elevated text-theme-text'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <Trophy
+                      className={`w-3.5 h-3.5 ${portalTab === 'exams' ? 'text-yellow-300' : 'text-amber-500'}`}
+                      aria-hidden="true"
+                    />
+                    <span className="text-xs sm:text-sm font-black leading-tight">Mock Examinations</span>
+                  </div>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-black ${
+                      portalTab === 'exams'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-theme-border/60 text-theme-text'
+                    }`}
+                  >
+                    {availableExams.length} Tests
+                  </span>
+                </div>
+                <p
+                  className={`text-[11px] leading-snug font-medium ${
+                    portalTab === 'exams' ? 'text-white/90' : 'text-theme-text-secondary'
+                  }`}
                 >
-                  Clear
-                </button>
-              ) : (
-                <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg text-theme-text/70 font-mono">
-                  /
-                </kbd>
-              )}
+                  Timed Simulation Tests
+                </p>
+              </button>
+
+              {/* Practice Arena Tab */}
+              <button
+                type="button"
+                role="tab"
+                id="tab-practice-arena"
+                aria-selected={portalTab === 'practice'}
+                aria-controls="panel-exam-catalog"
+                onClick={() => setPortalTab('practice')}
+                className={`w-full p-2.5 rounded-xl font-bold text-left transition-all duration-200 border-2 focus:outline-none focus:ring-4 focus:ring-theme-focus ${
+                  portalTab === 'practice'
+                    ? 'border-emerald-600 bg-emerald-600 text-white shadow-md scale-[1.01]'
+                    : 'border-theme-border bg-theme-surface hover:bg-theme-surface-elevated text-theme-text'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <Lightbulb
+                      className={`w-3.5 h-3.5 ${portalTab === 'practice' ? 'text-yellow-200' : 'text-emerald-500'}`}
+                      aria-hidden="true"
+                    />
+                    <span className="text-xs sm:text-sm font-black leading-tight">Practice Arena</span>
+                  </div>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-black ${
+                      portalTab === 'practice'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-theme-border/60 text-theme-text'
+                    }`}
+                  >
+                    {availablePracticeDrills.length} Drills
+                  </span>
+                </div>
+                <p
+                  className={`text-[11px] leading-snug font-medium ${
+                    portalTab === 'practice' ? 'text-white/90' : 'text-theme-text-secondary'
+                  }`}
+                >
+                  Hints &amp; Step-by-Step Solutions
+                </p>
+              </button>
             </div>
           </div>
 
-          <div
-            className="text-sm font-semibold text-theme-text/80 self-center"
-            aria-live="polite"
+          {/* 2. Subject / Category Filter in Sidebar */}
+          <div className="p-3.5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-2">
+            <div className="flex items-center justify-between pb-1.5 border-b border-theme-border">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-theme-primary" aria-hidden="true" />
+                <h2 className="text-xs font-black tracking-wider uppercase text-theme-text-secondary">
+                  Subject Filter
+                </h2>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text-secondary">
+                  C
+                </span>
+                {selectedCategory !== 'All' && (
+                  <button
+                    type="button"
+                    onClick={() => handleCategoryChange('All')}
+                    className="text-xs font-bold text-theme-primary hover:underline ml-1"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-label="Filter by subject category (Press C to cycle)"
+              className="space-y-0.5"
+            >
+              {EXAM_CATEGORIES.map((cat) => {
+                const isSelected = selectedCategory === cat;
+                const count =
+                  cat === 'All'
+                    ? activeExamsList.length
+                    : activeExamsList.filter((e) => e.category === cat).length;
+
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => handleCategoryChange(cat)}
+                    className={`w-full px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-between transition-all focus:outline-none focus:ring-4 focus:ring-theme-focus ${
+                      isSelected
+                        ? portalTab === 'practice'
+                          ? 'bg-emerald-600/15 border-emerald-600 text-theme-text font-black shadow-xs'
+                          : 'bg-theme-primary/15 border-theme-primary text-theme-text font-black shadow-xs'
+                        : 'border-transparent text-theme-text hover:bg-theme-surface-elevated'
+                    }`}
+                  >
+                    <span className="truncate">{cat}</span>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                        isSelected
+                          ? portalTab === 'practice'
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-theme-primary text-white'
+                          : 'bg-theme-border/60 text-theme-text-secondary'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 3. Audio Guide & Accessibility Helper Card */}
+          <div className="p-3 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-2">
+            <button
+              type="button"
+              onClick={() => {
+                announce(
+                  portalTab === 'practice'
+                    ? `Welcome to Practice Arena. There are ${availablePracticeDrills.length} practice drills available across Quantitative, Reasoning, Verbal, General Awareness, and Data Interpretation. Hints and step-by-step solutions are available on every question. Press Arrow keys to cycle, Enter to start, or T to switch back to Mock Exams.`
+                    : `Welcome to Examination Portal. There are ${availableExams.length} timed simulation tests. Press Arrow keys to cycle, Enter to start, or T to switch to Practice Arena.`,
+                  'assertive',
+                  true
+                );
+              }}
+              className="w-full py-2 px-3 rounded-xl border-2 border-theme-primary bg-theme-surface hover:bg-theme-primary/10 text-theme-primary font-bold text-xs flex items-center justify-center gap-2 transition-colors focus:ring-4 focus:ring-theme-focus"
+              aria-label="Listen portal navigation instructions"
+            >
+              <Volume2 className="w-4 h-4" aria-hidden="true" />
+              <span>Section Audio Guide</span>
+            </button>
+
+            <div className="py-1.5 px-2.5 rounded-xl bg-theme-bg border border-theme-border flex items-center gap-2 text-xs">
+              <ShieldCheck className="w-4 h-4 text-theme-success shrink-0" aria-hidden="true" />
+              <span className="font-semibold text-theme-text-secondary text-[11px]">
+                100% WCAG 2.1 AA Compliant
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        {/* Right Column: Main Examination / Drill Cards & Search */}
+        <div className="flex-1 min-w-0 w-full space-y-5">
+          {/* Welcome / Mode Banner */}
+          <section
+            className={`p-5 sm:p-6 rounded-2xl bg-theme-surface border-2 shadow-sm transition-all ${
+              portalTab === 'practice'
+                ? 'border-emerald-600/50 bg-emerald-500/5'
+                : 'border-theme-border'
+            }`}
+            aria-labelledby="catalog-heading"
           >
-            Showing <span className="text-theme-primary font-bold">{filteredExams.length}</span> of{' '}
-            {activeExamsList.length} {portalTab === 'practice' ? 'Practice Drills' : 'Examinations'}
-          </div>
-        </div>
-
-        {/* Category Filter Pills */}
-        <div
-          role="radiogroup"
-          aria-label="Filter by subject category (Press C to cycle)"
-          className="flex flex-wrap gap-2 pt-2"
-        >
-          {EXAM_CATEGORIES.map((cat) => {
-            const isSelected = selectedCategory === cat;
-            return (
-              <button
-                key={cat}
-                type="button"
-                role="radio"
-                aria-checked={isSelected}
-                onClick={() => handleCategoryChange(cat)}
-                className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition-all focus:outline-none focus:ring-4 focus:ring-theme-focus ${
-                  isSelected
-                    ? portalTab === 'practice'
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                      : 'bg-theme-primary text-white border-theme-primary shadow-sm'
-                    : 'bg-theme-surface text-theme-text border-theme-border hover:border-theme-primary/60'
-                }`}
-              >
-                {cat}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Grid of Cards with Full Keyboard Navigation */}
-      <section
-        aria-label={`${
-          portalTab === 'practice' ? 'Practice Drills' : 'Examinations'
-        } List. Use Arrow Keys to navigate, Enter to start`}
-        className="grid grid-cols-1 md:grid-cols-2 gap-6"
-      >
-        {filteredExams.length === 0 ? (
-          <div className="col-span-full p-12 text-center rounded-2xl bg-theme-surface border-2 border-dashed border-theme-border">
-            {isCatalogLoading ? (
-              <>
-                <div
-                  aria-hidden="true"
-                  className="w-10 h-10 mx-auto mb-4 rounded-full border-4 border-theme-border border-t-theme-primary animate-spin"
-                />
-                <h2 className="text-xl font-bold text-theme-text mb-2">
-                  Loading Examinations
-                </h2>
-                <p className="text-sm text-theme-text/70" role="status" aria-live="polite">
-                  Fetching the examination catalog. This will only take a moment.
-                </p>
-              </>
-            ) : catalogError ? (
-              <>
-                <span className="text-4xl mb-3 block" aria-hidden="true">
-                  📡
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full text-xs font-black bg-theme-primary/10 text-theme-primary border border-theme-primary/30 mb-2">
+                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>
+                  {portalTab === 'practice'
+                    ? 'Interactive Practice Drills'
+                    : 'Full-Length Simulation Tests'}
                 </span>
-                <h2 className="text-xl font-bold text-theme-text mb-2">
-                  Cannot Load the Examination Catalog
-                </h2>
-                <p className="text-sm text-theme-text/70 mb-1 max-w-lg mx-auto">
-                  {catalogError}
-                </p>
-                <p className="text-sm text-theme-text/70 mb-4 max-w-lg mx-auto">
-                  The catalog lives on the DristiX server. Make sure the backend is running
-                  (<code className="font-mono">cd server &amp;&amp; npm run dev</code>), then try
-                  again. If your session expired, sign out and back in.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void loadCatalog()}
-                  className="px-4 py-2 rounded-lg bg-theme-primary text-white font-bold text-sm focus:ring-4 focus:ring-theme-focus"
-                >
-                  Retry
-                </button>
-              </>
+              </div>
+              <h1
+                id="catalog-heading"
+                className="text-2xl sm:text-3xl font-black tracking-tight text-theme-text mb-1.5"
+              >
+                {portalTab === 'practice'
+                  ? 'Interactive Practice Arena'
+                  : 'Examination & Mock Test Series'}
+              </h1>
+              <p className="text-sm text-theme-text-secondary font-medium leading-relaxed max-w-3xl">
+                {portalTab === 'practice' ? (
+                  <>
+                    Sharpen your concepts topic-by-topic. Includes instant{' '}
+                    <strong className="text-theme-marked font-bold">Helpful Hints</strong> and{' '}
+                    <strong className="text-theme-success font-bold">Step-by-Step Solutions</strong> with no timer pressure.
+                  </>
+                ) : (
+                  <>
+                    Simulate real exam conditions with strict timers and negative marking. Designed for screen readers, keyboard-only operators, and low-vision candidates.
+                  </>
+                )}
+              </p>
+            </div>
+          </section>
+
+          {/* Search Bar + Keyboard Shortcuts Bar (Side-by-Side) */}
+          <section
+            id="panel-exam-catalog"
+            role="region"
+            aria-label={`Search and Filter ${portalTab === 'practice' ? 'Practice Drills' : 'Examinations'}`}
+            className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 w-full"
+          >
+            {/* Search Input Box */}
+            <div className="relative w-full lg:w-72 xl:w-80 shrink-0">
+              <label htmlFor="exam-search-input" className="sr-only">
+                Search {portalTab === 'practice' ? 'practice drills' : 'examinations'} by title, code, or keyword (Press slash to focus)
+              </label>
+              <input
+                ref={searchInputRef}
+                id="exam-search-input"
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={`Search ${portalTab === 'practice' ? 'practice topics' : 'mock tests'} (Press /)...`}
+                className="w-full h-11 px-4 pl-10 pr-16 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text-secondary focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition-all"
+              />
+              <Search
+                className="w-4 h-4 absolute left-3 top-3.5 text-theme-text-secondary pointer-events-none"
+                aria-hidden="true"
+              />
+              <div className="absolute right-2.5 top-2.5 flex items-center gap-1">
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      searchInputRef.current?.focus();
+                    }}
+                    className="text-xs px-2 py-0.5 rounded bg-theme-border text-theme-text hover:bg-theme-primary hover:text-white"
+                    aria-label="Clear search query"
+                  >
+                    Clear
+                  </button>
+                ) : (
+                  <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg text-theme-text-secondary font-mono font-bold">
+                    /
+                  </kbd>
+                )}
+              </div>
+            </div>
+
+            {/* Keyboard Shortcuts Reference Bar (Side of Search Bar) */}
+            <nav
+              aria-label="Catalog Quick Keyboard Shortcuts"
+              className="flex-1 min-w-0 h-auto sm:h-11 px-3.5 py-2 rounded-xl bg-theme-surface border-2 border-theme-border flex flex-wrap items-center justify-between gap-2.5 text-xs shadow-sm"
+            >
+              <div className="flex items-center gap-1.5 font-bold text-theme-text shrink-0">
+                <Keyboard className="w-4 h-4 text-theme-primary" aria-hidden="true" />
+                <span className="hidden sm:inline">Shortcuts:</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5 text-theme-text-secondary font-medium">
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text text-[10px]">T</kbd>
+                  <span className="text-[11px]">Mode</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text text-[10px]">↑/↓</kbd>
+                  <span className="text-[11px]">Navigate</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text text-[10px]">Enter</kbd>
+                  <span className="text-[11px]">Start</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text text-[10px]">O</kbd>
+                  <span className="text-[11px]">Overview</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text text-[10px]">C</kbd>
+                  <span className="text-[11px]">Category</span>
+                </span>
+              </div>
+
+              {/* Showing Count */}
+              <div
+                className="text-xs font-bold text-theme-text-secondary shrink-0 pl-2 sm:border-l border-theme-border"
+                aria-live="polite"
+              >
+                <span className="text-theme-primary font-black">{filteredExams.length}</span>/{activeExamsList.length} {portalTab === 'practice' ? 'Drills' : 'Tests'}
+              </div>
+            </nav>
+          </section>
+
+          {/* Grid of Cards with Full Keyboard Navigation */}
+          <section
+            aria-label={`${
+              portalTab === 'practice' ? 'Practice Drills' : 'Examinations'
+            } List. Use Arrow Keys to navigate, Enter to start`}
+            className="grid grid-cols-1 xl:grid-cols-2 gap-6 w-full"
+          >
+            {filteredExams.length === 0 ? (
+              <div className="col-span-full p-12 text-center rounded-2xl bg-theme-surface border-2 border-dashed border-theme-border">
+                {isCatalogLoading ? (
+                  <>
+                    <div
+                      aria-hidden="true"
+                      className="w-10 h-10 mx-auto mb-4 rounded-full border-4 border-theme-border border-t-theme-primary animate-spin"
+                    />
+                    <h2 className="text-xl font-bold text-theme-text mb-2">
+                      Loading Examinations
+                    </h2>
+                    <p className="text-sm text-theme-text-secondary" role="status" aria-live="polite">
+                      Fetching the examination catalog. This will only take a moment.
+                    </p>
+                  </>
+                ) : catalogError ? (
+                  <>
+                    <span className="text-4xl mb-3 block" aria-hidden="true">
+                      📡
+                    </span>
+                    <h2 className="text-xl font-bold text-theme-text mb-2">
+                      Cannot Load the Examination Catalog
+                    </h2>
+                    <p className="text-sm text-theme-text-secondary mb-1 max-w-lg mx-auto">
+                      {catalogError}
+                    </p>
+                    <p className="text-sm text-theme-text-secondary mb-4 max-w-lg mx-auto">
+                      The catalog lives on the DristiX server. Make sure the backend is running
+                      (<code className="font-mono">cd server &amp;&amp; npm run dev</code>), then try
+                      again. If your session expired, sign out and back in.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void loadCatalog()}
+                      className="px-4 py-2 rounded-lg bg-theme-primary text-white font-bold text-sm focus:ring-4 focus:ring-theme-focus"
+                    >
+                      Retry
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-4xl mb-3 block" aria-hidden="true">
+                      📑
+                    </span>
+                    <h2 className="text-xl font-bold text-theme-text mb-2">
+                      No Modules Match Your Criteria
+                    </h2>
+                    <p className="text-sm text-theme-text-secondary mb-4">
+                      {activeExamsList.length === 0
+                        ? 'No examinations have been published yet. An administrator can add one from the Admin Studio.'
+                        : 'Try adjusting your search query or selecting "All" categories.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory('All');
+                        setSearchQuery('');
+                      }}
+                      className="px-4 py-2 rounded-lg bg-theme-primary text-white font-bold text-sm focus:ring-4 focus:ring-theme-focus"
+                    >
+                      Reset Filters
+                    </button>
+                  </>
+                )}
+              </div>
             ) : (
-              <>
-                <span className="text-4xl mb-3 block" aria-hidden="true">
-                  📑
-                </span>
-                <h2 className="text-xl font-bold text-theme-text mb-2">
-                  No Modules Match Your Criteria
-                </h2>
-                <p className="text-sm text-theme-text/70 mb-4">
-                  {activeExamsList.length === 0
-                    ? 'No examinations have been published yet. An administrator can add one from the Admin Studio.'
-                    : 'Try adjusting your search query or selecting "All" categories.'}
-                </p>
-              </>
-            )}
-            {/* Resetting filters cannot help while loading, and with a load error
-                there is nothing loaded to filter in the first place. */}
-            {!isCatalogLoading && !catalogError && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCategory('All');
-                  setSearchQuery('');
-                }}
-                className="px-4 py-2 rounded-lg bg-theme-primary text-white font-bold text-sm focus:ring-4 focus:ring-theme-focus"
-              >
-                Reset Filters
-              </button>
-            )}
-          </div>
-        ) : (
-          filteredExams.map((exam, idx) => {
-            const isFocused = focusedIndex === idx;
-            const isPractice = portalTab === 'practice';
-            const difficultyBadgeColor =
-              exam.difficulty === 'Easy'
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                : exam.difficulty === 'Moderate'
-                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30';
+              filteredExams.map((exam, idx) => {
+                const isFocused = focusedIndex === idx;
+                const isPractice = portalTab === 'practice';
+                const difficultyBadgeColor =
+                  exam.difficulty === 'Easy'
+                    ? 'bg-theme-success/15 text-theme-success border-theme-success/30 font-bold'
+                    : exam.difficulty === 'Moderate'
+                    ? 'bg-theme-marked/15 text-theme-marked border-theme-marked/30 font-bold'
+                    : 'bg-theme-danger/15 text-theme-danger border-theme-danger/30 font-bold';
 
-            return (
-              <article
-                key={exam.id}
-                ref={(el) => {
-                  cardRefs.current[idx] = el;
-                }}
-                tabIndex={0}
-                onFocus={() => {
-                  setFocusedIndex(idx);
-                }}
-                aria-labelledby={`exam-title-${exam.id}`}
-                aria-describedby={`exam-stats-${exam.id}`}
-                className={`flex flex-col justify-between p-6 rounded-2xl bg-theme-surface border-2 transition-all shadow-sm outline-none focus:ring-4 focus:ring-theme-focus cursor-pointer ${
-                  isFocused
-                    ? isPractice
-                      ? 'border-emerald-600 ring-2 ring-emerald-600/30 shadow-md'
-                      : 'border-theme-primary ring-2 ring-theme-primary/30 shadow-md'
-                    : 'border-theme-border hover:border-theme-primary/70'
-                }`}
-              >
-                <div>
-                  {/* Badges Row */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`w-6 h-6 rounded-full text-white text-xs font-black flex items-center justify-center font-mono ${
+                return (
+                  <article
+                    key={exam.id}
+                    ref={(el) => {
+                      cardRefs.current[idx] = el;
+                    }}
+                    tabIndex={0}
+                    onFocus={() => {
+                      setFocusedIndex(idx);
+                    }}
+                    aria-labelledby={`exam-title-${exam.id}`}
+                    aria-describedby={`exam-stats-${exam.id}`}
+                    className={`flex flex-col justify-between p-5 sm:p-6 rounded-2xl bg-theme-surface border-2 overflow-hidden transition-all shadow-sm outline-none focus:ring-4 focus:ring-theme-focus cursor-pointer ${
+                      isFocused
+                        ? isPractice
+                          ? 'border-emerald-600 ring-2 ring-emerald-600/30 shadow-md'
+                          : 'border-theme-primary ring-2 ring-theme-primary/30 shadow-md'
+                        : 'border-theme-border hover:border-theme-primary/70'
+                    }`}
+                  >
+                    <div>
+                      {/* Badges Row */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-6 h-6 rounded-full text-white text-xs font-black flex items-center justify-center font-mono ${
+                              isPractice ? 'bg-emerald-600' : 'bg-theme-primary'
+                            }`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-md text-xs font-extrabold bg-theme-border/60 text-theme-text tracking-wider uppercase">
+                            {exam.code}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${difficultyBadgeColor}`}
+                          >
+                            {exam.difficulty}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-theme-border/40 text-theme-text border border-theme-border">
+                            {exam.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Title */}
+                      <h2
+                        id={`exam-title-${exam.id}`}
+                        className="text-xl font-bold text-theme-text mb-2 leading-snug"
+                      >
+                        {exam.title}
+                      </h2>
+
+                      {/* Description */}
+                      <p className="text-sm text-theme-text-secondary font-medium mb-4 line-clamp-3 leading-relaxed">
+                        {exam.description}
+                      </p>
+
+                      {/* Practice Specific Feature Callout */}
+                      {isPractice && (
+                        <div className="flex flex-wrap items-center gap-2 mb-3.5">
+                          <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                            <span>💡</span>
+                            <span>Helpful Hints</span>
+                          </span>
+                          <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                            <span>🔍</span>
+                            <span>Step-by-Step Solutions</span>
+                          </span>
+                          <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30">
+                            Self-Paced
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Key Stats Bar */}
+                      <div
+                        id={`exam-stats-${exam.id}`}
+                        className="grid grid-cols-2 sm:grid-cols-4 gap-2 py-2.5 px-3.5 mb-4 rounded-xl bg-theme-bg border border-theme-border text-xs"
+                      >
+                        <div>
+                          <span className="text-theme-text-secondary font-semibold block text-xs">Duration</span>
+                          <span className="font-extrabold text-theme-text">
+                            ⏱️ {exam.durationMinutes} min
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-theme-text-secondary font-semibold block text-xs">Questions</span>
+                          <span className="font-extrabold text-theme-text">
+                            ❓ {exam.questionCount} items
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-theme-text-secondary font-semibold block text-xs">Total Marks</span>
+                          <span className="font-extrabold text-theme-text">
+                            🏆 {exam.totalMarks} pts
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-theme-text-secondary font-semibold block text-xs">Mode</span>
+                          <span className="font-extrabold text-theme-text truncate">
+                            {isPractice ? '💡 Practice' : '⚠️ Timed'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Actions */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-3 border-t border-theme-border">
+                      <button
+                        type="button"
+                        onClick={() => handleStartExam(exam)}
+                        className={`flex-1 min-w-0 py-2.5 px-3.5 rounded-xl text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm hover:brightness-110 active:scale-[0.99] transition-all focus:outline-none focus:ring-4 focus:ring-theme-focus ${
                           isPractice ? 'bg-emerald-600' : 'bg-theme-primary'
                         }`}
+                        aria-label={`Start ${isPractice ? 'Practice Drill' : 'Examination'}: ${exam.title} (Or press Enter)`}
                       >
-                        {idx + 1}
-                      </span>
-                      <span className="px-2.5 py-1 rounded-md text-xs font-extrabold bg-theme-border/60 text-theme-text tracking-wider uppercase">
-                        {exam.code}
-                      </span>
-                    </div>
+                        <span className="shrink-0">{isPractice ? '💡' : '🚀'}</span>
+                        <span className="truncate">{isPractice ? 'Start Practice Drill' : 'Start Examination'}</span>
+                        <kbd className="hidden sm:inline-block text-[10px] px-1.5 py-0.5 border border-white/40 rounded bg-white/10 uppercase font-mono shrink-0">
+                          Enter
+                        </kbd>
+                      </button>
 
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${difficultyBadgeColor}`}
+                      <button
+                        type="button"
+                        onClick={() => handleListenOverview(exam)}
+                        className="shrink-0 py-2.5 px-3.5 rounded-xl bg-theme-surface border-2 border-theme-border hover:border-theme-primary text-theme-text font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-colors focus:outline-none focus:ring-4 focus:ring-theme-focus"
+                        aria-label={`Listen overview for ${exam.title} (Or press O)`}
                       >
-                        {exam.difficulty}
-                      </span>
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-theme-border/40 text-theme-text border border-theme-border">
-                        {exam.category}
-                      </span>
+                        <span className="shrink-0">🔊</span>
+                        <span className="shrink-0">Overview</span>
+                        <kbd className="hidden sm:inline-block text-[10px] px-1.5 py-0.5 border border-theme-border rounded bg-theme-bg font-mono shrink-0">
+                          O
+                        </kbd>
+                      </button>
                     </div>
-                  </div>
-
-                  {/* Title */}
-                  <h2
-                    id={`exam-title-${exam.id}`}
-                    className="text-xl font-bold text-theme-text mb-2.5 leading-snug"
-                  >
-                    {exam.title}
-                  </h2>
-
-                  {/* Description */}
-                  <p className="text-sm text-theme-text/80 mb-5 line-clamp-3 leading-relaxed">
-                    {exam.description}
-                  </p>
-
-                  {/* Practice Specific Feature Callout */}
-                  {isPractice && (
-                    <div className="flex flex-wrap items-center gap-2 mb-4">
-                      <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
-                        <span>💡</span>
-                        <span>Helpful Hints</span>
-                      </span>
-                      <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                        <span>🔍</span>
-                        <span>Step-by-Step Solutions</span>
-                      </span>
-                      <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">
-                        Self-Paced
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Key Stats Bar */}
-                  <div
-                    id={`exam-stats-${exam.id}`}
-                    className="grid grid-cols-2 sm:grid-cols-4 gap-2 py-3 px-3.5 mb-6 rounded-xl bg-theme-bg border border-theme-border text-xs"
-                  >
-                    <div>
-                      <span className="text-theme-text/60 block">Duration</span>
-                      <span className="font-extrabold text-theme-text">
-                        ⏱️ {exam.durationMinutes} min
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-theme-text/60 block">Questions</span>
-                      <span className="font-extrabold text-theme-text">
-                        ❓ {exam.questionCount} items
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-theme-text/60 block">Total Marks</span>
-                      <span className="font-extrabold text-theme-text">
-                        🏆 {exam.totalMarks} pts
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-theme-text/60 block">Mode</span>
-                      <span className="font-extrabold text-theme-text truncate">
-                        {isPractice ? '💡 Practice' : '⚠️ Timed'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Actions */}
-                <div className="flex flex-col sm:flex-row items-center gap-3 pt-2 border-t border-theme-border">
-                  <button
-                    type="button"
-                    onClick={() => handleStartExam(exam)}
-                    className={`w-full sm:flex-1 py-3 px-4 rounded-xl text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-sm hover:brightness-110 active:scale-[0.99] transition-all focus:outline-none focus:ring-4 focus:ring-theme-focus ${
-                      isPractice ? 'bg-emerald-600' : 'bg-theme-primary'
-                    }`}
-                    aria-label={`Start ${isPractice ? 'Practice Drill' : 'Examination'}: ${exam.title} (Or press Enter)`}
-                  >
-                    <span>{isPractice ? '💡' : '🚀'}</span>
-                    <span>{isPractice ? 'Start Practice Drill' : 'Start Examination'}</span>
-                    <kbd className="hidden sm:inline text-[10px] px-1.5 py-0.5 border border-white/40 rounded bg-white/10 uppercase">
-                      Enter
-                    </kbd>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleListenOverview(exam)}
-                    className="w-full sm:w-auto py-3 px-4 rounded-xl bg-theme-surface border-2 border-theme-border hover:border-theme-primary text-theme-text font-bold text-sm flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-4 focus:ring-theme-focus"
-                    aria-label={`Listen overview for ${exam.title} (Or press O)`}
-                  >
-                    <span>🔊</span>
-                    <span>Overview</span>
-                    <kbd className="hidden sm:inline text-[10px] px-1.5 py-0.5 border border-theme-border rounded bg-theme-bg font-mono">
-                      O
-                    </kbd>
-                  </button>
-                </div>
-              </article>
-            );
-          })
-        )}
-      </section>
+                  </article>
+                );
+              })
+            )}
+          </section>
+        </div>
+      </div>
     </main>
   );
 };

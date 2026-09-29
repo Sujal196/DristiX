@@ -71,7 +71,7 @@ export const Header: React.FC = () => {
       role="banner"
       className="p-3 sm:p-4 border-b-2 border-theme-border/80 dx-glass transition-colors sticky top-0 z-30 shadow-md backdrop-blur-md"
     >
-      <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-3">
+      <div className="max-w-[1700px] w-full mx-auto flex flex-nowrap justify-between items-center gap-2 overflow-x-auto">
         {/* Portal Branding and Exam Switcher */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2.5">
@@ -226,7 +226,7 @@ export const Header: React.FC = () => {
         {/* Right: Quick Action Controls */}
         <div className="flex items-center gap-1 sm:gap-2">
           {/* Current Student Profile Chip */}
-          {currentStudent && (
+          {currentStudent && activeView !== 'exam' && (
             <div className="hidden xl:flex items-center gap-2 px-2.5 py-1 rounded-lg border-2 border-theme-border bg-theme-bg text-xs">
               <span className="font-bold text-theme-text flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-theme-primary" aria-hidden="true" />
@@ -246,7 +246,8 @@ export const Header: React.FC = () => {
           )}
 
           {/* Student Analytics / Performance View Button */}
-          {activeView === 'analytics' ? (
+          {activeView !== 'exam' && (
+            activeView === 'analytics' ? (
             <button
               type="button"
               onClick={returnToCatalog}
@@ -274,6 +275,7 @@ export const Header: React.FC = () => {
                 D
               </kbd>
             </button>
+          )
           )}
 
           {/* AI Conversational Voice Assistant Button */}
@@ -296,13 +298,13 @@ export const Header: React.FC = () => {
             className={`p-2 rounded-lg border-2 transition flex items-center gap-1.5 focus:outline-none focus:ring-4 focus:ring-yellow-400 ${
               voiceState === 'listening'
                 ? 'bg-rose-600 border-rose-400 text-white shadow-lg animate-pulse'
-                : 'border-theme-border bg-theme-bg text-theme-text hover:border-cyan-400 hover:text-cyan-400'
+                : 'border-theme-border bg-theme-bg text-theme-text hover:border-teal-400 hover:text-teal-400'
             }`}
           >
             {voiceState === 'listening' ? (
               <Mic className="w-5 h-5 text-white" aria-hidden="true" />
             ) : (
-              <Mic className="w-5 h-5 text-cyan-400" aria-hidden="true" />
+              <Mic className="w-5 h-5 text-teal-400" aria-hidden="true" />
             )}
             <span className="hidden xl:inline text-xs font-bold">
               {voiceState === 'listening' ? 'Listening...' : 'Voice AI'}

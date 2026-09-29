@@ -2,10 +2,11 @@ import { create } from 'zustand';
 import type { Exam, QuestionItem } from '../../shared/types';
 import { soundEffects } from '../utils/soundEffects';
 import { useAnnouncerStore } from './useAnnouncerStore';
-import { verbalizeMath } from '../utils/mathVerbalizer';
+import { verbalizeMath, verbalizeForSpeech } from '../utils/mathVerbalizer';
 import { describeOptionSelection } from '../utils/optionSpeech';
 import { useAuthStore } from './useAuthStore';
 import { getDataSource } from '../services/dataSource';
+import { dispatchAccessibilityEvent } from '../accessibility';
 import type { GradeResult, StartAttemptResult } from '../../shared/types';
 
 export interface SectionDiagnostic {
@@ -191,14 +192,34 @@ export const useExamStore = create<ExamState>((set, get) => ({
   nextQuestion: () => {
     const { currentIndex, questions } = get();
     if (currentIndex < questions.length - 1) {
+      const currentQ = questions[currentIndex];
       const nextIdx = currentIndex + 1;
       const nextQ = questions[nextIdx];
       set((state) => ({
         currentIndex: nextIdx,
         visitedQuestions: { ...state.visitedQuestions, [nextQ.id]: true },
       }));
-      soundEffects.playNavigate();
+
+      if (currentQ && nextQ && nextQ.section && currentQ.section && nextQ.section !== currentQ.section) {
+        dispatchAccessibilityEvent('SECTION_CHANGED', {
+          previousSection: currentQ.section,
+          newSection: nextQ.section,
+        });
+      }
+
+      dispatchAccessibilityEvent('QUESTION_CHANGED', {
+        questionIndex: nextIdx,
+        questionNumber: nextQ.questionNumber,
+        totalQuestions: questions.length,
+        questionText: nextQ.questionText,
+        sectionName: nextQ.section,
+        previousQuestionIndex: currentIndex,
+      });
     } else {
+      dispatchAccessibilityEvent('NAVIGATION_ERROR', {
+        reason: 'LAST_QUESTION',
+        message: 'You are at the last question.',
+      });
       useAnnouncerStore.getState().announce('You are at the last question.', 'polite', true);
     }
   },
@@ -206,40 +227,83 @@ export const useExamStore = create<ExamState>((set, get) => ({
   previousQuestion: () => {
     const { currentIndex, questions } = get();
     if (currentIndex > 0) {
+      const currentQ = questions[currentIndex];
       const prevIdx = currentIndex - 1;
       const prevQ = questions[prevIdx];
       set((state) => ({
         currentIndex: prevIdx,
         visitedQuestions: { ...state.visitedQuestions, [prevQ.id]: true },
       }));
-      soundEffects.playNavigate();
+
+      if (currentQ && prevQ && prevQ.section && currentQ.section && prevQ.section !== currentQ.section) {
+        dispatchAccessibilityEvent('SECTION_CHANGED', {
+          previousSection: currentQ.section,
+          newSection: prevQ.section,
+        });
+      }
+
+      dispatchAccessibilityEvent('QUESTION_CHANGED', {
+        questionIndex: prevIdx,
+        questionNumber: prevQ.questionNumber,
+        totalQuestions: questions.length,
+        questionText: prevQ.questionText,
+        sectionName: prevQ.section,
+        previousQuestionIndex: currentIndex,
+      });
     } else {
+      dispatchAccessibilityEvent('NAVIGATION_ERROR', {
+        reason: 'FIRST_QUESTION',
+        message: 'You are at the first question.',
+      });
       useAnnouncerStore.getState().announce('You are at the first question.', 'polite', true);
     }
   },
 
   jumpToQuestion: (index: number) => {
-    const { questions } = get();
+    const { questions, currentIndex } = get();
     if (index >= 0 && index < questions.length) {
+      const currentQ = questions[currentIndex];
       const targetQ = questions[index];
       set((state) => ({
         currentIndex: index,
         isPaletteOpen: false,
         visitedQuestions: { ...state.visitedQuestions, [targetQ.id]: true },
       }));
-      soundEffects.playNavigate();
+
+      if (currentQ && targetQ && targetQ.section && currentQ.section && targetQ.section !== currentQ.section) {
+        dispatchAccessibilityEvent('SECTION_CHANGED', {
+          previousSection: currentQ.section,
+          newSection: targetQ.section,
+        });
+      }
+
+      dispatchAccessibilityEvent('QUESTION_CHANGED', {
+        questionIndex: index,
+        questionNumber: targetQ.questionNumber,
+        totalQuestions: questions.length,
+        questionText: targetQ.questionText,
+        sectionName: targetQ.section,
+        previousQuestionIndex: currentIndex,
+      });
     }
   },
 
   selectOption: (optionNumber: number, options?: { announce?: boolean }) => {
     const { currentIndex, questions, selectedOptions } = get();
     const currentQ = questions[currentIndex];
-    const opt = currentQ.options.find((o) => o.number === optionNumber);
-    if (!opt) return;
+    const opt = currentQ?.options?.find((o) => o.number === optionNumber);
+    if (!opt || !currentQ) return;
 
     const updated = { ...selectedOptions, [currentQ.id]: optionNumber };
     set({ selectedOptions: updated });
-    soundEffects.playSelect();
+
+    dispatchAccessibilityEvent('OPTION_SELECTED', {
+      questionId: currentQ.id,
+      questionNumber: currentQ.questionNumber,
+      optionNumber,
+      optionText: opt.text,
+      silentSpeech: options?.announce === false,
+    });
 
     if (options?.announce !== false) {
       useAnnouncerStore
@@ -251,11 +315,18 @@ export const useExamStore = create<ExamState>((set, get) => ({
   clearOption: (options?: { announce?: boolean }) => {
     const { currentIndex, questions, selectedOptions } = get();
     const currentQ = questions[currentIndex];
+    if (!currentQ) return;
+
     if (selectedOptions[currentQ.id]) {
       const next = { ...selectedOptions };
       delete next[currentQ.id];
       set({ selectedOptions: next });
-      soundEffects.playClear();
+
+      dispatchAccessibilityEvent('ANSWER_CLEARED', {
+        questionId: currentQ.id,
+        questionNumber: currentQ.questionNumber,
+      });
+
       if (options?.announce !== false) {
         useAnnouncerStore.getState().announce(
           `Selection cleared for Question ${currentQ.questionNumber}.`,
@@ -275,15 +346,17 @@ export const useExamStore = create<ExamState>((set, get) => ({
   toggleMarkForReview: () => {
     const { currentIndex, questions, markedForReview } = get();
     const currentQ = questions[currentIndex];
+    if (!currentQ) return;
+
     const isMarked = !!markedForReview[currentQ.id];
     const updated = { ...markedForReview, [currentQ.id]: !isMarked };
     set({ markedForReview: updated });
-    soundEffects.playMark();
 
-    const statusMsg = !isMarked
-      ? `Question ${currentQ.questionNumber} marked for review.`
-      : `Question ${currentQ.questionNumber} unmarked from review.`;
-    useAnnouncerStore.getState().announce(statusMsg, 'polite', true);
+    dispatchAccessibilityEvent('MARK_FOR_REVIEW', {
+      questionId: currentQ.id,
+      questionNumber: currentQ.questionNumber,
+      isMarked: !isMarked,
+    });
   },
 
   /**
@@ -430,10 +503,10 @@ export const useExamStore = create<ExamState>((set, get) => ({
       questions,
       attemptId: started.attemptId,
       expiresAtMs: new Date(started.clock.expiresAt).getTime(),
-      currentIndex: 0,
-      selectedOptions: {},
-      markedForReview: {},
-      visitedQuestions: questions.length > 0 ? { [questions[0].id]: true } : {},
+      currentIndex: started.state?.currentIndex ?? 0,
+      selectedOptions: started.state?.selectedOptions ?? {},
+      markedForReview: started.state?.markedForReview ?? {},
+      visitedQuestions: started.state?.visitedQuestions ?? (questions.length > 0 ? { [questions[0].id]: true } : {}),
       examMode: started.questions[0]?.hint !== undefined ? 'practice' : targetMode,
       isSubmitted: false,
       submissionTime: null,
@@ -568,7 +641,14 @@ export const useExamStore = create<ExamState>((set, get) => ({
       try {
         // Authoritative grading. The server holds the answer key, so the score
         // shown to the student is the server's, never the browser's.
-        report = await getDataSource().exams.submitAttempt(attemptId);
+        // Send final selected options directly with the submit call so debounced autosaves don't drop answers.
+        const finalState = {
+          currentIndex: get().currentIndex,
+          selectedOptions: get().selectedOptions,
+          markedForReview: get().markedForReview,
+          visitedQuestions: get().visitedQuestions,
+        };
+        report = await getDataSource().exams.submitAttempt(attemptId, finalState);
       } catch (err) {
         useAnnouncerStore
           .getState()
@@ -758,18 +838,25 @@ export const useExamStore = create<ExamState>((set, get) => ({
     const isMarked = markedForReview[currentQ.id];
     const selectedOpt = selectedOptions[currentQ.id];
 
-    let msg = `Question ${currentQ.questionNumber} of ${questions.length}. Section: ${currentQ.section}. ${currentQ.questionText}. `;
+    let msg = `Question ${currentQ.questionNumber} of ${questions.length}. Section: ${currentQ.section}. ${verbalizeForSpeech(currentQ.questionText)}. `;
     if (currentQ.mathLatex) {
       msg += `Equation: ${verbalizeMath(currentQ.mathLatex)}. `;
     }
     if (currentQ.diagramAiExplanation?.audioNarration || currentQ.diagramDescription) {
       msg += `Diagram details: ${currentQ.diagramAiExplanation?.audioNarration || currentQ.diagramDescription}. `;
     }
+    if (currentQ.graph && currentQ.graph.enabled && currentQ.graph.data?.length) {
+      const g = currentQ.graph;
+      const unit = g.unit ? ` ${g.unit}` : '';
+      const dataStr = g.data.map((d) => `${d.label}: ${d.value}${unit}`).join(', ');
+      msg += `This question includes an interactive audio ${g.type} chart titled "${g.title || 'Data Graph'}". Chart data points are: ${dataStr}. You can press Left and Right arrow keys on the chart to hear the pitch tones, or say "play graph" for a guided audio tour. `;
+    }
 
     if (includeOptions && currentQ.options && currentQ.options.length > 0) {
       msg += `Options are: `;
       currentQ.options.forEach((opt) => {
-        const optText = opt.mathLatex ? `${opt.text}, ${verbalizeMath(opt.mathLatex)}` : opt.text;
+        const optRaw = opt.mathLatex ? `${opt.text}, ${verbalizeMath(opt.mathLatex)}` : opt.text;
+        const optText = verbalizeForSpeech(optRaw);
         msg += `Option ${opt.number}: ${optText}. `;
       });
     }
@@ -882,7 +969,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
 
     const unattemptedCount = Math.max(0, totalQuestions - attemptedCount);
     const scorePercentage = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
-    const totalScore = correctCount * 2 - incorrectCount * 0.5; // +2 for correct, -0.5 for incorrect
+    const totalScore = Number((correctCount * 2 - incorrectCount * 0.5).toFixed(2)); // +2 for correct, -0.5 for incorrect
     const maxScore = totalQuestions * 2;
 
     const sectionDiagnostics: SectionDiagnostic[] = Object.entries(sectionMap).map(

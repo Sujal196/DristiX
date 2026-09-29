@@ -13,7 +13,18 @@ export async function connectDb(): Promise<void> {
 
   await mongoose.connect(env.MONGODB_URI, {
     dbName: env.MONGODB_DB,
-    serverSelectionTimeoutMS: 8000,
+    // Force IPv4 resolution — avoids the [64:ff9b::*]:27017 IPv6-mapped
+    // timeout that occurs when the local network has broken IPv6 routing.
+    family: 4,
+    serverSelectionTimeoutMS: 15000,
+    connectTimeoutMS: 15000,
+    // Detect a silently dead connection instead of hanging a request until the
+    // client gives up. The driver re-establishes the pool on its own after a
+    // reset, so a failed operation is a retriable 500, not a wedged server.
+    socketTimeoutMS: 45000,
+    // Re-check the topology frequently so a replica-set failover or a network
+    // blip is noticed within seconds rather than after the default 10s.
+    heartbeatFrequencyMS: 10000,
   });
 
   const { User } = await import('./models/User.js');

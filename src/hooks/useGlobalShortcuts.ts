@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { usePreferencesStore } from '../store/usePreferencesStore';
 import type { TextScale } from '../store/usePreferencesStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
+import { speechEngine } from '../utils/speechEngine';
 import { soundEffects } from '../utils/soundEffects';
 
 /**
@@ -152,7 +153,7 @@ export function useGlobalShortcuts() {
         return;
       }
 
-      // On Diagnostic Report screen: 'r' to retake, 's' to read summary
+      // On Diagnostic Report screen: 'r' to retake, 's' to read summary or stop speech
       if (store.isSubmitted) {
         if (e.key.toLowerCase() === 'r' && !e.altKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
@@ -161,6 +162,10 @@ export function useGlobalShortcuts() {
         }
         if (e.key.toLowerCase() === 's' && !e.altKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
+          if (speechEngine.isSpeaking()) {
+            useAnnouncerStore.getState().stopSpeech();
+            return;
+          }
           const report = store.getDiagnosticReport();
           const fullSummary = report.verbalSummary.join(' ');
           useAnnouncerStore
@@ -272,6 +277,7 @@ export function useGlobalShortcuts() {
           const seconds = store.timeRemaining % 60;
           const timeMsg = `Time remaining: ${minutes} minutes and ${seconds} seconds. Timer display: ${store.formattedTime}.`;
           useAnnouncerStore.getState().announce(timeMsg, 'assertive', true);
+          window.dispatchEvent(new CustomEvent('dristix-announce-time'));
           break;
         }
 
@@ -282,6 +288,10 @@ export function useGlobalShortcuts() {
 
         case 'q':
           e.preventDefault();
+          if (!store.isPaletteOpen) {
+            // Opening palette: announce summary first
+            window.dispatchEvent(new CustomEvent('dristix-announce-palette'));
+          }
           store.setPaletteOpen(!store.isPaletteOpen);
           break;
 

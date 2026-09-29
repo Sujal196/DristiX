@@ -17,9 +17,38 @@ const optionSchema = z.object({
   mathLatex: z.string().optional(),
 });
 
+const graphDataPointSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  value: z.number(),
+});
+
+const graphSonificationSchema = z.object({
+  enabled: z.boolean().default(true),
+  spatialAudio: z.boolean().default(true),
+  trendDetection: z.boolean().default(true),
+  peakDetection: z.boolean().default(true),
+  haptic: z.boolean().default(true),
+  voiceDetail: z.enum(['minimal', 'standard', 'detailed']).default('standard'),
+  minFrequency: z.number().default(250),
+  maxFrequency: z.number().default(900),
+});
+
+const graphSchema = z.object({
+  enabled: z.boolean().default(true),
+  type: z.enum(['bar', 'line', 'pie']).default('bar'),
+  title: z.string().default(''),
+  xAxisLabel: z.string().default(''),
+  yAxisLabel: z.string().default(''),
+  unit: z.string().default(''),
+  data: z.array(graphDataPointSchema).default([]),
+  sonification: graphSonificationSchema.default({}),
+});
+
 const questionSchema = z.object({
   id: z.string().optional(),
   section: z.string().min(1),
+  questionType: z.enum(['MCQ', 'DI']).default('MCQ'),
   questionText: z.string().min(1),
   mathLatex: z.string().optional(),
   diagramUrl: z.string().optional(),
@@ -33,6 +62,7 @@ const questionSchema = z.object({
       audioNarration: z.string().default(''),
     })
     .optional(),
+  graph: graphSchema.optional(),
   options: z.array(optionSchema).min(2),
   correctOption: z.number().int().min(1).max(9),
   explanation: z.string().default(''),
@@ -90,12 +120,14 @@ adminRouter.get(
           id: q.id || `q-${i + 1}`,
           section: q.section,
           questionNumber: q.questionNumber || i + 1,
+          questionType: (q as any).questionType || 'MCQ',
           questionText: q.questionText,
           mathLatex: q.mathLatex,
           diagramUrl: q.diagramUrl,
           diagramType: q.diagramType,
           diagramDescription: q.diagramDescription,
           diagramAiExplanation: q.diagramAiExplanation,
+          graph: (q as any).graph,
           options: q.options,
           correctOption: q.correctOption,
           explanation: q.explanation,

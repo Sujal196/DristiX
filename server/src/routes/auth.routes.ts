@@ -12,7 +12,6 @@ import {
   setRefreshCookie,
   signAccessToken,
   toUserProfile,
-  verifyAccessToken,
   verifyRefreshToken,
   verifyPassword,
 } from '../services/auth.service.js';

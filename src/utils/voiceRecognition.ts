@@ -1,4 +1,5 @@
 import { speechEngine } from './speechEngine';
+import { isPhantomNoise } from './voiceCommandProcessor';
 
 export type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
@@ -314,6 +315,12 @@ class VoiceRecognitionService {
     // Suppress if the transcript is an echo of the assistant's own voice
     if (speechEngine.isTextEcho(transcript)) {
       console.log('🔇 Suppressed acoustic speaker echo transcript:', transcript);
+      return;
+    }
+
+    // Suppress phantom noise hallucinations (such as 'so', 'sau', etc.) from ambient background
+    if (isPhantomNoise(transcript)) {
+      console.log('🔇 Suppressed phantom noise transcript:', transcript);
       return;
     }
 
