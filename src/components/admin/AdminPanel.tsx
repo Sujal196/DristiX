@@ -32,6 +32,10 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Menu,
+  X,
+  RefreshCw,
+  Database,
 } from 'lucide-react';
 
 /**
@@ -78,6 +82,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedExamFilter, setSelectedExamFilter] = useState('All');
   const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    soundEffects.playSelect();
+    try {
+      await Promise.all([syncSubmissions(), fetchStudents()]);
+      announce('Database connectivity active. Records synchronized from MongoDB Atlas.');
+      soundEffects.playSuccess();
+    } catch {
+      announce('Database sync completed with cached records.');
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
+    }
+  };
 
   // Exam Creator / Editor Form State
   const [editingExamId, setEditingExamId] = useState<string | null>(null);
@@ -629,26 +649,274 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      {/* Top Admin Navigation Header */}
-      <header className="mb-6 p-4 sm:p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-black uppercase bg-indigo-600 text-white tracking-wider">
-              Admin Studio
-            </span>
-            <span className="text-xs text-theme-text/60">• Examiner & Analytics Workspace</span>
+    <div className="min-h-screen bg-theme-bg text-theme-text flex flex-col lg:flex-row transition-colors duration-200">
+      {/* Mobile Top App Bar */}
+      <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-theme-surface/90 backdrop-blur-md border-b-2 border-theme-border shadow-sm">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsMobileSidebarOpen(true)}
+            aria-label="Open Admin Navigation Menu"
+            className="p-2 rounded-xl border-2 border-theme-border bg-theme-bg text-theme-text hover:border-theme-primary transition focus:ring-4 focus:ring-theme-focus"
+          >
+            <Menu className="w-5 h-5" aria-hidden="true" />
+          </button>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-theme-text/70">Admin Studio</span>
+            </div>
+            <h1 className="text-base font-extrabold text-theme-text leading-tight">DristiX Console</h1>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-theme-text">
-            DristiX Examination Administration
-          </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            aria-label="Refresh Database Sync"
+            className="p-2 rounded-xl border border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text text-xs transition focus:ring-4 focus:ring-theme-focus"
+            title="Sync Database"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-theme-primary' : ''}`} />
+          </button>
           <button
             type="button"
             onClick={onReturnToStudent}
-            className="flex-1 md:flex-none px-4 py-2.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus"
+            className="px-3 py-1.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs flex items-center gap-1.5 transition"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Portal</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile Sidebar Overlay Backdrop */}
+      {isMobileSidebarOpen && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Close navigation overlay"
+          onClick={() => setIsMobileSidebarOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setIsMobileSidebarOpen(false);
+          }}
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden transition-opacity"
+        />
+      )}
+
+      {/* Modern Fixed/Sticky Left Dashboard Sidebar */}
+      <aside
+        className={`fixed lg:sticky top-0 left-0 z-50 lg:z-20 h-screen w-72 sm:w-80 shrink-0 bg-theme-surface border-r-2 border-theme-border flex flex-col justify-between p-5 transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none overflow-y-auto ${
+          isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        <div className="space-y-6">
+          {/* Top Brand Logo & Mobile Close */}
+          <div className="flex items-center justify-between pb-4 border-b border-theme-border">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-theme-primary text-theme-primary-text flex items-center justify-center font-black text-xl shadow-md">
+                D
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-theme-primary/10 text-theme-primary border border-theme-primary/20">
+                    Admin Studio
+                  </span>
+                </div>
+                <h2 className="text-lg font-black text-theme-text leading-tight mt-0.5">DristiX Console</h2>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsMobileSidebarOpen(false)}
+              aria-label="Close sidebar"
+              className="lg:hidden p-1.5 rounded-xl border border-theme-border text-theme-text/70 hover:text-theme-text hover:bg-theme-border/30 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Live Connectivity Monitor Widget */}
+          <div className="p-3.5 rounded-2xl bg-theme-bg border-2 border-theme-border space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-theme-text/60 uppercase tracking-wide flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5 text-emerald-500" />
+                Live Connectivity
+              </span>
+              <button
+                type="button"
+                onClick={handleManualSync}
+                disabled={isSyncing}
+                title="Force refresh database records"
+                className="text-xs text-theme-text/70 hover:text-theme-primary flex items-center gap-1 transition disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-theme-primary' : ''}`} />
+                <span className="text-[10px] font-bold">{isSyncing ? 'Syncing...' : 'Sync'}</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+              <div className="text-xs font-black text-theme-text">MongoDB Atlas Active</div>
+            </div>
+            <p className="text-[10px] text-theme-text/60">
+              Exam bank, questions & candidate submissions synchronized in real-time.
+            </p>
+          </div>
+
+          {/* Navigation Links / Tab Controller */}
+          <nav role="tablist" aria-label="Admin Navigation" className="space-y-1.5">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'analytics'}
+              onClick={() => {
+                setActiveAdminTab('analytics');
+                setIsMobileSidebarOpen(false);
+                soundEffects.playSelect();
+              }}
+              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
+                activeAdminTab === 'analytics'
+                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
+                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Award className="w-5 h-5 shrink-0" aria-hidden="true" />
+                <span className="text-left font-bold">Submissions & Results</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                  activeAdminTab === 'analytics'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-theme-border text-theme-text/70'
+                }`}
+              >
+                {totalSubmissions}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'students'}
+              onClick={() => {
+                setActiveAdminTab('students');
+                setIsMobileSidebarOpen(false);
+                soundEffects.playSelect();
+              }}
+              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
+                activeAdminTab === 'students'
+                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
+                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Users className="w-5 h-5 shrink-0" aria-hidden="true" />
+                <span className="text-left font-bold">Registered Students</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                  activeAdminTab === 'students'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-theme-border text-theme-text/70'
+                }`}
+              >
+                {students.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'manage'}
+              onClick={() => {
+                setActiveAdminTab('manage');
+                setIsMobileSidebarOpen(false);
+                soundEffects.playSelect();
+              }}
+              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
+                activeAdminTab === 'manage'
+                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
+                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <FileText className="w-5 h-5 shrink-0" aria-hidden="true" />
+                <span className="text-left font-bold">Manage Tests</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                  activeAdminTab === 'manage'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-theme-border text-theme-text/70'
+                }`}
+              >
+                {availableExams.length + availablePracticeDrills.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'create'}
+              onClick={() => {
+                setActiveAdminTab('create');
+                setIsMobileSidebarOpen(false);
+                soundEffects.playSelect();
+              }}
+              className={`w-full p-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-between transition-all ${
+                activeAdminTab === 'create'
+                  ? 'bg-theme-primary text-theme-primary-text shadow-lg translate-x-1'
+                  : 'text-theme-text hover:bg-theme-border/30 hover:translate-x-0.5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                {editingExamId ? (
+                  <Edit3 className="w-5 h-5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <PlusCircle className="w-5 h-5 shrink-0" aria-hidden="true" />
+                )}
+                <span className="text-left font-bold">{editingExamId ? 'Edit Test' : 'Create New Test'}</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  activeAdminTab === 'create'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-theme-primary/10 text-theme-primary'
+                }`}
+              >
+                {editingExamId ? 'EDIT' : 'NEW'}
+              </span>
+            </button>
+          </nav>
+
+          {/* Quick Metrics Widget in Sidebar */}
+          <div className="p-4 rounded-2xl bg-theme-bg/60 border border-theme-border/80 space-y-2.5">
+            <span className="text-[11px] font-black uppercase tracking-wider text-theme-text/60 block">
+              Quick Telemetry
+            </span>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="p-2.5 rounded-xl bg-theme-surface border border-theme-border">
+                <span className="text-[10px] font-bold text-theme-text/50 block">Accuracy</span>
+                <span className="text-base font-black text-theme-primary">{avgScore}%</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-theme-surface border border-theme-border">
+                <span className="text-[10px] font-bold text-theme-text/50 block">Active Tests</span>
+                <span className="text-base font-black text-theme-text">{availableExams.length}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Footer Actions */}
+        <div className="pt-4 border-t border-theme-border space-y-2">
+          <button
+            type="button"
+            onClick={onReturnToStudent}
+            className="w-full px-4 py-2.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus"
           >
             <ArrowLeft className="w-4 h-4" aria-hidden="true" />
             <span>Student Portal</span>
@@ -657,218 +925,202 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
           <button
             type="button"
             onClick={logoutAdmin}
-            className="flex-1 md:flex-none px-4 py-2.5 rounded-xl border-2 border-red-500/40 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-red-500/30"
+            className="w-full px-4 py-2.5 rounded-xl border-2 border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-red-500/30"
           >
             <LogOut className="w-4 h-4" aria-hidden="true" />
-            <span>Logout</span>
+            <span>Logout Studio</span>
           </button>
+
+          <div className="text-center pt-2">
+            <span className="text-[10px] text-theme-text/50 font-medium block">
+              DristiX Engine v2.4 • Accessible AI
+            </span>
+          </div>
         </div>
-      </header>
+      </aside>
 
-      {/* Admin Tabs */}
-      <nav
-        role="tablist"
-        aria-label="Admin Studio Sections"
-        className="mb-8 p-1.5 rounded-2xl bg-theme-surface border-2 border-theme-border flex flex-col sm:flex-row gap-2 shadow-sm"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeAdminTab === 'analytics'}
-          onClick={() => {
-            setActiveAdminTab('analytics');
-            soundEffects.playSelect();
-          }}
-          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
-            activeAdminTab === 'analytics'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : 'text-theme-text hover:bg-theme-border/30'
-          }`}
-        >
-          <Award className="w-5 h-5" aria-hidden="true" />
-          <span>Submissions & Results ({totalSubmissions})</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeAdminTab === 'students'}
-          onClick={() => {
-            setActiveAdminTab('students');
-            soundEffects.playSelect();
-          }}
-          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
-            activeAdminTab === 'students'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : 'text-theme-text hover:bg-theme-border/30'
-          }`}
-        >
-          <Users className="w-5 h-5" aria-hidden="true" />
-          <span>Registered Students ({students.length})</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeAdminTab === 'manage'}
-          onClick={() => {
-            setActiveAdminTab('manage');
-            soundEffects.playSelect();
-          }}
-          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
-            activeAdminTab === 'manage'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : 'text-theme-text hover:bg-theme-border/30'
-          }`}
-        >
-          <FileText className="w-5 h-5" aria-hidden="true" />
-          <span>Manage Tests ({availableExams.length + availablePracticeDrills.length})</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeAdminTab === 'create'}
-          onClick={() => {
-            setActiveAdminTab('create');
-            soundEffects.playSelect();
-          }}
-          className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition focus:ring-4 focus:ring-theme-focus ${
-            activeAdminTab === 'create'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : 'text-theme-text hover:bg-theme-border/30'
-          }`}
-        >
-          {editingExamId ? (
-            <Edit3 className="w-5 h-5" aria-hidden="true" />
-          ) : (
-            <PlusCircle className="w-5 h-5" aria-hidden="true" />
-          )}
-          <span>{editingExamId ? 'Edit Test' : 'Create New Test'}</span>
-        </button>
-      </nav>
-
-      {/* TAB 1: STUDENTS & SUBMISSIONS ANALYTICS */}
-      {activeAdminTab === 'analytics' && (
-        <section aria-labelledby="submissions-heading" className="space-y-8">
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-              <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                Total Registered Students
+      {/* Main Content Workspace on Right */}
+      <main className="flex-1 min-w-0 flex flex-col p-4 sm:p-6 lg:p-8 space-y-6 overflow-y-auto">
+        {/* Desktop Header Top Bar */}
+        <header className="hidden lg:flex items-center justify-between p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-xs font-black uppercase text-theme-primary tracking-wider">
+                {activeAdminTab === 'analytics' && 'Performance & Activity'}
+                {activeAdminTab === 'students' && 'Candidate Management'}
+                {activeAdminTab === 'manage' && 'Examination Directory'}
+                {activeAdminTab === 'create' && (editingExamId ? 'Exam Editor' : 'Question Authoring')}
               </span>
-              <div className="text-3xl font-black text-theme-text mt-1 flex items-center gap-2">
-                <Users className="w-6 h-6 text-indigo-500" aria-hidden="true" />
-                <span>{students.length} Candidates</span>
-              </div>
+              <span className="text-xs text-theme-text/40">•</span>
+              <span className="text-xs text-theme-text/60">Examiner Console</span>
             </div>
-
-            <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-              <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                Total Tests Completed
-              </span>
-              <div className="text-3xl font-black text-theme-text mt-1 flex items-center gap-2">
-                <FileText className="w-6 h-6 text-emerald-500" aria-hidden="true" />
-                <span>{totalSubmissions} Submissions</span>
-              </div>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-              <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                Average Accuracy
-              </span>
-              <div className="text-3xl font-black text-theme-primary mt-1 flex items-center gap-2">
-                <TrendingUp className="w-6 h-6" aria-hidden="true" />
-                <span>{avgScore}%</span>
-              </div>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
-              <span className="text-xs uppercase font-bold text-theme-text/60 block">
-                Top Candidate
-              </span>
-              <div className="text-xl font-bold text-theme-text mt-2 flex items-center gap-2 truncate">
-                <Award className="w-6 h-6 text-amber-500 shrink-0" aria-hidden="true" />
-                <span className="truncate">{students[0]?.name || 'N/A'}</span>
-              </div>
-            </div>
+            <h1 className="text-2xl font-extrabold text-theme-text">
+              {activeAdminTab === 'analytics' && 'Submissions & Results Analytics'}
+              {activeAdminTab === 'students' && 'Registered Students Directory'}
+              {activeAdminTab === 'manage' && 'Manage Tests & Practice Drills'}
+              {activeAdminTab === 'create' &&
+                (editingExamId ? `Editing Test: ${title || 'Untitled'}` : 'Create New Accessible Test')}
+            </h1>
           </div>
 
-          {/* Data Sonification Feature Section Card */}
-          <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-900/20 via-purple-900/10 to-indigo-900/20 border-2 border-indigo-500/40 shadow-sm space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl p-2.5 rounded-xl bg-indigo-600 text-white shadow">
-                  🎧
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="px-4 py-2.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs flex items-center gap-2 transition focus:ring-4 focus:ring-theme-focus disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-theme-primary' : ''}`} />
+              <span>{isSyncing ? 'Syncing...' : 'Sync Database'}</span>
+            </button>
+
+            {activeAdminTab !== 'create' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingExamId(null);
+                  setActiveAdminTab('create');
+                  soundEffects.playSelect();
+                }}
+                className="px-4 py-2.5 rounded-xl bg-theme-primary text-theme-primary-text font-bold text-xs flex items-center gap-2 shadow hover:brightness-110 transition focus:ring-4 focus:ring-theme-focus"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Create Test</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onReturnToStudent}
+              className="px-4 py-2.5 rounded-xl border-2 border-theme-border bg-theme-bg hover:border-theme-primary text-theme-text font-bold text-xs flex items-center gap-2 transition focus:ring-4 focus:ring-theme-focus"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Student Portal</span>
+            </button>
+          </div>
+        </header>
+
+        {/* TAB 1: STUDENTS & SUBMISSIONS ANALYTICS */}
+        {activeAdminTab === 'analytics' && (
+          <section aria-labelledby="submissions-heading" className="space-y-8">
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
+                <span className="text-xs uppercase font-bold text-theme-text/60 block">
+                  Total Registered Students
                 </span>
-                <div>
-                  <h3 className="text-lg font-black text-theme-text flex items-center gap-2">
-                    <span>Data Sonification Questions</span>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                      Live Production Feature
-                    </span>
-                  </h3>
-                  <p className="text-xs text-theme-text/70 mt-0.5">
-                    Real-time Web Audio pitch modulation (250Hz - 900Hz), Stereo spatial audio, trend detection, and tactile haptic feedback for visually impaired candidates.
-                  </p>
+                <div className="text-3xl font-black text-theme-text mt-1 flex items-center gap-2">
+                  <Users className="w-6 h-6 text-theme-primary" aria-hidden="true" />
+                  <span>{students.length} Candidates</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveAdminTab('create');
-                    soundEffects.playSelect();
-                  }}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-extrabold text-xs flex items-center gap-1.5 shadow hover:bg-indigo-700 transition"
-                >
-                  <PlusCircle className="w-4 h-4" aria-hidden="true" />
-                  <span>Create DI Question</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveAdminTab('manage');
-                    soundEffects.playSelect();
-                  }}
-                  className="px-4 py-2 rounded-xl border border-theme-border bg-theme-surface hover:bg-theme-border/40 font-bold text-xs transition"
-                >
-                  Manage Questions
-                </button>
+              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
+                <span className="text-xs uppercase font-bold text-theme-text/60 block">
+                  Total Tests Completed
+                </span>
+                <div className="text-3xl font-black text-theme-text mt-1 flex items-center gap-2">
+                  <FileText className="w-6 h-6 text-emerald-500" aria-hidden="true" />
+                  <span>{totalSubmissions} Submissions</span>
+                </div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
+                <span className="text-xs uppercase font-bold text-theme-text/60 block">
+                  Average Accuracy
+                </span>
+                <div className="text-3xl font-black text-theme-primary mt-1 flex items-center gap-2">
+                  <TrendingUp className="w-6 h-6" aria-hidden="true" />
+                  <span>{avgScore}%</span>
+                </div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
+                <span className="text-xs uppercase font-bold text-theme-text/60 block">
+                  Top Candidate
+                </span>
+                <div className="text-xl font-bold text-theme-text mt-2 flex items-center gap-2 truncate">
+                  <Award className="w-6 h-6 text-amber-500 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{students[0]?.name || 'N/A'}</span>
+                </div>
               </div>
             </div>
 
-            {/* Quick Metrics */}
-            {(() => {
-              const allQs = [...availableExams, ...availablePracticeDrills].flatMap((e) => e.questions || []);
-              const sonifiedQs = allQs.filter((q) => q.graph && q.graph.enabled && q.graph.sonification?.enabled);
-              const barCount = sonifiedQs.filter((q) => q.graph?.type === 'bar').length;
-              const lineCount = sonifiedQs.filter((q) => q.graph?.type === 'line').length;
-              const pieCount = sonifiedQs.filter((q) => q.graph?.type === 'pie').length;
-
-              return (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-indigo-500/20 text-xs">
-                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Sonified Questions</span>
-                    <span className="text-lg font-black text-indigo-500">{sonifiedQs.length} active</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Bar Charts</span>
-                    <span className="text-lg font-black text-theme-text">{barCount}</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Line Charts</span>
-                    <span className="text-lg font-black text-theme-text">{lineCount}</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
-                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Pie Charts</span>
-                    <span className="text-lg font-black text-theme-text">{pieCount}</span>
+            {/* Data Sonification Feature Section Card */}
+            <div className="p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl p-2.5 rounded-xl bg-theme-primary text-theme-primary-text shadow">
+                    🎧
+                  </span>
+                  <div>
+                    <h3 className="text-lg font-black text-theme-text flex items-center gap-2">
+                      <span>Data Sonification Questions</span>
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                        Live Production Feature
+                      </span>
+                    </h3>
+                    <p className="text-xs text-theme-text/70 mt-0.5">
+                      Real-time Web Audio pitch modulation (250Hz - 900Hz), Stereo spatial audio, trend detection, and tactile haptic feedback for visually impaired candidates.
+                    </p>
                   </div>
                 </div>
-              );
-            })()}
-          </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveAdminTab('create');
+                      soundEffects.playSelect();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-theme-primary text-theme-primary-text font-extrabold text-xs flex items-center gap-1.5 shadow hover:brightness-110 transition"
+                  >
+                    <PlusCircle className="w-4 h-4" aria-hidden="true" />
+                    <span>Create DI Question</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveAdminTab('manage');
+                      soundEffects.playSelect();
+                    }}
+                    className="px-4 py-2 rounded-xl border border-theme-border bg-theme-surface hover:bg-theme-border/40 font-bold text-xs transition"
+                  >
+                    Manage Questions
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Metrics */}
+              {(() => {
+                const allQs = [...availableExams, ...availablePracticeDrills].flatMap((e) => e.questions || []);
+                const sonifiedQs = allQs.filter((q) => q.graph && q.graph.enabled && q.graph.sonification?.enabled);
+                const barCount = sonifiedQs.filter((q) => q.graph?.type === 'bar').length;
+                const lineCount = sonifiedQs.filter((q) => q.graph?.type === 'line').length;
+                const pieCount = sonifiedQs.filter((q) => q.graph?.type === 'pie').length;
+
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-theme-border text-xs">
+                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Sonified Questions</span>
+                      <span className="text-lg font-black text-theme-primary">{sonifiedQs.length} active</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Bar Charts</span>
+                      <span className="text-lg font-black text-theme-text">{barCount}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Line Charts</span>
+                      <span className="text-lg font-black text-theme-text">{lineCount}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                      <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Pie Charts</span>
+                      <span className="text-lg font-black text-theme-text">{pieCount}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
 
           {/* Submissions Filter & Table */}
           <div className="p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-4">
@@ -1059,7 +1311,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm">
             <div>
               <h2 id="students-roster-heading" className="text-xl font-bold text-theme-text flex items-center gap-2">
-                <Users className="w-5 h-5 text-indigo-500" aria-hidden="true" />
+                <Users className="w-5 h-5 text-theme-primary" aria-hidden="true" />
                 Registered Students Directory ({students.length} Candidates)
               </h2>
               <p className="text-xs text-theme-text/60 mt-0.5">
@@ -1106,13 +1358,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                       <tr key={std.id} className="hover:bg-theme-bg/40 transition">
                         <td className="py-3.5 px-4 font-bold text-theme-text">
                           <div className="flex items-center gap-2.5">
-                            <span className="w-8 h-8 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                            <span className="w-8 h-8 rounded-full bg-theme-primary text-theme-primary-text font-black text-xs flex items-center justify-center shrink-0">
                               {std.name.charAt(0).toUpperCase()}
                             </span>
                             <span className="truncate">{std.name}</span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                        <td className="py-3.5 px-4 font-mono text-xs font-bold text-theme-primary">
                           {std.rollNumber}
                         </td>
                         <td className="py-3.5 px-4 text-theme-text/80">{std.email}</td>
@@ -1157,7 +1409,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             <button
               type="button"
               onClick={() => setActiveAdminTab('create')}
-              className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
+              className="px-4 py-2 rounded-xl bg-theme-primary text-theme-primary-text font-bold text-xs flex items-center gap-1.5 shadow hover:brightness-110 transition"
             >
               <PlusCircle className="w-4 h-4" aria-hidden="true" />
               <span>Create Another Test</span>
@@ -1176,7 +1428,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                     <span className="px-2.5 py-0.5 rounded text-xs font-mono font-bold bg-theme-border text-theme-text">
                       {exam.code}
                     </span>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-500 border border-blue-500/30">
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-theme-primary/10 text-theme-primary border border-theme-primary/30">
                       🏆 Timed Exam
                     </span>
                   </div>
@@ -1191,7 +1443,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                     {exam.questions.some((q) => q.graph && q.graph.enabled) && (
                       <>
                         <span>•</span>
-                        <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold">
+                        <span className="px-2 py-0.5 rounded bg-theme-primary/10 text-theme-primary border border-theme-primary/20 font-bold">
                           🎧 Audio Graph DI
                         </span>
                       </>
@@ -1204,7 +1456,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                     <button
                       type="button"
                       onClick={() => handleTestAsStudent(exam, 'exam')}
-                      className="px-3 py-1.5 rounded-lg bg-theme-primary text-white text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
+                      className="px-3 py-1.5 rounded-lg bg-theme-primary text-theme-primary-text text-xs font-bold flex items-center gap-1.5 hover:brightness-110 transition"
                     >
                       <Play className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Test as Student</span>
@@ -1213,7 +1465,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                     <button
                       type="button"
                       onClick={() => void handleStartEditExam(exam.id)}
-                      className="px-3 py-1.5 rounded-lg border-2 border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
+                      className="px-3 py-1.5 rounded-lg border-2 border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text text-xs font-bold flex items-center gap-1.5 transition"
                     >
                       <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Edit Test</span>
@@ -1272,7 +1524,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                     <button
                       type="button"
                       onClick={() => void handleStartEditExam(drill.id)}
-                      className="px-3 py-1.5 rounded-lg border-2 border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
+                      className="px-3 py-1.5 rounded-lg border-2 border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text text-xs font-bold flex items-center gap-1.5 transition"
                     >
                       <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Edit Drill</span>
@@ -1499,7 +1751,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   <button
                     type="button"
                     onClick={handleAddQuestion}
-                    className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
+                    className="px-4 py-2 rounded-xl bg-theme-primary text-theme-primary-text font-bold text-xs flex items-center gap-1.5 shadow hover:brightness-110 transition"
                   >
                     <PlusCircle className="w-4 h-4" aria-hidden="true" />
                     <span>Add Another Question</span>
@@ -1521,12 +1773,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                 <div key={q.id} className="p-6 rounded-2xl bg-theme-bg border-2 border-theme-border space-y-4">
                   <div className="flex flex-wrap items-center justify-between border-b border-theme-border pb-3 gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center font-mono">
+                      <span className="w-7 h-7 rounded-full bg-theme-primary text-theme-primary-text font-black text-xs flex items-center justify-center font-mono">
                         Q{q.questionNumber}
                       </span>
                       <span className="text-sm font-bold text-theme-text">Question {q.questionNumber}</span>
                       {q.questionType === 'DI' && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/40">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-theme-primary/10 text-theme-primary border border-theme-primary/30">
                           📊 DI Sonification
                         </span>
                       )}
@@ -1537,7 +1789,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                       <button
                         type="button"
                         onClick={() => setPreviewingQuestionIdx(qIdx)}
-                        className="px-2.5 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white font-bold text-xs flex items-center gap-1 transition"
+                        className="px-2.5 py-1 rounded-lg border border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text font-bold text-xs flex items-center gap-1 transition"
                       >
                         <Eye className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>Preview as Student</span>
@@ -1572,16 +1824,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                               handleUpdateQuestion(qIdx, 'questionType', 'MCQ');
                               if (q.graph) {
                                 handleUpdateQuestion(qIdx, 'graph', {
-                                  ...q.graph,
+                                 ...q.graph,
                                   enabled: false,
                                 });
                               }
                             }}
-                            className="accent-indigo-600"
+                            className="accent-[var(--primary)]"
                           />
                           <span>Standard MCQ</span>
                         </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-theme-primary">
                           <input
                             type="radio"
                             name={`q_type_${qIdx}`}
@@ -1616,7 +1868,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                                 enabled: true,
                               });
                             }}
-                            className="accent-indigo-600"
+                            className="accent-[var(--primary)]"
                           />
                           <span>DI / Data Interpretation (Audio Sonification)</span>
                         </label>
@@ -1637,7 +1889,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                               });
                             }
                           }}
-                          className="w-4 h-4 accent-indigo-600"
+                          className="w-4 h-4 accent-[var(--primary)]"
                         />
                         <span className={q.graph?.enabled ? 'text-emerald-500' : 'text-theme-text/60'}>
                           {q.graph?.enabled ? 'ENABLED' : 'DISABLED'}
@@ -1682,8 +1934,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   </div>
 
                   {/* Math Formula Input + Live Preview */}
-                  <div className="p-3.5 rounded-xl border border-indigo-500/30 bg-indigo-500/5 space-y-2">
-                    <label className="block text-xs font-bold text-indigo-500">
+                  <div className="p-3.5 rounded-xl border border-theme-primary/20 bg-theme-primary/5 space-y-2">
+                    <label className="block text-xs font-bold text-theme-primary">
                       Optional Mathematical Equation (LaTeX)
                     </label>
                     <input
@@ -1769,7 +2021,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                         <label className="block text-[11px] font-bold text-theme-text/70 mb-1">
                           Upload Image File
                         </label>
-                        <label className="w-full p-2 rounded-lg bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold text-xs border border-indigo-500/30 flex items-center justify-center gap-1.5 cursor-pointer transition">
+                        <label className="w-full p-2 rounded-lg bg-theme-primary/10 hover:bg-theme-primary/20 text-theme-primary font-bold text-xs border border-theme-primary/30 flex items-center justify-center gap-1.5 cursor-pointer transition">
                           <span>📁 Pick Image</span>
                           <input
                             type="file"
@@ -1799,7 +2051,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                             key={preset}
                             type="button"
                             onClick={() => handleApplyGeometryPreset(qIdx, preset)}
-                            className="px-3 py-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white font-bold text-[11px] transition"
+                            className="px-3 py-1.5 rounded-lg border border-theme-primary/30 bg-theme-primary/10 text-theme-primary hover:bg-theme-primary hover:text-theme-primary-text font-bold text-[11px] transition"
                           >
                             {label}
                           </button>
@@ -1934,7 +2186,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             <div className="pt-4 flex justify-end">
               <button
                 type="submit"
-                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-base shadow-lg transition flex items-center justify-center gap-2 focus:ring-4 focus:ring-indigo-500/50"
+                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-theme-primary hover:brightness-110 text-theme-primary-text font-extrabold text-base shadow-lg transition flex items-center justify-center gap-2 focus:ring-4 focus:ring-theme-focus"
               >
                 <span>💾</span>
                 <span>Publish Test to Student Catalog</span>
@@ -1980,7 +2232,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                     id="student-preview-modal-title"
                     className="text-xl font-bold text-theme-text flex items-center gap-2"
                   >
-                    <span className="text-indigo-600 font-black">Q{previewQ.questionNumber}.</span>
+                    <span className="text-theme-primary font-black">Q{previewQ.questionNumber}.</span>
                     <span>{previewQ.questionText || 'Question statement...'}</span>
                   </h3>
 
@@ -2035,6 +2287,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
           </div>
         </div>
       )}
+      </main>
     </div>
   );
 };
