@@ -72,29 +72,29 @@ export const ExamSidebar: React.FC = () => {
   return (
     <aside
       aria-label="Exam sidebar: Timer, Question Palette, and Progress"
-      className="sticky top-20 flex flex-col gap-2.5 w-64 xl:w-72 flex-shrink-0 select-none"
+      className="sticky top-20 flex flex-col gap-3.5 w-72 xl:w-80 flex-shrink-0 select-none"
     >
-      {/* ── 1. Timer Card (Compact) ── */}
+      {/* ── 1. Timer Card (Taller & Prominent) ── */}
       <div
         role="region"
         aria-label={`Time Remaining: ${formattedTime}. Press T to hear time.`}
-        className={`rounded-xl border-2 px-3.5 py-2 transition-all ${
+        className={`rounded-2xl border-2 px-4 py-3.5 transition-all ${
           isTimeCritical
             ? 'border-red-500 bg-red-950/20 shadow-red-500/20 shadow-lg'
             : 'border-theme-border bg-theme-surface shadow-xs'
         }`}
       >
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
             <Clock
-              className={`w-3.5 h-3.5 flex-shrink-0 ${isTimeCritical ? 'text-red-500 animate-pulse' : 'text-theme-focus-ring'}`}
+              className={`w-4 h-4 flex-shrink-0 ${isTimeCritical ? 'text-red-500 animate-pulse' : 'text-theme-focus-ring'}`}
               aria-hidden="true"
             />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-theme-text-secondary">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-theme-text-secondary">
               Time Remaining
             </span>
           </div>
-          <kbd className="text-[10px] px-1.5 py-0.2 rounded border border-theme-border bg-theme-bg font-mono font-bold text-theme-text-secondary">
+          <kbd className="text-xs px-2 py-0.5 rounded-md border border-theme-border bg-theme-bg font-mono font-bold text-theme-text-secondary shadow-xs">
             T
           </kbd>
         </div>
@@ -103,28 +103,28 @@ export const ExamSidebar: React.FC = () => {
           onClick={() => window.dispatchEvent(new CustomEvent('dristix-announce-time'))}
           title="Click or press T to hear time remaining"
           aria-label={`Time remaining: ${formattedTime}. Click to hear.`}
-          className={`w-full text-center font-mono font-black text-2xl xl:text-3xl tracking-widest leading-none py-1 rounded-lg transition hover:opacity-80 focus:outline-none focus-visible:ring-4 focus-visible:ring-theme-focus-ring ${
+          className={`w-full text-center font-mono font-black text-3xl xl:text-4xl tracking-widest leading-tight py-2 rounded-xl transition hover:opacity-80 focus:outline-none focus-visible:ring-4 focus-visible:ring-theme-focus-ring ${
             isTimeCritical ? 'text-red-500' : 'text-theme-focus-ring'
           }`}
         >
           {formattedTime}
         </button>
-        <p className="text-center text-[9px] text-theme-text-secondary mt-0.5 tracking-widest font-semibold select-none">
+        <p className="text-center text-[10px] text-theme-text-secondary mt-1 tracking-widest font-semibold select-none">
           HH &nbsp;:&nbsp; MM &nbsp;:&nbsp; SS
         </p>
       </div>
 
-      {/* ── 2. Mini Question Palette (Compact) ── */}
+      {/* ── 2. Mini Question Palette (Taller Buttons) ── */}
       <div
         role="region"
         aria-label="Question Palette. Press Q to open full palette."
-        className="rounded-xl border-2 border-theme-border bg-theme-surface shadow-xs px-3.5 py-2.5"
+        className="rounded-2xl border-2 border-theme-border bg-theme-surface shadow-xs px-4 py-3.5"
       >
         {/* Header row */}
-        <div className="flex items-center justify-between mb-1.5">
-          <h2 className="text-xs font-bold text-theme-text flex items-center gap-1.5">
+        <div className="flex items-center justify-between mb-2.5">
+          <h2 className="text-xs sm:text-sm font-bold text-theme-text flex items-center gap-1.5">
             <span>Question Palette</span>
-            <span className="text-[10px] text-theme-text-secondary font-mono">({currentIndex + 1}/{questions.length})</span>
+            <span className="text-xs text-theme-text-secondary font-mono">({currentIndex + 1}/{questions.length})</span>
           </h2>
           <button
             type="button"
@@ -134,38 +134,38 @@ export const ExamSidebar: React.FC = () => {
             }}
             aria-label="Open full question palette (Shortcut: Q)"
             title="Open full question palette (Q)"
-            className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-theme-border bg-theme-bg hover:bg-theme-surface text-theme-text-secondary flex items-center gap-1 transition"
+            className="text-xs font-bold px-2 py-1 rounded-lg border border-theme-border bg-theme-bg hover:bg-theme-surface text-theme-text-secondary flex items-center gap-1.5 transition shadow-xs"
           >
             <span>Full</span>
-            <kbd className="font-mono text-[9px] border border-theme-border rounded px-1 bg-theme-surface text-theme-text">Q</kbd>
+            <kbd className="font-mono text-[10px] border border-theme-border rounded px-1.5 py-0.5 bg-theme-surface text-theme-text font-bold">Q</kbd>
           </button>
         </div>
 
-        {/* Compact Legend */}
-        <div className="flex items-center justify-between text-[10px] font-semibold text-theme-text-secondary mb-2 px-0.5">
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full border-2 border-theme-focus-ring inline-block" aria-hidden="true" />
+        {/* Legend */}
+        <div className="flex items-center justify-between text-[11px] font-semibold text-theme-text-secondary mb-3 px-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full border-2 border-theme-focus-ring inline-block" aria-hidden="true" />
             Active
           </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" aria-hidden="true" />
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" aria-hidden="true" />
             Done
           </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" aria-hidden="true" />
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" aria-hidden="true" />
             Marked
           </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-theme-border inline-block" aria-hidden="true" />
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-theme-border inline-block" aria-hidden="true" />
             Left
           </span>
         </div>
 
-        {/* Grid */}
+        {/* Grid — taller buttons for easy tactile clicking */}
         <div
           role="grid"
           aria-label="Question grid. Click any number to jump."
-          className="grid grid-cols-5 gap-1 max-h-36 overflow-y-auto pr-0.5"
+          className="grid grid-cols-5 gap-1.5 max-h-48 overflow-y-auto pr-0.5"
           style={{ scrollbarWidth: 'none' }}
         >
           {questions.map((q, idx) => {
@@ -175,9 +175,9 @@ export const ExamSidebar: React.FC = () => {
             const isVisited  = !!visitedQuestions[q.id];
 
             let bgClass = 'bg-theme-bg border-theme-border text-theme-text-secondary';
-            if (isCurrent)  bgClass = 'bg-theme-primary text-theme-primary-text border-theme-primary';
-            else if (isMarked)   bgClass = 'bg-amber-500/25 border-amber-500/60 text-theme-text';
-            else if (isAnswered) bgClass = 'bg-emerald-600/25 border-emerald-600/60 text-theme-text';
+            if (isCurrent)  bgClass = 'bg-theme-primary text-theme-primary-text border-theme-primary shadow-sm';
+            else if (isMarked)   bgClass = 'bg-amber-500/25 border-amber-500/60 text-theme-text font-bold';
+            else if (isAnswered) bgClass = 'bg-emerald-600/25 border-emerald-600/60 text-theme-text font-bold';
             else if (isVisited)  bgClass = 'bg-theme-surface border-theme-border text-theme-text';
 
             const statusLabel = isCurrent ? 'current' : isMarked ? 'marked' : isAnswered ? 'answered' : isVisited ? 'visited' : 'not visited';
@@ -189,13 +189,13 @@ export const ExamSidebar: React.FC = () => {
                 onClick={() => jumpToQuestion(idx)}
                 aria-label={`Question ${q.questionNumber}, ${statusLabel}. Click to go.`}
                 title={`Q${q.questionNumber} — ${statusLabel}`}
-                className={`relative h-7 rounded-lg border text-xs font-black flex items-center justify-center transition-all hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-theme-focus-ring ${bgClass} ${
-                  isCurrent ? 'ring-2 ring-theme-focus-ring ring-offset-1 ring-offset-theme-surface' : ''
+                className={`relative h-9 sm:h-10 rounded-xl border text-sm font-black flex items-center justify-center transition-all hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-theme-focus-ring ${bgClass} ${
+                  isCurrent ? 'ring-2 ring-theme-focus-ring ring-offset-2 ring-offset-theme-surface scale-[1.03]' : ''
                 }`}
               >
                 {q.questionNumber}
                 {isMarked && !isCurrent && (
-                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 border border-theme-surface" aria-hidden="true" />
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-theme-surface shadow-xs" aria-hidden="true" />
                 )}
               </button>
             );
@@ -203,76 +203,76 @@ export const ExamSidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 3. Question Status (Compact 2x2 Grid) ── */}
+      {/* ── 3. Question Status (Roomier 2x2 Grid) ── */}
       <div
         role="region"
         aria-label="Question status summary"
-        className="rounded-xl border-2 border-theme-border bg-theme-surface shadow-xs px-3.5 py-2.5"
+        className="rounded-2xl border-2 border-theme-border bg-theme-surface shadow-xs px-4 py-3.5"
       >
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xs font-bold text-theme-text">Question Status</h2>
-          <span className="text-[10px] text-theme-text-secondary font-mono">{questions.length} total</span>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs sm:text-sm font-bold text-theme-text">Question Status</h2>
+          <span className="text-xs text-theme-text-secondary font-mono font-bold">{questions.length} total</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5 text-xs" aria-label="Status counts">
+        <div className="grid grid-cols-2 gap-2 text-xs" aria-label="Status counts">
           {/* Answered */}
-          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-            <span className="flex items-center gap-1.5 text-theme-text text-[11px] font-semibold">
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" aria-hidden="true" />
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
+            <span className="flex items-center gap-1.5 text-theme-text text-xs font-bold">
+              <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" aria-hidden="true" />
               Answered
             </span>
-            <span className="font-black text-theme-text tabular-nums">{answeredCount}</span>
+            <span className="font-black text-sm text-theme-text tabular-nums">{answeredCount}</span>
           </div>
 
           {/* Marked */}
-          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-            <span className="flex items-center gap-1.5 text-theme-text text-[11px] font-semibold">
-              <Bookmark className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" aria-hidden="true" />
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25">
+            <span className="flex items-center gap-1.5 text-theme-text text-xs font-bold">
+              <Bookmark className="w-4 h-4 text-amber-500 flex-shrink-0" aria-hidden="true" />
               Marked
             </span>
-            <span className="font-black text-theme-text tabular-nums">{markedCount}</span>
+            <span className="font-black text-sm text-theme-text tabular-nums">{markedCount}</span>
           </div>
 
           {/* Not Answered */}
-          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-theme-bg border border-theme-border">
-            <span className="flex items-center gap-1.5 text-theme-text-secondary text-[11px] font-medium">
-              <span className="w-2.5 h-2.5 rounded-full bg-theme-unattempted/60 flex-shrink-0" aria-hidden="true" />
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-theme-bg border border-theme-border">
+            <span className="flex items-center gap-1.5 text-theme-text-secondary text-xs font-semibold">
+              <span className="w-3 h-3 rounded-full bg-theme-unattempted/60 flex-shrink-0" aria-hidden="true" />
               Unanswered
             </span>
-            <span className="font-black text-theme-text tabular-nums">{notAnswered}</span>
+            <span className="font-black text-sm text-theme-text tabular-nums">{notAnswered}</span>
           </div>
 
           {/* Not Visited */}
-          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-theme-bg border border-theme-border">
-            <span className="flex items-center gap-1.5 text-theme-text-secondary text-[11px] font-medium">
-              <Eye className="w-3.5 h-3.5 text-theme-text-secondary/60 flex-shrink-0" aria-hidden="true" />
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-theme-bg border border-theme-border">
+            <span className="flex items-center gap-1.5 text-theme-text-secondary text-xs font-semibold">
+              <Eye className="w-4 h-4 text-theme-text-secondary/60 flex-shrink-0" aria-hidden="true" />
               Not Visited
             </span>
-            <span className="font-black text-theme-text tabular-nums">{notVisited}</span>
+            <span className="font-black text-sm text-theme-text tabular-nums">{notVisited}</span>
           </div>
         </div>
       </div>
 
-      {/* ── 4. Section Progress (Compact) ── */}
+      {/* ── 4. Section Progress (Roomier) ── */}
       <div
         role="region"
         aria-label={`Section progress: ${progressPct}% complete`}
-        className="rounded-xl border-2 border-theme-border bg-theme-surface shadow-xs px-3.5 py-2"
+        className="rounded-2xl border-2 border-theme-border bg-theme-surface shadow-xs px-4 py-3"
       >
-        <div className="flex items-center justify-between mb-1.5">
-          <h2 className="text-xs font-bold text-theme-text flex items-center gap-1.5">
-            <TrendingUp className="w-3.5 h-3.5 text-theme-primary" aria-hidden="true" />
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-xs sm:text-sm font-bold text-theme-text flex items-center gap-1.5">
+            <TrendingUp className="w-4 h-4 text-theme-primary" aria-hidden="true" />
             <span>Progress</span>
           </h2>
           <span
-            className="text-xs font-black tabular-nums"
+            className="text-xs sm:text-sm font-black tabular-nums"
             style={{ color: progressPct > 0 ? 'var(--primary)' : 'var(--text-secondary)' }}
           >
             {progressPct}% ({answeredCount}/{currentExam.questions.length})
           </span>
         </div>
 
-        <div className="h-2 w-full rounded-full bg-theme-border overflow-hidden" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
+        <div className="h-2.5 w-full rounded-full bg-theme-border overflow-hidden" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
           <div
             className="h-full rounded-full bg-theme-primary transition-all duration-500 ease-out"
             style={{ width: `${progressPct}%` }}
