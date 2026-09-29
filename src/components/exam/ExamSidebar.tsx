@@ -161,11 +161,11 @@ export const ExamSidebar: React.FC = () => {
           </span>
         </div>
 
-        {/* Grid — taller buttons for easy tactile clicking */}
+        {/* Grid — clean grid with inset focus and zero overlap */}
         <div
           role="grid"
           aria-label="Question grid. Click any number to jump."
-          className="grid grid-cols-5 gap-1.5 max-h-48 overflow-y-auto pr-0.5"
+          className="grid grid-cols-5 gap-2 p-1 max-h-48 overflow-y-auto"
           style={{ scrollbarWidth: 'none' }}
         >
           {questions.map((q, idx) => {
@@ -175,7 +175,7 @@ export const ExamSidebar: React.FC = () => {
             const isVisited  = !!visitedQuestions[q.id];
 
             let bgClass = 'bg-theme-bg border-theme-border text-theme-text-secondary';
-            if (isCurrent)  bgClass = 'bg-theme-primary text-theme-primary-text border-theme-primary shadow-sm';
+            if (isCurrent)  bgClass = 'bg-theme-primary text-theme-primary-text border-2 border-theme-focus-ring shadow-sm z-10';
             else if (isMarked)   bgClass = 'bg-amber-500/25 border-amber-500/60 text-theme-text font-bold';
             else if (isAnswered) bgClass = 'bg-emerald-600/25 border-emerald-600/60 text-theme-text font-bold';
             else if (isVisited)  bgClass = 'bg-theme-surface border-theme-border text-theme-text';
@@ -189,13 +189,13 @@ export const ExamSidebar: React.FC = () => {
                 onClick={() => jumpToQuestion(idx)}
                 aria-label={`Question ${q.questionNumber}, ${statusLabel}. Click to go.`}
                 title={`Q${q.questionNumber} — ${statusLabel}`}
-                className={`relative h-9 sm:h-10 rounded-xl border text-sm font-black flex items-center justify-center transition-all hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-theme-focus-ring ${bgClass} ${
-                  isCurrent ? 'ring-2 ring-theme-focus-ring ring-offset-2 ring-offset-theme-surface scale-[1.03]' : ''
+                className={`relative h-9 sm:h-10 rounded-xl border text-sm font-black flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-theme-focus-ring ${bgClass} ${
+                  isCurrent ? 'ring-2 ring-inset ring-theme-focus-ring' : 'hover:border-theme-primary/60'
                 }`}
               >
                 {q.questionNumber}
                 {isMarked && !isCurrent && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-theme-surface shadow-xs" aria-hidden="true" />
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-1 ring-theme-surface shadow-xs" aria-hidden="true" />
                 )}
               </button>
             );
