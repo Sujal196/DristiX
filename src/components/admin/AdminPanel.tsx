@@ -52,7 +52,6 @@ import {
   Command,
   Download,
   SlidersHorizontal,
-  GraduationCap,
   Copy,
   Check,
   Calendar,
@@ -2609,7 +2608,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   <span className="text-theme-text/60 mr-1 text-xs">Filter Mode:</span>
                   {[
                     { id: 'all', label: 'All Candidates', count: students.length },
-                    { id: 'standard', label: 'Standard Profile', count: students.filter((s) => !s.accessibilityPreference || s.accessibilityPreference === 'standard').length },
+                    { id: 'standard', label: 'Standard Profile', count: students.filter((s) => !s.accessibilityPreference || s.accessibilityPreference === 'Standard' || String(s.accessibilityPreference).toLowerCase() === 'standard').length },
                     { id: 'visual', label: 'Visual Assistance', count: visualStudentsCount },
                     { id: 'adhd-cognitive', label: 'Cognitive / ADHD', count: cognitiveStudentsCount },
                     { id: 'motor', label: 'Motor Assist', count: motorStudentsCount },
@@ -3245,11 +3244,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
                               <button
                                 type="button"
+                                disabled={isLoadingExamForEdit}
                                 onClick={() => void handleStartEditExam(exam.id)}
-                                className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-[#008f7a] text-theme-text text-xs font-bold flex items-center gap-1.5 transition"
+                                className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-[#008f7a] text-theme-text text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50"
                               >
                                 <Edit3 className="w-3.5 h-3.5 text-[#008f7a]" aria-hidden="true" />
-                                <span>Edit in Studio</span>
+                                <span>{isLoadingExamForEdit ? 'Loading...' : 'Edit in Studio'}</span>
                               </button>
                             </div>
 
@@ -3370,11 +3370,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
                               <button
                                 type="button"
+                                disabled={isLoadingExamForEdit}
                                 onClick={() => void handleStartEditExam(drill.id)}
-                                className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-emerald-500 text-theme-text text-xs font-bold flex items-center gap-1.5 transition"
+                                className="px-3 py-1.5 rounded-xl border border-theme-border bg-theme-bg hover:border-emerald-500 text-theme-text text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50"
                               >
                                 <Edit3 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
-                                <span>Edit Drill</span>
+                                <span>{isLoadingExamForEdit ? 'Loading...' : 'Edit Drill'}</span>
                               </button>
                             </div>
 

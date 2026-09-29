@@ -151,9 +151,19 @@ export const VoiceAssistantOrb: React.FC = () => {
     setIsExpanded(true);
 
     let result: CommandProcessResult | null = null;
+    const candidates = alternatives && alternatives.length > 0 ? alternatives : [cleanQuery];
+    if (!candidates.includes(cleanQuery)) {
+      candidates.unshift(cleanQuery);
+    }
 
-    // 2. If Gemini API key is configured, utilize Gemini 2.0 Flash for 100% natural language accuracy
-    if (geminiVoiceService.hasApiKey()) {
+    // 2. High-Precision Instant Local NLP (0ms execution for exam navigation, options, timer, submit, etc.)
+    const localResult = processVoiceCommand(candidates);
+    if (localResult && localResult.intent !== 'UNRECOGNIZED') {
+      result = localResult;
+    }
+
+    // 3. Fallback to Gemini/Groq for conversational queries or open-ended speech
+    if (!result && geminiVoiceService.hasApiKey()) {
       try {
         result = await geminiVoiceService.processTextWithGemini(cleanQuery);
       } catch (err) {
@@ -161,13 +171,9 @@ export const VoiceAssistantOrb: React.FC = () => {
       }
     }
 
-    // 3. Fallback to local high-precision NLP engine
+    // 4. Ultimate fallback to local engine
     if (!result) {
-      const candidates = alternatives && alternatives.length > 0 ? alternatives : [cleanQuery];
-      if (!candidates.includes(cleanQuery)) {
-        candidates.unshift(cleanQuery);
-      }
-      result = processVoiceCommand(candidates);
+      result = localResult || processVoiceCommand(candidates);
     }
 
     // 4. Append assistant reply
