@@ -1,26 +1,68 @@
+import { verbalizeForSpeech } from './mathVerbalizer';
+
 /**
  * Built-in Web Speech API Controller for visually impaired candidates
  * Provides reliable TTS with Chrome pause/resume bug fixes and language defaults.
  */
 
-function detectLanguage(text: string): 'hi-IN' | 'en-IN' {
-  // 1. If text contains Devanagari script, it is definitely Hindi
+/**
+ * Standard Microsoft Edge / Azure Neural TTS Voice Identifiers:
+ * - Hindi (Devanagari): hi-IN-MadhurNeural (Natural Hindi neural voice)
+ * - Hinglish (Roman Hindi): en-IN-NeerjaNeural (Natural Indian English voice with fluent Hinglish phonology)
+ * - English (Default): en-US-AvaMultilingualNeural (State-of-the-art multilingual English neural voice)
+ */
+export const EDGE_TTS_VOICES = {
+  HINDI: 'hi-IN-MadhurNeural',
+  HINGLISH: 'en-IN-NeerjaNeural',
+  ENGLISH: 'en-US-AvaMultilingualNeural',
+} as const;
+
+export type SpeechModality = 'hindi' | 'hinglish' | 'english';
+
+export interface LanguageDetectionResult {
+  modality: SpeechModality;
+  lang: 'hi-IN' | 'en-IN' | 'en-US';
+  recommendedVoiceId: string;
+}
+
+export function detectLanguage(text: string): LanguageDetectionResult {
+  // 1. If text contains Devanagari script, it is definitely Hindi (Devanagari)
   if (/[\u0900-\u097F]/.test(text)) {
-    return 'hi-IN';
+    return {
+      modality: 'hindi',
+      lang: 'hi-IN',
+      recommendedVoiceId: EDGE_TTS_VOICES.HINDI,
+    };
   }
+
   // 2. Check for common Romanized Hindi / Hinglish keywords
   const hinglishWords = [
-    'hai', 'hain', 'aapka', 'aapki', 'aapke', 'kripya', 'sawal', 'uttar', 'pariksha',
-    'samay', 'chuna', 'chune', 'gaya', 'gayi', 'agla', 'pichhla', 'batao', 'bataiye',
-    'karein', 'karo', 'namaste', 'shuru', 'khatam', 'nahi', 'raha', 'rahi', 'liye',
-    'badla', 'diya', 'di', 'khola', 'khol', 'padha', 'pehle', 'kholiye', 'sakte'
+    'hai', 'hain', 'ho', 'hoga', 'hogi', 'honge', 'tha', 'thi', 'the',
+    'aapka', 'aapki', 'aapke', 'kripya', 'sawal', 'sawaal', 'uttar', 'pariksha',
+    'samay', 'chuna', 'chune', 'chuno', 'gaya', 'gayi', 'agla', 'pichhla',
+    'batao', 'bataiye', 'karein', 'karo', 'kijiye', 'namaste', 'shuru',
+    'khatam', 'samapt', 'nahi', 'nahin', 'raha', 'rahi', 'rahe', 'liye',
+    'badla', 'diya', 'di', 'khola', 'khol', 'padha', 'padho', 'pehle',
+    'kholiye', 'sakte', 'sakta', 'sakti', 'vikalp', 'shukriya', 'theek',
+    'ruko', 'ruk', 'chahiye', 'kaise', 'kya', 'kyun', 'bhi', 'aur', 'par',
+    'se', 'ko', 'ka', 'ki', 'ke', 'mein', 'mera', 'meri', 'mere'
   ];
   const lowerWords = text.toLowerCase().split(/[\s,.-]+/);
   const matchCount = lowerWords.filter((w) => hinglishWords.includes(w)).length;
   if (matchCount >= 2 || (lowerWords.length <= 6 && matchCount >= 1)) {
-    return 'hi-IN';
+    return {
+      modality: 'hinglish',
+      lang: 'en-IN',
+      recommendedVoiceId: EDGE_TTS_VOICES.HINGLISH,
+    };
   }
-  return 'en-IN';
+
+  // 3. Default is English
+  return {
+    modality: 'english',
+    lang: 'en-US',
+    recommendedVoiceId: EDGE_TTS_VOICES.ENGLISH,
+  };
 }
 
 class SpeechEngine {
@@ -133,6 +175,226 @@ class SpeechEngine {
     return this.voices;
   }
 
+  /**
+   * Finds the best voice for Hindi (Devanagari), prioritizing Microsoft Edge hi-IN-MadhurNeural
+   */
+  public findMadhurVoice(): SpeechSynthesisVoice | null {
+    const list = this.getVoices();
+    // 1. Exact or fuzzy match for Madhur Neural (Microsoft Edge / Azure)
+    const madhur = list.find((v) => {
+      const uri = (v.voiceURI || '').toLowerCase();
+      const name = (v.name || '').toLowerCase();
+      return (
+        uri === 'hi-in-madhurneural' ||
+        uri.includes('madhur') ||
+        name.includes('madhur')
+      );
+    });
+    if (madhur) return madhur;
+
+    // 2. Any other Hindi Natural / Neural voice
+    const naturalHindi = list.find((v) => {
+      const l = (v.lang || '').toLowerCase();
+      const n = (v.name || '').toLowerCase();
+      return (l.startsWith('hi') || l === 'hi-in') && (n.includes('natural') || n.includes('neural') || n.includes('online'));
+    });
+    if (naturalHindi) return naturalHindi;
+
+    // 3. Any Hindi voice
+    const anyHindi = list.find((v) => {
+      const l = (v.lang || '').toLowerCase();
+      const n = (v.name || '').toLowerCase();
+      return l.startsWith('hi') || l === 'hi-in' || n.includes('hindi');
+    });
+    if (anyHindi) return anyHindi;
+
+    // 4. Fallback to Indian English Neerja
+    return this.findNeerjaVoice();
+  }
+
+  /**
+   * Finds the best voice for Hinglish (Roman Hindi), prioritizing Microsoft Edge en-IN-NeerjaNeural
+   */
+  public findNeerjaVoice(): SpeechSynthesisVoice | null {
+    const list = this.getVoices();
+    // 1. Exact or fuzzy match for Neerja Neural (Microsoft Edge / Azure)
+    const neerja = list.find((v) => {
+      const uri = (v.voiceURI || '').toLowerCase();
+      const name = (v.name || '').toLowerCase();
+      return (
+        uri === 'en-in-neerjaneural' ||
+        uri.includes('neerja') ||
+        name.includes('neerja')
+      );
+    });
+    if (neerja) return neerja;
+
+    // 2. Any other Indian English Natural / Neural voice
+    const naturalEnIn = list.find((v) => {
+      const l = (v.lang || '').toLowerCase();
+      const n = (v.name || '').toLowerCase();
+      return l === 'en-in' && (n.includes('natural') || n.includes('neural') || n.includes('online'));
+    });
+    if (naturalEnIn) return naturalEnIn;
+
+    // 3. Any Indian English voice
+    const anyEnIn = list.find((v) => {
+      const l = (v.lang || '').toLowerCase();
+      const n = (v.name || '').toLowerCase();
+      return l === 'en-in' || n.includes('india');
+    });
+    if (anyEnIn) return anyEnIn;
+
+    // 4. Fallback to English Ava voice
+    return this.findAvaVoice();
+  }
+
+  public findHinglishVoice(): SpeechSynthesisVoice | null {
+    return this.findNeerjaVoice();
+  }
+
+  public findHindiVoice(): SpeechSynthesisVoice | null {
+    return this.findMadhurVoice();
+  }
+
+  public findEnglishVoice(): SpeechSynthesisVoice | null {
+    return this.findAvaVoice();
+  }
+
+  /**
+   * Finds the best voice for English (Default), prioritizing Microsoft Edge en-US-AvaMultilingualNeural
+   */
+  public findAvaVoice(): SpeechSynthesisVoice | null {
+    const list = this.getVoices();
+    // 1. Exact or fuzzy match for Ava Multilingual Neural (Microsoft Edge / Azure)
+    const ava = list.find((v) => {
+      const uri = (v.voiceURI || '').toLowerCase();
+      const name = (v.name || '').toLowerCase();
+      return (
+        uri === 'en-us-avamultilingualneural' ||
+        uri.includes('avamultilingual') ||
+        uri.includes('ava') ||
+        name.includes('avamultilingual') ||
+        name.includes('ava')
+      );
+    });
+    if (ava) return ava;
+
+    // 2. Any other English Natural / Neural / Multilingual voice
+    const naturalEn = list.find((v) => {
+      const l = (v.lang || '').toLowerCase();
+      const n = (v.name || '').toLowerCase();
+      return l.startsWith('en') && (n.includes('natural') || n.includes('neural') || n.includes('online') || n.includes('multilingual'));
+    });
+    if (naturalEn) return naturalEn;
+
+    // 3. Any en-US voice
+    const anyEnUs = list.find((v) => {
+      const l = (v.lang || '').toLowerCase();
+      return l === 'en-us';
+    });
+    if (anyEnUs) return anyEnUs;
+
+    // 4. Any English voice
+    return list.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
+  }
+
+  /**
+   * Resolves the target voice and language for a given clean text string
+   */
+  public resolveVoiceForText(cleanText: string): {
+    voice: SpeechSynthesisVoice | null;
+    lang: 'hi-IN' | 'en-IN' | 'en-US';
+    modality: SpeechModality;
+    voiceId: string;
+  } {
+    const det = detectLanguage(cleanText);
+
+    // If candidate or admin has explicitly set a voice
+    if (this.selectedVoiceURI) {
+      const uri = this.selectedVoiceURI.toLowerCase();
+      if (uri === EDGE_TTS_VOICES.HINDI.toLowerCase() || uri.includes('madhur')) {
+        return {
+          voice: this.findMadhurVoice(),
+          lang: 'hi-IN',
+          modality: 'hindi',
+          voiceId: EDGE_TTS_VOICES.HINDI,
+        };
+      }
+      if (uri === EDGE_TTS_VOICES.HINGLISH.toLowerCase() || uri.includes('neerja')) {
+        return {
+          voice: this.findNeerjaVoice(),
+          lang: 'en-IN',
+          modality: 'hinglish',
+          voiceId: EDGE_TTS_VOICES.HINGLISH,
+        };
+      }
+      if (uri === EDGE_TTS_VOICES.ENGLISH.toLowerCase() || uri.includes('ava')) {
+        return {
+          voice: this.findAvaVoice(),
+          lang: 'en-US',
+          modality: 'english',
+          voiceId: EDGE_TTS_VOICES.ENGLISH,
+        };
+      }
+
+      // Check if it's a specific installed system voice
+      const exactVoice = this.getVoices().find((v) => v.voiceURI === this.selectedVoiceURI);
+      if (exactVoice) {
+        return {
+          voice: exactVoice,
+          lang: (exactVoice.lang as any) || det.lang,
+          modality: det.modality,
+          voiceId: exactVoice.voiceURI,
+        };
+      }
+    }
+
+    // Default: Intelligent auto-routing based on text modality
+    if (det.modality === 'hindi') {
+      return {
+        voice: this.findMadhurVoice(),
+        lang: 'hi-IN',
+        modality: 'hindi',
+        voiceId: EDGE_TTS_VOICES.HINDI,
+      };
+    }
+
+    if (det.modality === 'hinglish') {
+      return {
+        voice: this.findNeerjaVoice(),
+        lang: 'en-IN',
+        modality: 'hinglish',
+        voiceId: EDGE_TTS_VOICES.HINGLISH,
+      };
+    }
+
+    return {
+      voice: this.findAvaVoice(),
+      lang: 'en-US',
+      modality: 'english',
+      voiceId: EDGE_TTS_VOICES.ENGLISH,
+    };
+  }
+
+  /**
+   * Helper to inspect which Microsoft Edge Natural voices are installed in browser
+   */
+  public getEdgeVoiceStatus() {
+    const list = this.getVoices();
+    const madhur = list.find((v) => (v.voiceURI || '').toLowerCase().includes('madhur') || (v.name || '').toLowerCase().includes('madhur')) || null;
+    const neerja = list.find((v) => (v.voiceURI || '').toLowerCase().includes('neerja') || (v.name || '').toLowerCase().includes('neerja')) || null;
+    const ava = list.find((v) => (v.voiceURI || '').toLowerCase().includes('ava') || (v.name || '').toLowerCase().includes('ava')) || null;
+
+    return {
+      madhur,
+      neerja,
+      ava,
+      hasAllEdgeVoices: !!(madhur && neerja && ava),
+      hasAnyEdgeVoice: !!(madhur || neerja || ava),
+    };
+  }
+
   public stop(notify = true) {
     // Abandon any speak() still waiting out its start delay. `synth.cancel()`
     // below cannot reach a timeout that is already scheduled, so without this
@@ -226,8 +488,8 @@ class SpeechEngine {
 
     this.synth = window.speechSynthesis;
 
-    // Clean HTML tags or redundant whitespace
-    const cleanText = text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    // Clean HTML tags, normalize whitespace, and verbalize ratios (e.g. 3:1 -> 3 to 1), math symbols, abbreviations
+    const cleanText = verbalizeForSpeech(text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim());
     if (!cleanText) {
       this.notifySpeechEnd();
       return;
@@ -267,7 +529,11 @@ class SpeechEngine {
     // one no longer describes the current state.
     this.interruptedAt = 0;
 
-    const detectedLang = detectLanguage(cleanText);
+    if (this.voices.length === 0) {
+      this.loadVoices();
+    }
+
+    const resolved = this.resolveVoiceForText(cleanText);
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     this.activeUtterance = utterance;
@@ -276,35 +542,10 @@ class SpeechEngine {
 
     utterance.rate = this.rate;
     utterance.pitch = this.pitch;
-    utterance.lang = detectedLang;
+    utterance.lang = resolved.lang;
 
-    if (this.voices.length === 0) {
-      this.loadVoices();
-    }
-
-    if (this.selectedVoiceURI) {
-      const voice = this.voices.find((v) => v.voiceURI === this.selectedVoiceURI);
-      if (voice) {
-        utterance.voice = voice;
-      }
-    } else {
-      if (detectedLang === 'hi-IN') {
-        const hiVoice =
-          this.voices.find((v) => v.lang.toLowerCase().startsWith('hi')) ||
-          this.voices.find((v) => v.lang === 'hi-IN') ||
-          this.voices.find((v) => (v.name || '').toLowerCase().includes('hindi')) ||
-          this.voices.find((v) => v.lang === 'en-IN');
-        if (hiVoice) {
-          utterance.voice = hiVoice;
-        }
-      } else {
-        const enVoice =
-          this.voices.find((v) => v.lang === 'en-IN') ||
-          this.voices.find((v) => v.lang.startsWith('en'));
-        if (enVoice) {
-          utterance.voice = enVoice;
-        }
-      }
+    if (resolved.voice) {
+      utterance.voice = resolved.voice;
     }
 
     utterance.onstart = () => {

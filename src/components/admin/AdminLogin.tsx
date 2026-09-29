@@ -87,7 +87,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
-              className="w-full px-4 py-3 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/30 outline-none font-medium text-sm transition"
+              className="w-full px-4 py-3 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/30 outline-none font-medium text-sm transition"
             />
           </div>
 
@@ -105,7 +105,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-4 py-3 pr-12 rounded-xl bg-theme-bg border-2 border-theme-border text-theme-text focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/30 outline-none font-medium text-sm transition"
+                className="w-full px-4 py-3 pr-12 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/30 outline-none font-medium text-sm transition"
               />
               <button
                 type="button"

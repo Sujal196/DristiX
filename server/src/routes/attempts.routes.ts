@@ -10,7 +10,7 @@ import {
   findLiveAttempt,
   toAttemptSummary,
 } from '../services/attempt.service.js';
-import { gradeAttempt } from '../services/grading.service.js';
+import { gradeAttempt, readSelected, readMarked } from '../services/grading.service.js';
 import { toPublicQuestions } from '../services/question.service.js';
 import type { StartAttemptResult } from '../../../shared/types.js';
 
@@ -95,6 +95,16 @@ attemptRouter.post(
           exam: summaryOf(exam),
           questions: toPublicQuestions(exam.questions, attempt.mode as 'exam' | 'practice'),
           clock: buildClock(attempt),
+          state: {
+            currentIndex: attempt.state?.currentIndex ?? 0,
+            selectedOptions: readSelected(attempt),
+            markedForReview: readMarked(attempt),
+            visitedQuestions: attempt.state?.visitedQuestions
+              ? (typeof attempt.state.visitedQuestions.get === 'function'
+                  ? Object.fromEntries(attempt.state.visitedQuestions)
+                  : { ...(attempt.state.visitedQuestions as object) })
+              : {},
+          },
         };
         res.json(result);
         return;
@@ -169,16 +179,16 @@ attemptRouter.patch(
       throw new HttpError(409, 'attempt_closed', 'This attempt is already submitted.');
     }
 
-    // Merge rather than replace so a partial autosave cannot drop fields.
+    // Update attempt state; replacing maps allows students to clear options cleanly.
     if (patch.currentIndex !== undefined) attempt.state.currentIndex = patch.currentIndex;
-    for (const [k, v] of Object.entries(patch.selectedOptions ?? {})) {
-      attempt.state.selectedOptions.set(k, v);
+    if (patch.selectedOptions !== undefined) {
+      attempt.state.selectedOptions = new Map(Object.entries(patch.selectedOptions));
     }
-    for (const [k, v] of Object.entries(patch.markedForReview ?? {})) {
-      attempt.state.markedForReview.set(k, v);
+    if (patch.markedForReview !== undefined) {
+      attempt.state.markedForReview = new Map(Object.entries(patch.markedForReview));
     }
-    for (const [k, v] of Object.entries(patch.visitedQuestions ?? {})) {
-      attempt.state.visitedQuestions.set(k, v);
+    if (patch.visitedQuestions !== undefined) {
+      attempt.state.visitedQuestions = new Map(Object.entries(patch.visitedQuestions));
     }
 
     await attempt.save();
@@ -218,6 +228,24 @@ attemptRouter.post(
 
     if (attempt.status === 'submitted') {
       throw new HttpError(409, 'already_submitted', 'This attempt was already submitted.');
+    }
+
+    // Save any state passed directly in the submit payload before grading
+    if (req.body && typeof req.body === 'object') {
+      const parsed = stateSchema.partial().safeParse(req.body);
+      if (parsed.success && parsed.data) {
+        const patch = parsed.data;
+        if (patch.currentIndex !== undefined) attempt.state.currentIndex = patch.currentIndex;
+        if (patch.selectedOptions !== undefined) {
+          attempt.state.selectedOptions = new Map(Object.entries(patch.selectedOptions));
+        }
+        if (patch.markedForReview !== undefined) {
+          attempt.state.markedForReview = new Map(Object.entries(patch.markedForReview));
+        }
+        if (patch.visitedQuestions !== undefined) {
+          attempt.state.visitedQuestions = new Map(Object.entries(patch.visitedQuestions));
+        }
+      }
     }
 
     // A late submit is graded but marked expired, so the deadline is real.

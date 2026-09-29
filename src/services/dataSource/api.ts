@@ -172,12 +172,14 @@ const apiExams: ExamDataSource = {
         questions: (exam.questions ?? []).map((q) => ({
           id: q.id,
           section: q.section,
+          questionType: q.questionType || 'MCQ',
           questionText: q.questionText,
           mathLatex: q.mathLatex,
           diagramUrl: q.diagramUrl,
           diagramType: q.diagramType,
           diagramDescription: q.diagramDescription,
           diagramAiExplanation: q.diagramAiExplanation,
+          graph: q.graph,
           options: q.options,
           correctOption: q.correctOption,
           explanation: q.explanation ?? '',
@@ -205,12 +207,14 @@ const apiExams: ExamDataSource = {
         questions: (exam.questions ?? []).map((q) => ({
           id: q.id,
           section: q.section,
+          questionType: q.questionType || 'MCQ',
           questionText: q.questionText,
           mathLatex: q.mathLatex,
           diagramUrl: q.diagramUrl,
           diagramType: q.diagramType,
           diagramDescription: q.diagramDescription,
           diagramAiExplanation: q.diagramAiExplanation,
+          graph: q.graph,
           options: q.options,
           correctOption: q.correctOption,
           explanation: q.explanation ?? '',
@@ -288,10 +292,13 @@ const apiExams: ExamDataSource = {
     return clock;
   },
 
-  async submitAttempt(attemptId): Promise<GradeResult> {
+  async submitAttempt(attemptId, state): Promise<GradeResult> {
     const { result } = await request<{ result: GradeResult }>(
       `/attempts/${attemptId}/submit`,
-      { method: 'POST' }
+      {
+        method: 'POST',
+        body: state ? JSON.stringify(state) : undefined,
+      }
     );
     return result;
   },

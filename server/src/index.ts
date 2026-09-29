@@ -16,6 +16,21 @@ import { apiLimiter } from './middleware/rateLimit.js';
 
 const app = express();
 
+// ── Process-level safety net ────────────────────────────────────────
+// A transient database blip (Atlas connections reset every so often) must
+// surface as a 500 on the offending request, never as a dead server: every
+// rejection that slips past a route/middleware wrapper would otherwise take
+// the process down and every later request would fail with ECONNREFUSED.
+process.on('unhandledRejection', (reason) => {
+  console.error('[dristix] unhandled promise rejection (server kept alive):', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  // Logged rather than fatal: by the time this fires the request that caused
+  // it has already been answered or abandoned, and Express keeps serving.
+  console.error('[dristix] uncaught exception (server kept alive):', err);
+});
+
 // ── Security headers ────────────────────────────────────────────────
 app.set('trust proxy', 1);
 app.use(
@@ -43,7 +58,11 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: '1mb' }));
+// Images attached to a question travel as base64 data URLs — a single photo
+// is easily 1–4 MB once encoded, so 1 MB rejected every real upload with an
+// opaque 500. Generous enough for a diagram, still bounded so a runaway body
+// cannot pin memory.
+app.use(express.json({ limit: '8mb' }));
 app.use(cookieParser());
 app.use('/api', apiLimiter);
 

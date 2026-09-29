@@ -14,7 +14,7 @@ let messageCounter = 0;
 const messageId = (prefix: string) => `${prefix}-${Date.now()}-${++messageCounter}`;
 import type { VoiceState } from '../../utils/voiceRecognition';
 import { speechEngine } from '../../utils/speechEngine';
-import { processVoiceCommand } from '../../utils/voiceCommandProcessor';
+import { processVoiceCommand, isPhantomNoise } from '../../utils/voiceCommandProcessor';
 import type { CommandProcessResult } from '../../utils/voiceCommandProcessor';
 import { geminiVoiceService } from '../../utils/geminiVoiceService';
 import { GeminiLiveVoiceSession } from '../../utils/geminiLiveVoiceSession';
@@ -86,18 +86,135 @@ export const VoiceAssistantOrb: React.FC = () => {
   const [keySaved, setKeySaved] = useState<boolean>(false);
   const [testingKey, setTestingKey] = useState<boolean>(false);
   const [keyValidationResult, setKeyValidationResult] = useState<{ ok: boolean; message: string; models?: string[] } | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: 'msg-welcome',
       sender: 'assistant',
       text: 'Hello! I am the DristiX Conversational AI Voice Assistant. You can speak to me in English or Hindi—I will execute your commands and answer in English. Tap the microphone or press "V" to speak.',
-      timestamp: Date.now(),
+      timestamp: 0,
     },
   ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const liveSessionRef = useRef<GeminiLiveVoiceSession | null>(null);
   const lastExecutedQueryRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
+
+  const handleExecuteQuery = async (query: string, alternatives?: string[]) => {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return;
+
+    // Suppress phantom noise hallucinations (such as 'so', 'sau', etc.) from ambient background
+    if (isPhantomNoise(cleanQuery)) {
+      console.log('🔇 Suppressed phantom noise query in VoiceAssistantOrb:', cleanQuery);
+      return;
+    }
+
+    // Suppress duplicate identical queries within 1.5s
+    const now = Date.now();
+    if (
+      lastExecutedQueryRef.current.text === cleanQuery &&
+      now - lastExecutedQueryRef.current.time < 1500
+    ) {
+      console.log('🔇 Suppressed duplicate query within 1.5s window:', cleanQuery);
+      return;
+    }
+    lastExecutedQueryRef.current = { text: cleanQuery, time: now };
+
+    // Check for explicit stop / interrupt command while assistant is talking
+    const isInterruptCmd = /^(stop|ruko|ruk jao|chup|pause|quiet|bas karo|shant|band karo)$/i.test(cleanQuery);
+    if (isInterruptCmd && speechEngine.isSpeaking()) {
+      speechEngine.stop();
+      soundEffects.playSelect();
+      return;
+    }
+
+    // Acoustic Echo Guard: Prevent assistant from hearing its own speakers in a loop
+    if (speechEngine.isTextEcho(cleanQuery)) {
+      console.log('🔇 Suppressed acoustic speaker echo query:', cleanQuery);
+      return;
+    }
+
+    // If assistant is actively vocalizing and user provides a new command, stop assistant and prioritize candidate
+    if (speechEngine.isSpeaking()) {
+      speechEngine.stop();
+    }
+
+    // 1. Append user message
+    const userMsg: ChatMessage = {
+      id: messageId('user'),
+      sender: 'user',
+      text: cleanQuery,
+      timestamp: Date.now(),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setIsExpanded(true);
+
+    let result: CommandProcessResult | null = null;
+
+    // 2. If Gemini API key is configured, utilize Gemini 2.0 Flash for 100% natural language accuracy
+    if (geminiVoiceService.hasApiKey()) {
+      try {
+        result = await geminiVoiceService.processTextWithGemini(cleanQuery);
+      } catch (err) {
+        console.warn('Gemini text fallback to local NLP:', err);
+      }
+    }
+
+    // 3. Fallback to local high-precision NLP engine
+    if (!result) {
+      const candidates = alternatives && alternatives.length > 0 ? alternatives : [cleanQuery];
+      if (!candidates.includes(cleanQuery)) {
+        candidates.unshift(cleanQuery);
+      }
+      result = processVoiceCommand(candidates);
+    }
+
+    // 4. Append assistant reply
+    const assistantMsg: ChatMessage = {
+      id: messageId('assistant'),
+      sender: 'assistant',
+      text: result.assistantReply,
+      action: result.actionExecuted,
+      timestamp: Date.now(),
+    };
+
+    setMessages((prev) => [...prev, assistantMsg]);
+
+    // Ensure speech announcement is made if speechEngine is not already actively speaking (e.g. for fallback NLP or typed query)
+    if (result.assistantReply && !speechEngine.isSpeaking()) {
+      useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
+    }
+  };
+
+  // Primary Voice Toggle: Unified Gemini Live Voice Session with instant fallback
+  const handleToggleMic = async () => {
+    const session = liveSessionRef.current;
+    if (session) {
+      if (session.getState() !== 'idle') {
+        session.stop();
+      } else {
+        setIsExpanded(true);
+        // start() returns false when recognition is unavailable; it has already
+        // reported why through onError, so the panel must not keep implying the
+        // microphone is live.
+        const started = await session.start();
+        if (!started) {
+          setIsExpanded(true);
+          return;
+        }
+      }
+      return;
+    }
+
+    const active = voiceRecognition.toggle();
+    if (active) {
+      soundEffects.playMicStart();
+      setIsExpanded(true);
+    } else {
+      soundEffects.playMicStop();
+    }
+  };
 
   // Auto-scroll messages
   useEffect(() => {
@@ -208,117 +325,6 @@ export const VoiceAssistantOrb: React.FC = () => {
     return unsubscribe;
   }, []);
 
-  const handleExecuteQuery = async (query: string, alternatives?: string[]) => {
-    const cleanQuery = query.trim();
-    if (!cleanQuery) return;
-
-    // Suppress duplicate identical queries within 1.5s
-    const now = Date.now();
-    if (
-      lastExecutedQueryRef.current.text === cleanQuery &&
-      now - lastExecutedQueryRef.current.time < 1500
-    ) {
-      console.log('🔇 Suppressed duplicate query within 1.5s window:', cleanQuery);
-      return;
-    }
-    lastExecutedQueryRef.current = { text: cleanQuery, time: now };
-
-    // Check for explicit stop / interrupt command while assistant is talking
-    const isInterruptCmd = /^(stop|ruko|ruk jao|chup|pause|quiet|bas karo|shant|band karo)$/i.test(cleanQuery);
-    if (isInterruptCmd && speechEngine.isSpeaking()) {
-      speechEngine.stop();
-      soundEffects.playSelect();
-      return;
-    }
-
-    // Acoustic Echo Guard: Prevent assistant from hearing its own speakers in a loop
-    if (speechEngine.isTextEcho(cleanQuery)) {
-      console.log('🔇 Suppressed acoustic speaker echo query:', cleanQuery);
-      return;
-    }
-
-    // If assistant is actively vocalizing and user provides a new command, stop assistant and prioritize candidate
-    if (speechEngine.isSpeaking()) {
-      speechEngine.stop();
-    }
-
-    // 1. Append user message
-    const userMsg: ChatMessage = {
-      id: messageId('user'),
-      sender: 'user',
-      text: cleanQuery,
-      timestamp: Date.now(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setIsExpanded(true);
-
-    let result: CommandProcessResult | null = null;
-
-    // 2. If Gemini API key is configured, utilize Gemini 2.0 Flash for 100% natural language accuracy
-    if (geminiVoiceService.hasApiKey()) {
-      try {
-        result = await geminiVoiceService.processTextWithGemini(cleanQuery);
-      } catch (err) {
-        console.warn('Gemini text fallback to local NLP:', err);
-      }
-    }
-
-    // 3. Fallback to local high-precision NLP engine
-    if (!result) {
-      const candidates = alternatives && alternatives.length > 0 ? alternatives : [cleanQuery];
-      if (!candidates.includes(cleanQuery)) {
-        candidates.unshift(cleanQuery);
-      }
-      result = processVoiceCommand(candidates);
-    }
-
-    // 4. Append assistant reply
-    const assistantMsg: ChatMessage = {
-      id: messageId('assistant'),
-      sender: 'assistant',
-      text: result.assistantReply,
-      action: result.actionExecuted,
-      timestamp: Date.now(),
-    };
-
-    setMessages((prev) => [...prev, assistantMsg]);
-
-    // Ensure speech announcement is made if speechEngine is not already actively speaking (e.g. for fallback NLP or typed query)
-    if (result.assistantReply && !speechEngine.isSpeaking()) {
-      useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
-    }
-  };
-
-  // Primary Voice Toggle: Unified Gemini Live Voice Session with instant fallback
-  const handleToggleMic = async () => {
-    const session = liveSessionRef.current;
-    if (session) {
-      if (session.getState() !== 'idle') {
-        session.stop();
-      } else {
-        setIsExpanded(true);
-        // start() returns false when recognition is unavailable; it has already
-        // reported why through onError, so the panel must not keep implying the
-        // microphone is live.
-        const started = await session.start();
-        if (!started) {
-          setIsExpanded(true);
-          return;
-        }
-      }
-      return;
-    }
-
-    const active = voiceRecognition.toggle();
-    if (active) {
-      soundEffects.playMicStart();
-      setIsExpanded(true);
-    } else {
-      soundEffects.playMicStop();
-    }
-  };
-
   const handleTypedSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!typedInput.trim()) return;
@@ -371,9 +377,9 @@ export const VoiceAssistantOrb: React.FC = () => {
           className="w-[92vw] sm:w-96 max-h-[75vh] mb-3 bg-theme-surface border-2 border-theme-border rounded-2xl shadow-2xl flex flex-col overflow-hidden text-theme-text transition-all animate-in fade-in slide-in-from-bottom-4 duration-200"
         >
           {/* Header */}
-          <div className="p-3.5 bg-gradient-to-r from-blue-900/40 via-indigo-900/40 to-purple-900/40 border-b-2 border-theme-border flex items-center justify-between">
+          <div className="p-3.5 bg-gradient-to-r from-teal-900/50 via-emerald-900/40 to-teal-800/50 border-b-2 border-theme-border flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center text-white shadow-sm">
+              <span className="w-7 h-7 rounded-full bg-gradient-to-tr from-teal-500 to-emerald-400 flex items-center justify-center text-white shadow-sm">
                 <Sparkles className="w-4 h-4" aria-hidden="true" />
               </span>
               <div>
@@ -737,15 +743,15 @@ export const VoiceAssistantOrb: React.FC = () => {
               ? liveState === 'user_speaking'
                 ? 'bg-gradient-to-tr from-emerald-500 via-teal-400 to-green-500 ring-4 ring-emerald-300 shadow-emerald-500/50'
                 : liveState === 'assistant_speaking'
-                  ? 'bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-500 ring-4 ring-purple-400 shadow-purple-500/50'
-                  : 'bg-gradient-to-tr from-cyan-500 via-blue-500 to-indigo-600 ring-4 ring-cyan-400/60'
-              : 'bg-gradient-to-tr from-indigo-600 via-blue-600 to-purple-600 hover:scale-105 hover:shadow-indigo-500/50'
+                  ? 'bg-gradient-to-tr from-purple-600 via-teal-600 to-emerald-500 ring-4 ring-purple-400 shadow-purple-500/50'
+                  : 'bg-gradient-to-tr from-teal-500 via-emerald-500 to-teal-600 ring-4 ring-teal-400/60'
+              : 'bg-gradient-to-tr from-teal-700 via-emerald-600 to-teal-800 hover:scale-105 hover:shadow-teal-500/50'
           }`}
         >
           {/* Animated soundwave ring when listening */}
           {isAnyListening && (
             <span
-              className="absolute inset-0 rounded-full border-4 border-cyan-400 animate-ping opacity-60 pointer-events-none"
+              className="absolute inset-0 rounded-full border-4 border-teal-400 animate-ping opacity-60 pointer-events-none"
               aria-hidden="true"
             />
           )}

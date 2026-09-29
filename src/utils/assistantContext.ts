@@ -69,6 +69,7 @@ export interface PageContextSnapshot {
     isMarkedForReview: boolean;
     hint?: string;
     explanation?: string;
+    graph?: import('../../shared/types').QuestionGraph;
   };
 }
 
@@ -215,6 +216,7 @@ export function getAssistantContext(): PageContextSnapshot {
         isMarkedForReview: isMarked,
         hint: curQ.hint,
         explanation: curQ.explanation,
+        graph: curQ.graph,
       };
     }
   }

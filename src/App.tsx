@@ -12,6 +12,7 @@ import { LiveAnnouncer } from './components/a11y/LiveAnnouncer';
 import { Header } from './components/layout/Header';
 import { ExamCatalogScreen } from './components/catalog/ExamCatalogScreen';
 import { ExamScreen } from './components/exam/ExamScreen';
+import { ExamSidebar } from './components/exam/ExamSidebar';
 import { DiagnosticReport } from './components/exam/DiagnosticReport';
 import { QuestionPalette } from './components/exam/QuestionPalette';
 import { A11ySettingsModal } from './components/a11y/A11ySettingsModal';
@@ -27,6 +28,7 @@ import { VoiceAssistantOrb } from './components/voice/VoiceAssistantOrb';
 import { useBootstrapStore } from './stores/useBootstrapStore';
 import { getDataSource } from './services/dataSource';
 import { formatDuration } from './utils/formatDuration';
+import { dispatchAccessibilityEvent } from './accessibility';
 
 export const App: React.FC = () => {
   const { applyToDOM } = usePreferencesStore();
@@ -156,22 +158,29 @@ export const App: React.FC = () => {
 
           // Milestone announcements (30m, 15m, 10m, 5m, 2m, 1m warnings)
           if (milestone && milestone.alert) {
-            soundEffects.playTimerAlert();
-            useAnnouncerStore
-              .getState()
-              .announce(milestone.message, 'assertive', true);
+            const isCritical = remainingSeconds <= 120;
+            dispatchAccessibilityEvent(
+              isCritical ? 'TIMER_CRITICAL' : 'TIMER_WARNING',
+              {
+                remainingSeconds,
+                formattedTime,
+                message: milestone.message,
+              },
+              isCritical ? 'CRITICAL' : 'HIGH'
+            );
           }
         } else if (type === 'TIMEOUT') {
           const store = useExamStore.getState();
           if (store.isSubmitted || store.activeView !== 'exam') return;
-          soundEffects.playTimerAlert();
-          useAnnouncerStore
-            .getState()
-            .announce(
-              'Exam time has expired! Automatically submitting your responses now.',
-              'assertive',
-              true
-            );
+          dispatchAccessibilityEvent(
+            'TIMER_CRITICAL',
+            {
+              remainingSeconds: 0,
+              formattedTime: '00:00:00',
+              message: 'Exam time has expired! Automatically submitting your responses now.',
+            },
+            'CRITICAL'
+          );
           void submitExam();
         }
       };
@@ -371,8 +380,7 @@ export const App: React.FC = () => {
           </h1>
           <p className="text-base">{bootstrapError}</p>
           <p className="text-sm text-theme-text-secondary">
-            If you are working offline, set <code>VITE_DATA_SOURCE=local</code> to run the
-            app without a backend.
+            Please ensure the DristiX backend server is running (<code>npm run dev:api</code> or <code>npm run dev:all</code>) and MongoDB is reachable.
           </p>
           <button
             type="button"
@@ -475,7 +483,7 @@ export const App: React.FC = () => {
       <Header />
 
       {/* Primary Content Container: Catalog Dashboard vs Active Exam vs Diagnostic Report vs Analytics */}
-      <div id="main-content" className="flex-1 pb-16">
+      <div id="main-content" className={`flex-1 ${activeView === 'exam' && !isSubmitted ? 'pb-2' : 'pb-16'}`}>
         {activeView === 'analytics' ? (
           <StudentAnalyticsView onReturnToCatalog={returnToCatalog} />
         ) : activeView === 'catalog' ? (
@@ -483,7 +491,15 @@ export const App: React.FC = () => {
         ) : isSubmitted ? (
           <DiagnosticReport />
         ) : (
-          <ExamScreen />
+          /* Active exam: two-column layout */
+          <div className="flex gap-4 items-start px-3 sm:px-5 lg:px-6 py-2 max-w-[1700px] mx-auto">
+            {/* Left: Question content */}
+            <div className="flex-1 min-w-0">
+              <ExamScreen />
+            </div>
+            {/* Right: Sidebar — Timer, Palette, Status, Progress */}
+            <ExamSidebar />
+          </div>
         )}
       </div>
 

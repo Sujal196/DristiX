@@ -26,6 +26,19 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
   const { announce } = useAnnouncerStore();
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        speechEngine.stop();
+        setIsPlayingAudio(false);
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const audioText =

@@ -1,5 +1,5 @@
 import { geminiVoiceService } from './geminiVoiceService';
-import { processVoiceCommand } from './voiceCommandProcessor';
+import { processVoiceCommand, isPhantomNoise } from './voiceCommandProcessor';
 import type { CommandProcessResult } from './voiceCommandProcessor';
 import { speechEngine } from './speechEngine';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
@@ -171,10 +171,10 @@ export class GeminiLiveVoiceSession {
       // Start real-time speech recognition for live streaming words & instant zero-latency NLP fallback
       this.unbindTranscript = voiceRecognition.addListener({
         onTranscript: (transcript: string, isFinal: boolean, alternatives?: string[]) => {
-          if (transcript.trim()) {
+          if (transcript.trim() && !isPhantomNoise(transcript.trim())) {
             this.currentSpeechTranscript = transcript.trim();
             if (alternatives && alternatives.length > 0) {
-              this.currentAlternatives = alternatives;
+              this.currentAlternatives = alternatives.filter((a) => !isPhantomNoise(a));
             }
             this.callbacks.onLiveTranscript?.(transcript.trim(), isFinal);
 
@@ -338,7 +338,7 @@ export class GeminiLiveVoiceSession {
 
       // Voice Activity Detection (VAD)
       if (this.state === 'listening' || this.state === 'user_speaking') {
-        const SPEECH_THRESHOLD = 12;
+        const SPEECH_THRESHOLD = 18;
 
         if (normalizedVolume > SPEECH_THRESHOLD) {
           // User is speaking
@@ -400,6 +400,9 @@ export class GeminiLiveVoiceSession {
     //    fallback below, because it receives no audio when Google's speech
     //    service is unreachable.
     let capturedTranscript = this.currentSpeechTranscript.trim();
+    if (isPhantomNoise(capturedTranscript)) {
+      capturedTranscript = '';
+    }
 
     if (!capturedTranscript && audioBlob && audioBlob.size > 1000) {
       try {
@@ -408,7 +411,12 @@ export class GeminiLiveVoiceSession {
         capturedTranscript = result.text.trim();
         console.log('[Live Voice] server transcription:', capturedTranscript);
         if (capturedTranscript) {
-          this.callbacks.onLiveTranscript?.(capturedTranscript, true);
+          if (isPhantomNoise(capturedTranscript)) {
+            console.log('[Live Voice] Filtered phantom noise token from server transcription:', capturedTranscript);
+            capturedTranscript = '';
+          } else {
+            this.callbacks.onLiveTranscript?.(capturedTranscript, true);
+          }
         }
       } catch (err) {
         console.warn('[Live Voice] server transcription failed:', err);
@@ -516,8 +524,8 @@ export class GeminiLiveVoiceSession {
         this.startSegmentRecording();
       }
     } else {
-      // Only announce prompt if user actually said words that were not recognized
-      if (capturedTranscript) {
+      // Only announce prompt if user actually said meaningful words that were not recognized
+      if (capturedTranscript && !isPhantomNoise(capturedTranscript)) {
         const promptReply =
           'I heard "' +
           capturedTranscript +
@@ -532,7 +540,7 @@ export class GeminiLiveVoiceSession {
         this.setState('assistant_speaking');
         useAnnouncerStore.getState().announce(promptReply, 'assertive', true);
       } else {
-        // Acoustic noise only: resume listening silently
+        // Acoustic noise or phantom token: resume listening silently
         this.setState('listening');
         this.startSegmentRecording();
       }

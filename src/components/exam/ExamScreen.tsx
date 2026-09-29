@@ -12,10 +12,13 @@ import {
   ChevronRight,
   Lightbulb,
   BookOpen,
+  Hash,
 } from 'lucide-react';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { speechEngine } from '../../utils/speechEngine';
 import { AiDiagramViewer } from '../common/AiDiagramViewer';
+import { InteractiveSonificationGraph } from '../sonification/InteractiveSonificationGraph';
+import { verbalizeForSpeech } from '../../utils/mathVerbalizer';
 
 export const ExamScreen: React.FC = () => {
   const {
@@ -54,17 +57,9 @@ export const ExamScreen: React.FC = () => {
       qHeadingRef.current.focus({ preventScroll: false });
     }
 
-    // Auto-read question and options upon navigating if enabled
     const autoRead = usePreferencesStore.getState().autoReadOnNavigate;
     if (!autoRead || !currentQ) return;
 
-    // Queue behind whatever is being said.
-    //
-    // Opening an exam speaks a confirmation first. Every announcement
-    // interrupts the last, so reading question 1 straight away cut that
-    // confirmation off part-way through — and with the confirmation re-firing
-    // as well, the candidate heard fragments of both, repeated. Waiting for the
-    // engine to go quiet gives one message, then the next.
     let finished = false;
     let unbind: (() => void) | null = null;
 
@@ -75,16 +70,12 @@ export const ExamScreen: React.FC = () => {
         unbind();
         unbind = null;
       }
-      // Ended because it was stopped, not because it finished: the candidate
-      // asked for silence, and reading question 1 anyway would ignore that.
       if (afterWaiting && speechEngine.wasInterrupted()) return;
       announceCurrentQuestion(true);
     };
 
     if (speechEngine.isSpeaking()) {
       unbind = speechEngine.onSpeechEnd(() => read(true));
-      // Backstop: a synthesiser that never reports an end must not leave the
-      // question unread forever.
       const fallback = window.setTimeout(() => read(true), 15000);
       return () => {
         window.clearTimeout(fallback);
@@ -110,7 +101,7 @@ export const ExamScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => useExamStore.getState().returnToCatalog()}
-            className="px-6 py-2.5 font-bold rounded-xl bg-theme-primary text-white hover:brightness-110 transition"
+            className="px-6 py-2.5 font-bold rounded-xl bg-theme-primary text-theme-primary-text hover:brightness-110 transition"
           >
             Return to Examination Catalog
           </button>
@@ -145,73 +136,98 @@ export const ExamScreen: React.FC = () => {
 
   const isLastQuestion = currentIndex === questions.length - 1;
 
+  // Progress percentage
+  const progressPct = Math.round(((currentIndex + 1) / questions.length) * 100);
+  const answeredCount = Object.keys(selectedOptions).length;
+
   return (
     <main
       id="main-question-content"
       role="main"
       tabIndex={-1}
-      className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 outline-none"
+      className="outline-none"
     >
-      <section aria-labelledby="q-heading" className="bg-theme-surface border-2 border-theme-border rounded-xl p-5 sm:p-8 shadow-sm">
-        {/* Section Header & Status Badges */}
-        <div className="flex flex-wrap justify-between items-center gap-2 border-b-2 border-theme-border pb-4 mb-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs sm:text-sm font-bold uppercase tracking-wider px-2.5 py-1 rounded bg-theme-bg border border-theme-border text-theme-text">
-              Section: {currentQ.section}
+      {/* ── Progress Bar ── */}
+      <div className="mb-4" aria-hidden="true">
+        <div className="flex justify-between items-center text-xs font-semibold text-theme-text-secondary mb-1.5">
+          <span>Question {currentQ.questionNumber} of {questions.length}</span>
+          <span>{answeredCount} of {questions.length} answered</span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-theme-border overflow-hidden">
+          <div
+            className="h-full rounded-full bg-theme-primary transition-all duration-500"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* ── Main Question Card ── */}
+      <section
+        aria-labelledby="q-heading"
+        className="bg-theme-surface border border-theme-border rounded-2xl shadow-md overflow-hidden"
+      >
+
+        {/* Card Top Bar: Section + Status + Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 border-b border-theme-border bg-theme-bg/60">
+
+          {/* Left: Section pill + status badges */}
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border border-theme-border bg-theme-surface text-theme-text-secondary">
+              <Hash className="w-3 h-3" aria-hidden="true" />
+              {currentQ.section}
             </span>
+
             {isMarked && (
               <span
                 role="status"
-                className="text-xs sm:text-sm font-bold px-2.5 py-1 rounded border-2 border-theme-marked bg-amber-500/20 text-theme-text flex items-center gap-1"
+                className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full border border-amber-500/60 bg-amber-500/15 text-amber-600 dark:text-amber-400"
               >
-                <Bookmark className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
-                <span>Marked for Review</span>
+                <Bookmark className="w-3 h-3 fill-current" aria-hidden="true" />
+                Marked
               </span>
             )}
+
             {selectedOptNum && (
               <span
                 role="status"
-                className="text-xs sm:text-sm font-bold px-2.5 py-1 rounded border-2 border-emerald-600 bg-emerald-500/20 text-theme-text flex items-center gap-1"
+                className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full border border-emerald-500/60 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
               >
-                <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Answered (Option {selectedOptNum})</span>
+                <CheckCircle className="w-3 h-3" aria-hidden="true" />
+                Opt {selectedOptNum} Selected
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Direct Speak Question Button */}
+          {/* Right: Speak / Stop buttons */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={() => announceCurrentQuestion(true)}
-              title="Click or press 'R' to read this question and all options aloud"
-              aria-label={`Read Question ${currentQ.questionNumber} and all options aloud (Shortcut: R)`}
-              className="px-3 py-1.5 rounded-lg border-2 border-theme-border bg-theme-primary text-theme-primary-text hover:bg-theme-primary-hover font-bold text-xs sm:text-sm flex items-center gap-1.5 transition shadow-sm"
+              title="Read this question and all options aloud"
+              aria-label={`Read Question ${currentQ.questionNumber} and options aloud (Shortcut: R)`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-theme-border bg-theme-primary text-theme-primary-text hover:brightness-110 font-bold text-xs transition shadow-sm"
             >
-              <Volume2 className="w-4 h-4" aria-hidden="true" />
-              <span>Speak (R)</span>
+              <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Speak <kbd className="font-mono opacity-70">(R)</kbd></span>
             </button>
 
-            {/* Direct Stop Voice Button */}
             <button
               type="button"
               onClick={() => useAnnouncerStore.getState().stopSpeech()}
               title="Stop voice immediately (Shortcut: S or Esc)"
-              aria-label="Stop voice reading immediately (Shortcut: S or Esc)"
-              className="px-2.5 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg hover:bg-theme-surface text-theme-text font-bold text-xs sm:text-sm flex items-center gap-1 transition"
+              aria-label="Stop voice reading (Shortcut: S or Esc)"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-theme-border bg-theme-bg hover:bg-theme-surface text-theme-text font-bold text-xs transition"
             >
-              <VolumeX className="w-4 h-4 text-red-500" aria-hidden="true" />
-              <span>Stop (S)</span>
+              <VolumeX className="w-3.5 h-3.5 text-theme-danger" aria-hidden="true" />
+              <span>Stop <kbd className="font-mono opacity-70">(S)</kbd></span>
             </button>
-
-            <div className="text-xs sm:text-sm font-semibold text-theme-text-secondary ml-1">
-              Question {currentQ.questionNumber} of {questions.length}
-            </div>
           </div>
         </div>
 
-        {/* Question Heading with Programmatic Focus and Click-to-read */}
-        <div className="relative">
+        {/* ── Question Body ── */}
+        <div className="px-4 sm:px-6 pt-5 pb-2">
+
+          {/* Q-number + Question Text */}
           <h2
             id="q-heading"
             ref={qHeadingRef}
@@ -224,7 +240,7 @@ export const ExamScreen: React.FC = () => {
               }
             }}
             title="Click or press Space/Enter to read aloud"
-            className="text-xl sm:text-2xl font-bold text-theme-text leading-relaxed outline-none focus:ring-0 focus-visible:ring-4 focus-visible:ring-theme-focus-ring rounded-lg p-1 cursor-pointer hover:opacity-90 transition"
+            className="text-lg sm:text-xl lg:text-2xl font-bold text-theme-text leading-relaxed outline-none focus:ring-0 focus-visible:ring-4 focus-visible:ring-theme-focus-ring rounded-lg cursor-pointer hover:opacity-90 transition"
           >
             <span className="text-theme-primary font-black mr-2">
               Q{currentQ.questionNumber}.
@@ -232,9 +248,9 @@ export const ExamScreen: React.FC = () => {
             {currentQ.questionText}
           </h2>
 
-          {/* Equation if present */}
+          {/* Math equation if present */}
           {currentQ.mathLatex && (
-            <div className="my-4 p-4 rounded-lg bg-theme-bg border-2 border-theme-border inline-block">
+            <div className="mt-4 p-4 rounded-xl bg-theme-bg border border-theme-border inline-block max-w-full overflow-x-auto">
               <MathEquation
                 latex={currentQ.mathLatex}
                 displayMode={true}
@@ -243,98 +259,111 @@ export const ExamScreen: React.FC = () => {
             </div>
           )}
 
-          {/* AI Diagram Viewer if diagram exists */}
+          {/* Sonification graph */}
+          {currentQ.graph && currentQ.graph.enabled && (
+            <InteractiveSonificationGraph graph={currentQ.graph} />
+          )}
+
+          {/* AI Diagram */}
           <AiDiagramViewer question={currentQ} />
         </div>
 
-        {/* Semantic Option Group */}
-        <fieldset id="answer-options-group" className="space-y-3.5 my-6">
+        {/* ── Answer Options ── */}
+        <fieldset id="answer-options-group" className="px-4 sm:px-6 pb-4 pt-3">
           <legend className="sr-only">
             Answer Options for Question {currentQ.questionNumber}. Use keyboard keys 1, 2, 3, 4 to select options directly.
           </legend>
 
-          {currentQ.options.map((option) => {
-            const isSelected = selectedOptNum === option.number;
-            const inputId = `option_${currentQ.id}_${option.number}`;
+          <div className="space-y-2.5">
+            {currentQ.options.map((option, idx) => {
+              const isSelected = selectedOptNum === option.number;
+              const inputId = `option_${currentQ.id}_${option.number}`;
+              const optionLetters = ['A', 'B', 'C', 'D', 'E'];
+              const letter = optionLetters[idx] ?? String(option.number);
 
-            return (
-              <label
-                key={option.id}
-                htmlFor={inputId}
-                className={`flex items-start sm:items-center p-3.5 sm:p-4 border-2 rounded-xl cursor-pointer transition-all ${
-                  isSelected
-                    ? 'border-theme-focus-ring bg-theme-bg shadow-sm font-semibold'
-                    : 'border-theme-border bg-theme-surface hover:bg-theme-bg'
-                }`}
-              >
-                {/* Standard semantic radio button */}
-                <input
-                  type="radio"
-                  id={inputId}
-                  name={`question_${currentQ.id}`}
-                  value={option.id}
-                  checked={isSelected}
-                  onChange={() => handleOptionChange(option.number)}
-                  className="w-5 h-5 sm:w-6 sm:h-6 mt-0.5 sm:mt-0 mr-3.5 accent-blue-600 focus:ring-4 focus:ring-theme-focus-ring cursor-pointer flex-shrink-0"
-                  aria-label={`Option ${option.number}: ${option.text}`}
-                />
+              return (
+                <label
+                  key={option.id}
+                  htmlFor={inputId}
+                  className={`group flex items-center gap-3.5 p-3.5 sm:p-4 border-2 rounded-xl cursor-pointer transition-all duration-150 ${
+                    isSelected
+                      ? 'border-theme-primary bg-theme-primary/10 shadow-sm'
+                      : 'border-theme-border bg-theme-bg/50 hover:border-theme-primary/50 hover:bg-theme-surface'
+                  }`}
+                >
+                  {/* Hidden radio for accessibility */}
+                  <input
+                    type="radio"
+                    id={inputId}
+                    name={`question_${currentQ.id}`}
+                    value={option.id}
+                    checked={isSelected}
+                    onChange={() => handleOptionChange(option.number)}
+                    className="sr-only"
+                    aria-label={`Option ${option.number}: ${verbalizeForSpeech(option.text)}`}
+                  />
 
-                {/* Option badge and textual content */}
-                <div className="flex-1 flex flex-wrap items-center gap-2">
+                  {/* Letter bubble — acts as visual radio */}
                   <span
                     aria-hidden="true"
-                    className={`inline-flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold ${
+                    className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border-2 text-sm font-black transition-all ${
                       isSelected
-                        ? 'border-theme-focus-ring bg-theme-primary text-theme-primary-text'
-                        : 'border-theme-border bg-theme-bg text-theme-text'
+                        ? 'border-theme-primary bg-theme-primary text-theme-primary-text shadow-sm'
+                        : 'border-theme-border bg-theme-surface text-theme-text group-hover:border-theme-primary/60'
+                    }`}
+                  >
+                    {isSelected ? <CheckCircle className="w-4 h-4" /> : letter}
+                  </span>
+
+                  {/* Option text */}
+                  <span className={`flex-1 text-base sm:text-lg leading-snug transition-colors ${
+                    isSelected ? 'text-theme-text font-semibold' : 'text-theme-text'
+                  }`}>
+                    {option.text}
+                    {option.mathLatex && (
+                      <MathEquation latex={option.mathLatex} className="ml-2 font-mono" />
+                    )}
+                  </span>
+
+                  {/* Keyboard shortcut badge */}
+                  <kbd
+                    aria-hidden="true"
+                    className={`hidden sm:flex flex-shrink-0 items-center justify-center w-6 h-6 text-xs font-mono font-bold rounded border transition-all ${
+                      isSelected
+                        ? 'border-theme-primary/50 bg-theme-primary/20 text-theme-primary'
+                        : 'border-theme-border bg-theme-bg text-theme-text-secondary group-hover:border-theme-primary/40'
                     }`}
                   >
                     {option.number}
-                  </span>
-
-                  <span className="text-base sm:text-lg text-theme-text">
-                    {option.text}
-                  </span>
-
-                  {option.mathLatex && (
-                    <MathEquation latex={option.mathLatex} className="ml-2 font-mono" />
-                  )}
-                </div>
-
-                {/* Keyboard shortcut hint */}
-                <span
-                  aria-hidden="true"
-                  className="hidden sm:inline-block text-xs px-2 py-0.5 rounded border border-theme-border text-theme-text-secondary bg-theme-bg"
-                >
-                  Key: {option.number}
-                </span>
-              </label>
-            );
-          })}
+                  </kbd>
+                </label>
+              );
+            })}
+          </div>
         </fieldset>
 
-        {/* Practice Mode Interactive Extras */}
+        {/* ── Practice Mode: Hint & Solution ── */}
         {examMode === 'practice' && (
-          <div className="my-6 pt-4 border-t-2 border-theme-border flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2">
+          <div className="px-4 sm:px-6 pt-2 pb-5 border-t border-theme-border mt-2">
+            <div className="flex flex-wrap gap-2 mt-3">
               <button
                 type="button"
                 onClick={handleToggleHint}
                 aria-expanded={showHint}
-                className="px-4 py-2 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-sm flex items-center gap-2 hover:bg-theme-surface transition"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-bold text-sm hover:bg-amber-500/20 transition"
               >
-                <Lightbulb className="w-4 h-4 text-amber-500" aria-hidden="true" />
-                <span>{showHint ? 'Hide Hint' : 'Show Hint'}</span>
+                <Lightbulb className="w-4 h-4" aria-hidden="true" />
+                {showHint ? 'Hide Hint' : 'Show Hint'}
               </button>
 
               <button
                 type="button"
                 onClick={handleToggleSolution}
                 aria-expanded={showSolution}
-                className="px-4 py-2 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-sm flex items-center gap-2 hover:bg-theme-surface transition"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-theme-border bg-theme-bg text-theme-text font-bold text-sm hover:bg-theme-surface transition"
               >
-                <BookOpen className="w-4 h-4 text-theme-focus-ring" aria-hidden="true" />
-                <span>{showSolution ? 'Hide Solution' : 'View Step-by-Step Solution'}</span>
+                <BookOpen className="w-4 h-4 text-theme-primary" aria-hidden="true" />
+                {showSolution ? 'Hide Solution' : 'View Solution'}
               </button>
             </div>
 
@@ -342,10 +371,11 @@ export const ExamScreen: React.FC = () => {
               <div
                 role="region"
                 aria-label="Question Hint"
-                className="p-4 rounded-lg border-2 border-amber-500 bg-amber-500/10 text-theme-text text-sm sm:text-base"
+                className="mt-3 p-4 rounded-xl border border-amber-500/50 bg-amber-500/8 text-theme-text text-sm sm:text-base"
               >
-                <strong className="block text-amber-600 font-bold mb-1">
-                  Helpful Hint:
+                <strong className="block text-amber-600 dark:text-amber-400 font-bold mb-1 flex items-center gap-1.5">
+                  <Lightbulb className="w-4 h-4" aria-hidden="true" />
+                  Helpful Formula / Concept
                 </strong>
                 {currentQ.hint}
               </div>
@@ -354,52 +384,55 @@ export const ExamScreen: React.FC = () => {
             {showSolution && (
               <div
                 role="region"
-                aria-label="Detailed Solution Explanation"
-                className="p-4 rounded-lg border-2 border-emerald-600 bg-emerald-500/10 text-theme-text text-sm sm:text-base space-y-2"
+                aria-label="Detailed Solution"
+                className="mt-3 p-4 rounded-xl border border-emerald-500/50 bg-emerald-500/8 text-theme-text text-sm sm:text-base space-y-2"
               >
-                <strong className="block text-emerald-600 font-bold">
-                  Correct Answer: Option {currentQ.correctOption} ({currentQ.options.find(o => o.number === currentQ.correctOption)?.text})
+                <strong className="block text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
+                  <CheckCircle className="w-4 h-4" aria-hidden="true" />
+                  Correct Answer: Option {currentQ.correctOption} — {currentQ.options.find(o => o.number === currentQ.correctOption)?.text}
                 </strong>
-                <p>{currentQ.explanation}</p>
+                <p className="leading-relaxed">{currentQ.explanation}</p>
               </div>
             )}
           </div>
         )}
       </section>
 
-      {/* Accessible Question Navigation Controls */}
+      {/* ── Navigation Controls ── */}
       <nav
         id="question-navigation-controls"
         aria-label="Question Navigation Controls"
-        className="mt-6 flex flex-wrap justify-between items-center gap-3"
+        className="mt-4 flex flex-wrap items-center justify-between gap-3"
       >
-        {/* Left: Previous */}
+        {/* LEFT: Previous */}
         <button
           id="btn-prev"
           type="button"
           onClick={previousQuestion}
           disabled={currentIndex === 0}
-          className="px-4 sm:px-6 py-3 font-bold rounded-lg border-2 border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 transition text-sm sm:text-base"
+          className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 font-bold rounded-xl border border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg disabled:opacity-35 disabled:cursor-not-allowed transition text-sm"
+          aria-label={`Go to previous question (Shortcut: Left Arrow or P). ${currentIndex === 0 ? 'Disabled — this is the first question.' : ''}`}
         >
-          <ChevronLeft className="w-5 h-5" aria-hidden="true" />
-          <span>Previous (P)</span>
+          <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+          <span>Previous <kbd className="font-mono opacity-60 text-xs">(←)</kbd></span>
         </button>
 
-        {/* Center: Mark for Review & Clear */}
+        {/* CENTER: Mark + Clear + Speak */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             id="btn-mark"
             type="button"
             onClick={toggleMarkForReview}
             aria-pressed={isMarked}
-            className={`px-4 sm:px-5 py-3 font-bold rounded-lg border-2 transition text-sm sm:text-base flex items-center gap-1.5 ${
+            className={`inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 font-bold rounded-xl border-2 transition text-sm ${
               isMarked
                 ? 'border-amber-500 bg-amber-500 text-black'
-                : 'border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg'
+                : 'border-theme-border bg-theme-surface text-theme-text hover:border-amber-500/50 hover:bg-amber-500/10'
             }`}
+            aria-label={`${isMarked ? 'Unmark' : 'Mark'} question for review (Shortcut: M)`}
           >
             <Bookmark className={`w-4 h-4 ${isMarked ? 'fill-current' : ''}`} aria-hidden="true" />
-            <span>{isMarked ? 'Marked (M)' : 'Mark for Review (M)'}</span>
+            <span>{isMarked ? 'Marked' : 'Mark'} <kbd className={`font-mono text-xs opacity-60 ${isMarked ? 'text-black' : ''}`}>(M)</kbd></span>
           </button>
 
           {selectedOptNum && (
@@ -407,47 +440,59 @@ export const ExamScreen: React.FC = () => {
               id="btn-clear"
               type="button"
               onClick={() => clearOption()}
-              className="px-3.5 py-3 font-bold rounded-lg border-2 border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg transition text-sm sm:text-base flex items-center gap-1.5"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 font-bold rounded-xl border border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg hover:border-red-400/50 transition text-sm"
+              aria-label="Clear selected answer (Shortcut: C)"
             >
-              <RotateCcw className="w-4 h-4 text-theme-text-secondary" aria-hidden="true" />
-              <span>Clear (C)</span>
+              <RotateCcw className="w-3.5 h-3.5 text-theme-text-secondary" aria-hidden="true" />
+              <span>Clear <kbd className="font-mono text-xs opacity-60">(C)</kbd></span>
             </button>
           )}
 
+          {/* Speak icon-only button (redundant but discoverable) */}
           <button
             type="button"
             onClick={() => announceCurrentQuestion(true)}
             title="Read Question & Options Aloud (R)"
             aria-label="Read Question & Options Aloud (Shortcut: R)"
-            className="p-3 rounded-lg border-2 border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg transition"
+            className="p-2.5 rounded-xl border border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg transition"
           >
-            <Volume2 className="w-5 h-5 text-theme-focus-ring" aria-hidden="true" />
+            <Volume2 className="w-4 h-4 text-theme-primary" aria-hidden="true" />
           </button>
         </div>
 
-        {/* Right: Next or Submit */}
+        {/* RIGHT: Next or Submit */}
         {isLastQuestion ? (
           <button
             id="btn-submit"
             type="button"
             onClick={() => setSubmitModalOpen(true)}
-            className="px-6 py-3 font-bold rounded-lg border-2 border-emerald-600 bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 transition shadow-sm text-sm sm:text-base"
+            className="inline-flex items-center gap-2 px-5 sm:px-6 py-2.5 font-bold rounded-xl border-2 border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm text-sm"
+            aria-label="Finish and submit exam (Shortcut: Alt+S)"
           >
-            <span>Finish & Submit Exam (Alt+S)</span>
-            <CheckCircle className="w-5 h-5" aria-hidden="true" />
+            <span>Finish &amp; Submit</span>
+            <CheckCircle className="w-4 h-4" aria-hidden="true" />
           </button>
         ) : (
           <button
             id="btn-next"
             type="button"
             onClick={nextQuestion}
-            className="px-5 sm:px-6 py-3 font-bold rounded-lg border-2 border-theme-border bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-text flex items-center gap-1.5 transition shadow-sm text-sm sm:text-base"
+            className="inline-flex items-center gap-2 px-5 sm:px-6 py-2.5 font-bold rounded-xl bg-theme-primary hover:brightness-110 text-theme-primary-text transition shadow-sm text-sm"
+            aria-label={`Go to next question (Shortcut: Right Arrow or N)`}
           >
-            <span>Next Question (N)</span>
-            <ChevronRight className="w-5 h-5" aria-hidden="true" />
+            <span>Next <kbd className="font-mono text-xs opacity-70">(→)</kbd></span>
+            <ChevronRight className="w-4 h-4" aria-hidden="true" />
           </button>
         )}
       </nav>
+
+      {/* ── Keyboard quick-reference strip ── */}
+      <p
+        aria-hidden="true"
+        className="mt-3 text-center text-xs text-theme-text-secondary/60 font-mono tracking-wide select-none"
+      >
+        1–4 Select Option &nbsp;·&nbsp; R Speak &nbsp;·&nbsp; S Stop &nbsp;·&nbsp; M Mark &nbsp;·&nbsp; C Clear &nbsp;·&nbsp; ←/→ Navigate &nbsp;·&nbsp; P Palette
+      </p>
     </main>
   );
 };

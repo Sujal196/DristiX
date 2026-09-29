@@ -78,7 +78,15 @@ export interface ExamDataSource {
     }
   ): Promise<AttemptClock>;
   heartbeat(attemptId: string): Promise<AttemptClock>;
-  submitAttempt(attemptId: string): Promise<GradeResult>;
+  submitAttempt(
+    attemptId: string,
+    state?: {
+      currentIndex?: number;
+      selectedOptions?: Record<string, number>;
+      markedForReview?: Record<string, boolean>;
+      visitedQuestions?: Record<string, boolean>;
+    }
+  ): Promise<GradeResult>;
   listAttempts(): Promise<AttemptSummary[]>;
   /**
    * Every student's attempts. Admin-only on the server; the offline

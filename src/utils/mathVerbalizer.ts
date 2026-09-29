@@ -28,10 +28,10 @@ export function verbalizeMath(latex: string): string {
   verbal = verbal.replace(/\\sqrt\{([^}]+)\}/g, 'square root of $1');
 
   // Powers and exponents: x^2 -> "x squared", x^3 -> "x cubed", x^{n} -> "x to the power of n"
-  verbal = verbal.replace(/([a-zA-Z0-9\(\)]+)\^2(?![0-9])/g, '$1 squared');
-  verbal = verbal.replace(/([a-zA-Z0-9\(\)]+)\^3(?![0-9])/g, '$1 cubed');
-  verbal = verbal.replace(/([a-zA-Z0-9\(\)]+)\^\{([^}]+)\}/g, '$1 to the power of $2');
-  verbal = verbal.replace(/([a-zA-Z0-9\(\)]+)\^([0-9a-zA-Z])/g, '$1 to the power of $2');
+  verbal = verbal.replace(/([a-zA-Z0-9()]+)\^2(?![0-9])/g, '$1 squared');
+  verbal = verbal.replace(/([a-zA-Z0-9()]+)\^3(?![0-9])/g, '$1 cubed');
+  verbal = verbal.replace(/([a-zA-Z0-9()]+)\^\{([^}]+)\}/g, '$1 to the power of $2');
+  verbal = verbal.replace(/([a-zA-Z0-9()]+)\^([0-9a-zA-Z])/g, '$1 to the power of $2');
 
   // Subscripts: x_1 -> "x sub 1"
   verbal = verbal.replace(/([a-zA-Z0-9])_\{([^}]+)\}/g, '$1 sub $2');
@@ -72,4 +72,54 @@ export function verbalizeMath(latex: string): string {
   verbal = verbal.replace(/\s+/g, ' ').trim();
 
   return verbal;
+}
+
+/**
+ * Normalizes general text, question options, and prompts for natural TTS vocalization.
+ * Translates numeric ratios (e.g. 3:1, 4.5:1, 7:1, 10:1), negative numbers, abbreviations,
+ * and units into clean spoken words instead of literal punctuation reading.
+ */
+export function verbalizeForSpeech(rawText: string): string {
+  if (!rawText) return '';
+
+  let text = verbalizeMath(rawText);
+
+  // 1. Ratios: 3:1 -> "3 to 1", 4.5:1 -> "4.5 to 1", 7:1 -> "7 to 1", 10:1 -> "10 to 1"
+  // Handles decimals and integer numbers separated by colons without clock time indicators
+  text = text.replace(/(^|[\s(])(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)(?!\s*(?:am|pm|hours?|mins?|seconds?|sec))(?=[\s).,;!?]|$)/gi, '$1$2 to $3');
+
+  // 2. Question number formats: Q1. / Q8. -> "Question 1.", "Question 8."
+  text = text.replace(/\bQ(\d+)\./gi, 'Question $1.');
+
+  // 3. Option abbreviations: Opt 1 / Opt. 2 -> "Option 1", "Option 2"
+  text = text.replace(/\bOpt\.?\s*(\d+)/gi, 'Option $1');
+
+  // 4. Accessibility standard acronyms: WCAG -> "W C A G" (spell out so TTS doesn't garble)
+  text = text.replace(/\bWCAG\b/g, 'W C A G');
+
+  // 5. Negative numbers & penalties: -0.5 -> "minus 0.5", -2 -> "minus 2"
+  text = text.replace(/(^|[\s(])-(\d+(?:\.\d+)?)/g, '$1minus $2');
+  text = text.replace(/(^|[\s(])\+(\d+(?:\.\d+)?)/g, '$1plus $2');
+
+  // 6. Percentages & Units
+  text = text.replace(/(\d+(?:\.\d+)?)\s*%/g, '$1 percent');
+  text = text.replace(/(\d+(?:\.\d+)?)\s*(?:°C|℃)/g, '$1 degrees Celsius');
+  text = text.replace(/(\d+(?:\.\d+)?)\s*(?:°F|℉)/g, '$1 degrees Fahrenheit');
+  text = text.replace(/(\d+(?:\.\d+)?)\s*°(?!\w)/g, '$1 degrees');
+  text = text.replace(/(\d+(?:\.\d+)?)\s*km\/h/gi, '$1 kilometers per hour');
+  text = text.replace(/(\d+(?:\.\d+)?)\s*m\/s/gi, '$1 meters per second');
+
+  // 7. Math comparisons in plain text
+  text = text.replace(/±/g, ' plus or minus ');
+  text = text.replace(/≠/g, ' is not equal to ');
+  text = text.replace(/≤/g, ' is less than or equal to ');
+  text = text.replace(/≥/g, ' is greater than or equal to ');
+  text = text.replace(/×/g, ' multiplied by ');
+  text = text.replace(/÷/g, ' divided by ');
+
+  // 8. Decimals without leading zero (e.g. .5 -> 0.5)
+  text = text.replace(/(^|[\s(])\.(\d+)(?=[\s).,;!?]|$)/g, '$10.$2');
+
+  // Consolidate extra whitespace
+  return text.replace(/\s+/g, ' ').trim();
 }

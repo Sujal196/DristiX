@@ -297,7 +297,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             });
 
         // Only completed attempts belong in a result history.
-        set({ submissions: rows.filter((r) => r.submittedAt !== null) });
+        set({ submissions: rows.filter((r) => r.submittedAt > 0) });
       } catch {
         // Keep whatever we already have; a failed refresh is not worth a
         // disruptive empty state.

@@ -2,10 +2,12 @@ import { getAssistantContext } from './assistantContext';
 import { useExamStore } from '../store/useExamStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
 import { soundEffects } from './soundEffects';
-import { verbalizeMath } from './mathVerbalizer';
+import { verbalizeMath, verbalizeForSpeech } from './mathVerbalizer';
 import { describeOptionSelection, describeClearSelection } from './optionSpeech';
 import { matchExamFromQuery } from './examMatcher';
 import { isPracticeTabNavigation } from './practiceTabNavigation';
+import { SonificationEngine } from '../accessibility/sonification/SonificationEngine';
+import { speechEngine } from './speechEngine';
 
 export interface CommandProcessResult {
   success: boolean;
@@ -13,6 +15,75 @@ export interface CommandProcessResult {
   userQuery: string;
   assistantReply: string;
   actionExecuted?: string;
+}
+
+/**
+ * Common phantom speech recognition hallucination tokens (e.g., produced by Whisper / Web Speech API on near-silent background audio)
+ */
+export const PHANTOM_NOISE_TOKENS = new Set([
+  'so',
+  'sau',
+  'sou',
+  'sow',
+  'su',
+  'सौ',
+  'सो',
+  'you',
+  'thank you',
+  'thanks',
+  'um',
+  'uh',
+  'ah',
+  'hmm',
+  'oh',
+  'haan',
+  'हूँ',
+  'हाँ',
+  'हूं',
+  'the',
+  'a',
+]);
+
+/**
+ * Checks whether an incoming transcript is a phantom noise hallucination or meaningless ambient sound.
+ */
+export function isPhantomNoise(text: string): boolean {
+  if (!text) return true;
+  const cleaned = text
+    .trim()
+    .toLowerCase()
+    .replace(/^[.,?!:;\s]+|[.,?!:;\s]+$/g, '');
+  if (!cleaned) return true;
+  if (cleaned.length <= 1) return true;
+  if (PHANTOM_NOISE_TOKENS.has(cleaned)) return true;
+  return false;
+}
+
+/**
+ * Generates the complete spoken text for a question, including its mathematical formulas,
+ * all answer options verbalized naturally, and current selection status.
+ */
+export function buildFullQuestionSpeech(
+  q: NonNullable<ReturnType<typeof getAssistantContext>['currentQuestion']>,
+  prefix = ''
+): string {
+  const formulaText = q.equationLatex
+    ? ` Equation: ${verbalizeMath(q.equationLatex)}.`
+    : '';
+  const graphText =
+    q.graph && q.graph.enabled
+      ? ` Graph details: ${SonificationEngine.generateSummary(q.graph)}.`
+      : '';
+  const optionsText =
+    q.options && q.options.length > 0
+      ? ` The options are: ${q.options.map((o) => `Option ${o.number}: ${verbalizeForSpeech(o.text)}`).join('. ')}.`
+      : '';
+  const statusText = q.selectedOption
+    ? ` Currently selected: Option ${q.selectedOption}.`
+    : ' No option has been selected yet.';
+
+  const leading = prefix ? `${prefix} ` : '';
+  return `${leading}Question ${q.number}: ${verbalizeForSpeech(q.text)}.${formulaText}${graphText}${optionsText}${statusText}`;
 }
 
 /**
@@ -57,7 +128,7 @@ function normalizePhonetics(raw: string): string {
 
   // 3. Question & Reading
   text = text.replace(/(क्वेश्चन|क्वेशन|थेकेशन|क्वेशचन|कुएस्शन|कोशचन|कवैश्चन|सवाल|प्रश्न|सवाली|question|sawal|sawaal|prashna)/gi, 'question');
-  text = text.replace(/(पढ़ो|पढ़कर सुनाओ|सुनाओ|बोलो|रीड|बताओ|read|bolo|sunao|sunaao|padho)/gi, 'read');
+  text = text.replace(/(पढ़ो|पढ़कर सुनाओ|सुनाओ|बोलो|रीड|बताओ|दिखाओ|दिखाइए|शो|read|bolo|sunao|sunaao|padho|show)/gi, 'read');
 
   // 4. Navigation
   text = text.replace(/(अगला|अगले|आगे|नेक्स्ट|next|agla|aage)/gi, 'next');
@@ -100,6 +171,16 @@ function normalizePhonetics(raw: string): string {
  * Execute command against a single normalized transcript
  */
 function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandProcessResult {
+  if (isPhantomNoise(rawTranscript)) {
+    return {
+      success: false,
+      intent: 'UNRECOGNIZED',
+      userQuery: rawTranscript,
+      assistantReply: '',
+      actionExecuted: undefined,
+    };
+  }
+
   const normalized = normalizePhonetics(rawTranscript);
   const rawLower = rawTranscript.toLowerCase().trim();
   const context = getAssistantContext();
@@ -369,7 +450,10 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     normalized.includes('formula') ||
     rawLower.includes('sawal padho') ||
     rawLower.includes('question repeat') ||
-    rawLower.includes('dobara bolo')
+    rawLower.includes('dobara bolo') ||
+    rawLower.includes('options padho') ||
+    rawLower.includes('read option') ||
+    rawLower.includes('option padho')
   ) {
     if (context.activeView !== 'exam' || !context.currentQuestion) {
       const reply = 'You are not currently in an exam. Say "Start exam" to begin a test.';
@@ -377,11 +461,7 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     }
 
     const q = context.currentQuestion;
-    const formulaText = q.equationLatex ? ` This question contains a mathematical formula: ${verbalizeMath(q.equationLatex)}.` : '';
-    const optionsText = q.options.map((o) => `Option ${o.number}: ${verbalizeMath(o.text)}`).join('. ');
-    const statusText = q.selectedOption ? `You have currently selected Option ${q.selectedOption}.` : 'No option has been selected yet.';
-
-    const reply = `Question ${q.number}: ${q.text}.${formulaText} The options are: ${optionsText}. ${statusText}`;
+    const reply = buildFullQuestionSpeech(q);
     return makeReply('READ_QUESTION', reply, 'Read Question and Options');
   }
 
@@ -444,10 +524,12 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
       examStore.nextQuestion();
       const nextCtx = getAssistantContext();
       const q = nextCtx.currentQuestion;
-      const reply = q
-        ? `Moving to Question ${q.number}: ${q.text}. Say "Read question" to hear all options.`
-        : 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
-      return makeReply('NEXT_QUESTION', reply, 'Navigated to Next Question');
+      if (!q) {
+        const reply = 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
+        return makeReply('NEXT_QUESTION', reply, 'At Last Question');
+      }
+      const reply = buildFullQuestionSpeech(q);
+      return makeReply('NEXT_QUESTION', reply, `Navigated to Question ${q.number}`);
     }
   }
 
@@ -456,10 +538,37 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
       examStore.previousQuestion();
       const prevCtx = getAssistantContext();
       const q = prevCtx.currentQuestion;
-      const reply = q
-        ? `Moved back to Question ${q.number}: ${q.text}. Say "Read question" to hear all options.`
-        : 'You are already on the first question.';
-      return makeReply('PREVIOUS_QUESTION', reply, 'Navigated to Previous Question');
+      if (!q) {
+        const reply = 'You are already on the first question.';
+        return makeReply('PREVIOUS_QUESTION', reply, 'At First Question');
+      }
+      const reply = buildFullQuestionSpeech(q);
+      return makeReply('PREVIOUS_QUESTION', reply, `Navigated to Question ${q.number}`);
+    }
+  }
+
+  // ==========================================
+  // 7b. JUMP TO SPECIFIC QUESTION
+  // ==========================================
+  const jumpMatch =
+    normalized.match(/(?:question|sawal|prashna)\s*(?:number)?\s*(\d+)/i) ||
+    rawTranscript.match(/(?:क्वेश्चन|सवाल|प्रश्न)\s*(?:नंबर)?\s*(\d+)/i);
+  if (
+    jumpMatch &&
+    !normalized.includes('read') &&
+    !normalized.includes('option') &&
+    !normalized.includes('next') &&
+    !normalized.includes('previous')
+  ) {
+    const targetNum = parseInt(jumpMatch[1], 10);
+    if (context.activeView === 'exam' && targetNum >= 1 && targetNum <= examStore.questions.length) {
+      examStore.jumpToQuestion(targetNum - 1);
+      const jumpCtx = getAssistantContext();
+      const q = jumpCtx.currentQuestion;
+      if (q) {
+        const reply = buildFullQuestionSpeech(q);
+        return makeReply('JUMP_QUESTION', reply, `Jumped to Question ${q.number}`);
+      }
     }
   }
 
@@ -525,7 +634,47 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     return makeReply('VIEW_ANALYTICS', reply, 'Opened Student Analytics');
   }
 
+  // ==========================================
+  // 12. AUDITORY GRAPH & CHART SONIFICATION
+  // ==========================================
+  if (
+    normalized.includes('graph') ||
+    normalized.includes('chart') ||
+    normalized.includes('sonification') ||
+    rawLower.includes('graph sunao') ||
+    rawLower.includes('chart sunao') ||
+    rawLower.includes('play graph') ||
+    rawLower.includes('play chart') ||
+    rawLower.includes('read graph') ||
+    rawLower.includes('read chart') ||
+    rawLower.includes('graph data') ||
+    rawLower.includes('data batao')
+  ) {
+    if (context.activeView === 'exam' && context.currentQuestion) {
+      const q = context.currentQuestion;
+      if (q.graph && q.graph.enabled && q.graph.data?.length) {
+        soundEffects.playSelect();
+        const g = q.graph;
+        const unit = g.unit ? ` ${g.unit}` : '';
+        const dataList = g.data.map((d) => `${d.label}: ${d.value}${unit}`).join(', ');
+        const stats = SonificationEngine.computeStats(g.data);
+        const reply = `Data Chart: "${g.title || 'Chart'}". It contains ${g.data.length} data points: ${dataList}. Highest value is ${stats.maxPoint?.value ?? ''}${unit} in ${stats.maxPoint?.label ?? ''}. Lowest value is ${stats.minPoint?.value ?? ''}${unit} in ${stats.minPoint?.label ?? ''}. Now playing the auditory pitch sweep.`;
 
+        // Wait until voice finishes speaking, then play the pitch sweep cleanly
+        const unsubscribe = speechEngine.onSpeechEnd(() => {
+          unsubscribe();
+          if (q.graph) {
+            SonificationEngine.playOverviewSweep(q.graph, 0.45);
+          }
+        });
+
+        return makeReply('PLAY_GRAPH', reply, 'Played Graph Sonification');
+      } else {
+        const reply = `Question ${q.number} does not contain a data graph.`;
+        return makeReply('NO_GRAPH', reply);
+      }
+    }
+  }
 
   // ==========================================
   // 13. REPORT SCREEN SPECIFIC ACTIONS (Summary, Retake)
@@ -658,6 +807,17 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     return makeReply('IDENTITY', reply);
   }
 
+  // If the query was purely a single token or ambient noise, do NOT blurt out a fallback
+  if (rawTranscript.trim().split(/\s+/).length <= 1 && isPhantomNoise(rawTranscript)) {
+    return {
+      success: false,
+      intent: 'UNRECOGNIZED',
+      userQuery: rawTranscript,
+      assistantReply: '',
+      actionExecuted: undefined,
+    };
+  }
+
   // Context-grounded fallback
   const pageDescription =
     context.activeView === 'catalog'
@@ -717,7 +877,7 @@ export function processVoiceCommand(
   // placeholder would both reach the candidate and, now that the engine reports
   // honestly, crowd out the real answer that follows. Each caller has its own
   // final fallback for the case where nothing at all is recognised.
-  if (finalResult.intent !== 'UNRECOGNIZED') {
+  if (finalResult.intent !== 'UNRECOGNIZED' && finalResult.assistantReply) {
     useAnnouncerStore.getState().announce(finalResult.assistantReply, 'assertive', true);
   }
   return finalResult;

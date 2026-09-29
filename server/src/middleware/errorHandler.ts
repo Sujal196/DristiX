@@ -38,9 +38,31 @@ export function errorHandler(
     return;
   }
 
+  // Body-parser failures carry their own status/type and must not be flattened
+  // into an opaque 500 — "payload too large" tells the admin their image is
+  // simply too big, a 500 tells them nothing.
+  const parseErr = err as { type?: string; status?: number; statusCode?: number };
+  if (parseErr?.type === 'entity.too.large') {
+    res.status(413).json({
+      error: 'payload_too_large',
+      message: 'The uploaded content is too large. Try a smaller image.',
+    });
+    return;
+  }
+  if (parseErr?.type === 'entity.parse.failed') {
+    res.status(400).json({
+      error: 'invalid_json',
+      message: 'The request body is not valid JSON.',
+    });
+    return;
+  }
+
   console.error('[dristix] unhandled error:', err);
-  res.status(500).json({
-    error: 'internal_error',
+  const status = typeof parseErr?.status === 'number' ? parseErr.status
+    : typeof parseErr?.statusCode === 'number' ? parseErr.statusCode
+    : 500;
+  res.status(status).json({
+    error: status >= 500 ? 'internal_error' : 'request_error',
     message: 'Something went wrong on the server.',
     ...(env.isProd ? {} : { details: err instanceof Error ? err.message : String(err) }),
   });

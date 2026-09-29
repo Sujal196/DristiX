@@ -2,6 +2,7 @@ import { getAssistantContext } from './assistantContext';
 import { useExamStore } from '../store/useExamStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
 import { soundEffects } from './soundEffects';
+import { buildFullQuestionSpeech } from './voiceCommandProcessor';
 import type { CommandProcessResult } from './voiceCommandProcessor';
 import { describeOptionSelection, describeClearSelection } from './optionSpeech';
 import { matchExamFromQuery } from './examMatcher';
@@ -1065,6 +1066,13 @@ Return ONLY a valid JSON object matching this schema:
         if (context.activeView === 'exam') {
           examStore.nextQuestion();
           actionExecuted = 'Moved to Next Question';
+          const nextCtx = getAssistantContext();
+          const q = nextCtx.currentQuestion;
+          if (q) {
+            spokenReply = buildFullQuestionSpeech(q);
+          } else {
+            spokenReply = 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
+          }
         }
         break;
       }
@@ -1074,6 +1082,13 @@ Return ONLY a valid JSON object matching this schema:
         if (context.activeView === 'exam') {
           examStore.previousQuestion();
           actionExecuted = 'Moved to Previous Question';
+          const prevCtx = getAssistantContext();
+          const q = prevCtx.currentQuestion;
+          if (q) {
+            spokenReply = buildFullQuestionSpeech(q);
+          } else {
+            spokenReply = 'You are already on the first question.';
+          }
         }
         break;
       }
@@ -1082,6 +1097,11 @@ Return ONLY a valid JSON object matching this schema:
         if (context.activeView === 'exam' && qNum > 0 && qNum <= examStore.questions.length) {
           examStore.jumpToQuestion(qNum - 1);
           actionExecuted = `Jumped to Question ${qNum}`;
+          const jumpCtx = getAssistantContext();
+          const q = jumpCtx.currentQuestion;
+          if (q) {
+            spokenReply = buildFullQuestionSpeech(q);
+          }
         }
         break;
       }
@@ -1096,8 +1116,12 @@ Return ONLY a valid JSON object matching this schema:
       }
       case 'READ_QUESTION': {
         if (context.activeView === 'exam') {
-          examStore.readCurrentQuestion();
           actionExecuted = 'Read Current Question';
+          const curCtx = getAssistantContext();
+          const q = curCtx.currentQuestion;
+          if (q) {
+            spokenReply = buildFullQuestionSpeech(q);
+          }
         }
         break;
       }

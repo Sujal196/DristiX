@@ -26,6 +26,8 @@ export interface SeedQuestion {
     keyPoints: string[];
     audioNarration: string;
   } | null;
+  questionType?: 'MCQ' | 'DI';
+  graph?: any;
   options: { id: string; number: number; text: string; mathLatex: string | null }[];
   correctOption: number;
   explanation: string;
@@ -1676,6 +1678,275 @@ export const CATALOG_SEED = [
         "correctOption": 1,
         "explanation": "Article 21A was inserted by the 86th Constitutional Amendment Act, 2002, making free and compulsory education a fundamental right for children between the ages of 6 and 14.",
         "hint": "It was added as an amendment right beside Article 21 (Protection of Life and Personal Liberty)."
+      }
+    ]
+  },
+  {
+    "code": "DI-DATA-01",
+    "title": "Data Interpretation & Chart Analysis Drill",
+    "description": "Challenging multi-stage Data Interpretation practice series with interactive auditory bar, line, and pie sonification for competitive exams (Banking PO, SSC CGL, CSAT).",
+    "category": "Banking & Insurance",
+    "durationMinutes": 30,
+    "totalMarks": 60,
+    "negativeMarking": 0,
+    "difficulty": "Challenging",
+    "published": true,
+    "questions": [
+      {
+        "id": "DI-DATA-01-q1",
+        "section": "Data Interpretation",
+        "questionNumber": 1,
+        "questionType": "DI",
+        "questionText": "The annual sales in the peak year 2022 is approximately what percentage higher than the overall 5-year average annual sales?",
+        "mathLatex": "\\text{Percentage Higher} = \\frac{\\text{Sales}_{2022} - \\text{Sales}_{\\text{avg}}}{\\text{Sales}_{\\text{avg}}} \\times 100",
+        "graph": {
+          "enabled": true,
+          "type": "bar",
+          "title": "Annual Company Sales",
+          "xAxisLabel": "Year",
+          "yAxisLabel": "Sales",
+          "unit": "Crore",
+          "data": [
+            { "id": "2020", "label": "2020", "value": 40 },
+            { "id": "2021", "label": "2021", "value": 65 },
+            { "id": "2022", "label": "2022", "value": 90 },
+            { "id": "2023", "label": "2023", "value": 55 },
+            { "id": "2024", "label": "2024", "value": 75 }
+          ],
+          "sonification": {
+            "enabled": true,
+            "spatialAudio": true,
+            "trendDetection": true,
+            "peakDetection": true,
+            "haptic": true,
+            "voiceDetail": "standard",
+            "minFrequency": 250,
+            "maxFrequency": 900
+          }
+        },
+        "options": [
+          { "id": "DI-DATA-01-q1-o1", "number": 1, "text": "31.5%", "mathLatex": null },
+          { "id": "DI-DATA-01-q1-o2", "number": 2, "text": "38.5%", "mathLatex": null },
+          { "id": "DI-DATA-01-q1-o3", "number": 3, "text": "42.2%", "mathLatex": null },
+          { "id": "DI-DATA-01-q1-o4", "number": 4, "text": "47.8%", "mathLatex": null }
+        ],
+        "correctOption": 2,
+        "explanation": "Total 5-year sales = 40 + 65 + 90 + 55 + 75 = 325 Crore. 5-year average = 325 / 5 = 65 Crore. Sales in peak year 2022 = 90 Crore. Percentage increase over average = ((90 - 65) / 65) * 100 = (25 / 65) * 100 = 38.46% ≈ 38.5%.",
+        "hint": "Calculate the average across all 5 years first, then find the percentage increase of 2022 over that average."
+      },
+      {
+        "id": "DI-DATA-01-q2",
+        "section": "Data Interpretation",
+        "questionNumber": 2,
+        "questionType": "DI",
+        "questionText": "In 2024, the ratio of domestic sales to export sales was 3 : 2, whereas in 2021 the ratio was 3 : 10. What is the total combined domestic sales (in Crore) for the years 2021 and 2024 combined?",
+        "mathLatex": "\\text{Domestic}_{2021} + \\text{Domestic}_{2024} = \\left(\\frac{3}{13} \\times 65\\right) + \\left(\\frac{3}{5} \\times 75\\right)",
+        "graph": {
+          "enabled": true,
+          "type": "bar",
+          "title": "Annual Company Sales",
+          "xAxisLabel": "Year",
+          "yAxisLabel": "Sales",
+          "unit": "Crore",
+          "data": [
+            { "id": "2020", "label": "2020", "value": 40 },
+            { "id": "2021", "label": "2021", "value": 65 },
+            { "id": "2022", "label": "2022", "value": 90 },
+            { "id": "2023", "label": "2023", "value": 55 },
+            { "id": "2024", "label": "2024", "value": 75 }
+          ],
+          "sonification": {
+            "enabled": true,
+            "spatialAudio": true,
+            "trendDetection": true,
+            "peakDetection": true,
+            "haptic": true,
+            "voiceDetail": "standard",
+            "minFrequency": 250,
+            "maxFrequency": 900
+          }
+        },
+        "options": [
+          { "id": "DI-DATA-01-q2-o1", "number": 1, "text": "48 Crore", "mathLatex": null },
+          { "id": "DI-DATA-01-q2-o2", "number": 2, "text": "54 Crore", "mathLatex": null },
+          { "id": "DI-DATA-01-q2-o3", "number": 3, "text": "60 Crore", "mathLatex": null },
+          { "id": "DI-DATA-01-q2-o4", "number": 4, "text": "66 Crore", "mathLatex": null }
+        ],
+        "correctOption": 3,
+        "explanation": "In 2021, total sales = 65 Crore; ratio Domestic:Export = 3:10, so Domestic = (3/13) * 65 = 15 Crore. In 2024, total sales = 75 Crore; ratio Domestic:Export = 3:2, so Domestic = (3/5) * 75 = 45 Crore. Combined domestic sales = 15 + 45 = 60 Crore.",
+        "hint": "Divide 2021 sales by 13 and multiply by 3; divide 2024 sales by 5 and multiply by 3, then add them together."
+      },
+      {
+        "id": "DI-DATA-01-q3",
+        "section": "Data Interpretation",
+        "questionNumber": 3,
+        "questionType": "DI",
+        "questionText": "What is the ratio of the average yield of the three lowest production years to the average yield of the three highest production years?",
+        "mathLatex": "\\text{Ratio} = \\frac{\\text{Avg}(\\text{3 Lowest Years})}{\\text{Avg}(\\text{3 Highest Years})}",
+        "graph": {
+          "enabled": true,
+          "type": "line",
+          "title": "Annual Crop Yield Production",
+          "xAxisLabel": "Year",
+          "yAxisLabel": "Yield",
+          "unit": "Metric Tons",
+          "data": [
+            { "id": "2018", "label": "2018", "value": 80 },
+            { "id": "2019", "label": "2019", "value": 100 },
+            { "id": "2020", "label": "2020", "value": 120 },
+            { "id": "2021", "label": "2021", "value": 90 },
+            { "id": "2022", "label": "2022", "value": 135 },
+            { "id": "2023", "label": "2023", "value": 105 }
+          ],
+          "sonification": {
+            "enabled": true,
+            "spatialAudio": true,
+            "trendDetection": true,
+            "peakDetection": true,
+            "haptic": true,
+            "voiceDetail": "standard",
+            "minFrequency": 250,
+            "maxFrequency": 900
+          }
+        },
+        "options": [
+          { "id": "DI-DATA-01-q3-o1", "number": 1, "text": "2 : 3", "mathLatex": null },
+          { "id": "DI-DATA-01-q3-o2", "number": 2, "text": "3 : 4", "mathLatex": null },
+          { "id": "DI-DATA-01-q3-o3", "number": 3, "text": "4 : 5", "mathLatex": null },
+          { "id": "DI-DATA-01-q3-o4", "number": 4, "text": "5 : 7", "mathLatex": null }
+        ],
+        "correctOption": 2,
+        "explanation": "The three lowest yield years are 2018 (80), 2021 (90), and 2019 (100), with an average of (80 + 90 + 100) / 3 = 90 MT. The three highest yield years are 2023 (105), 2020 (120), and 2022 (135), with an average of (105 + 120 + 135) / 3 = 120 MT. Ratio = 90 : 120 = 3 : 4.",
+        "hint": "Identify the 3 lowest values and 3 highest values from the line chart, find their averages, and simplify the ratio."
+      },
+      {
+        "id": "DI-DATA-01-q4",
+        "section": "Data Interpretation",
+        "questionNumber": 4,
+        "questionType": "DI",
+        "questionText": "Between which two consecutive years was the percentage decrease in production yield the greatest?",
+        "mathLatex": "\\% \\text{ Decrease} = \\frac{\\text{Yield}_{t-1} - \\text{Yield}_t}{\\text{Yield}_{t-1}} \\times 100",
+        "graph": {
+          "enabled": true,
+          "type": "line",
+          "title": "Annual Crop Yield Production",
+          "xAxisLabel": "Year",
+          "yAxisLabel": "Yield",
+          "unit": "Metric Tons",
+          "data": [
+            { "id": "2018", "label": "2018", "value": 80 },
+            { "id": "2019", "label": "2019", "value": 100 },
+            { "id": "2020", "label": "2020", "value": 120 },
+            { "id": "2021", "label": "2021", "value": 90 },
+            { "id": "2022", "label": "2022", "value": 135 },
+            { "id": "2023", "label": "2023", "value": 105 }
+          ],
+          "sonification": {
+            "enabled": true,
+            "spatialAudio": true,
+            "trendDetection": true,
+            "peakDetection": true,
+            "haptic": true,
+            "voiceDetail": "standard",
+            "minFrequency": 250,
+            "maxFrequency": 900
+          }
+        },
+        "options": [
+          { "id": "DI-DATA-01-q4-o1", "number": 1, "text": "2018 to 2019", "mathLatex": null },
+          { "id": "DI-DATA-01-q4-o2", "number": 2, "text": "2020 to 2021 (25.0% drop)", "mathLatex": null },
+          { "id": "DI-DATA-01-q4-o3", "number": 3, "text": "2022 to 2023 (22.2% drop)", "mathLatex": null },
+          { "id": "DI-DATA-01-q4-o4", "number": 4, "text": "Both declines were identical in percentage", "mathLatex": null }
+        ],
+        "correctOption": 2,
+        "explanation": "Both periods experienced an absolute decline of 30 Metric Tons. However, the percentage drop from 2020 to 2021 was ((120 - 90) / 120) * 100 = 25.0%, whereas from 2022 to 2023 it was ((135 - 105) / 135) * 100 = 22.22%. Therefore, the percentage decrease was greatest between 2020 and 2021.",
+        "hint": "Check the starting year base value for both 30 MT drops; the smaller base produces a higher percentage decline."
+      },
+      {
+        "id": "DI-DATA-01-q5",
+        "section": "Data Interpretation",
+        "questionNumber": 5,
+        "questionType": "DI",
+        "questionText": "What is the central angle (in degrees) subtended at the center of the pie chart by the combined sectors of Healthcare and Agriculture & Irrigation?",
+        "mathLatex": "\\theta = \\left(\\frac{\\%_{\\text{Healthcare}} + \\%_{\\text{Agriculture}}}{100}\\right) \\times 360^\\circ",
+        "graph": {
+          "enabled": true,
+          "type": "pie",
+          "title": "State Annual Budget Allocation Breakdown",
+          "xAxisLabel": "Sector",
+          "yAxisLabel": "Allocation",
+          "unit": "%",
+          "data": [
+            { "id": "infra", "label": "Infrastructure", "value": 25 },
+            { "id": "health", "label": "Healthcare", "value": 20 },
+            { "id": "edu", "label": "Education", "value": 18 },
+            { "id": "defence", "label": "Defence & Police", "value": 15 },
+            { "id": "agri", "label": "Agriculture & Irrigation", "value": 12 },
+            { "id": "welfare", "label": "Social Welfare", "value": 10 }
+          ],
+          "sonification": {
+            "enabled": true,
+            "spatialAudio": false,
+            "trendDetection": false,
+            "peakDetection": true,
+            "haptic": true,
+            "voiceDetail": "standard",
+            "minFrequency": 250,
+            "maxFrequency": 900
+          }
+        },
+        "options": [
+          { "id": "DI-DATA-01-q5-o1", "number": 1, "text": "108.0 degrees", "mathLatex": null },
+          { "id": "DI-DATA-01-q5-o2", "number": 2, "text": "115.2 degrees", "mathLatex": null },
+          { "id": "DI-DATA-01-q5-o3", "number": 3, "text": "122.4 degrees", "mathLatex": null },
+          { "id": "DI-DATA-01-q5-o4", "number": 4, "text": "128.6 degrees", "mathLatex": null }
+        ],
+        "correctOption": 2,
+        "explanation": "Combined percentage for Healthcare (20%) and Agriculture & Irrigation (12%) = 32%. Central angle subtended in a 360-degree circle = (32 / 100) * 360 = 32 * 3.6 = 115.2 degrees.",
+        "hint": "Remember each 1% in a pie chart equals 3.6 degrees. Multiply 32 by 3.6."
+      },
+      {
+        "id": "DI-DATA-01-q6",
+        "section": "Data Interpretation",
+        "questionNumber": 6,
+        "questionType": "DI",
+        "questionText": "If the total state budget outlay is Rs. 3,50,000 Crore, how much more funds (in Crore) are allocated to Infrastructure and Education combined compared to Defence & Police and Social Welfare combined?",
+        "mathLatex": "\\Delta = \\left[(25\\% + 18\\%) - (15\\% + 10\\%)\\right] \\times 350{,}000",
+        "graph": {
+          "enabled": true,
+          "type": "pie",
+          "title": "State Annual Budget Allocation Breakdown",
+          "xAxisLabel": "Sector",
+          "yAxisLabel": "Allocation",
+          "unit": "%",
+          "data": [
+            { "id": "infra", "label": "Infrastructure", "value": 25 },
+            { "id": "health", "label": "Healthcare", "value": 20 },
+            { "id": "edu", "label": "Education", "value": 18 },
+            { "id": "defence", "label": "Defence & Police", "value": 15 },
+            { "id": "agri", "label": "Agriculture & Irrigation", "value": 12 },
+            { "id": "welfare", "label": "Social Welfare", "value": 10 }
+          ],
+          "sonification": {
+            "enabled": true,
+            "spatialAudio": false,
+            "trendDetection": false,
+            "peakDetection": true,
+            "haptic": true,
+            "voiceDetail": "standard",
+            "minFrequency": 250,
+            "maxFrequency": 900
+          }
+        },
+        "options": [
+          { "id": "DI-DATA-01-q6-o1", "number": 1, "text": "Rs. 54,000 Crore", "mathLatex": null },
+          { "id": "DI-DATA-01-q6-o2", "number": 2, "text": "Rs. 58,500 Crore", "mathLatex": null },
+          { "id": "DI-DATA-01-q6-o3", "number": 3, "text": "Rs. 63,000 Crore", "mathLatex": null },
+          { "id": "DI-DATA-01-q6-o4", "number": 4, "text": "Rs. 67,500 Crore", "mathLatex": null }
+        ],
+        "correctOption": 3,
+        "explanation": "Group 1 (Infrastructure 25% + Education 18%) = 43%. Group 2 (Defence & Police 15% + Social Welfare 10%) = 25%. Difference = 43% - 25% = 18%. 18% of Rs. 3,50,000 Crore = (18 / 100) * 3,50,000 = Rs. 63,000 Crore.",
+        "hint": "Subtract 25% from 43% to find the net percentage difference (18%), then calculate 18% of 3,50,000."
       }
     ]
   }

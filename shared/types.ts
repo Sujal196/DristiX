@@ -32,16 +32,50 @@ export interface AiDiagramExplanation {
 
 export type DiagramType = 'image' | 'svg' | 'chart' | 'geometry';
 
+export type QuestionType = 'MCQ' | 'DI';
+
+export type GraphType = 'bar' | 'line' | 'pie';
+
+export interface GraphDataPoint {
+  id: string;
+  label: string;
+  value: number;
+}
+
+export interface GraphSonificationConfig {
+  enabled: boolean;
+  spatialAudio: boolean;
+  trendDetection: boolean;
+  peakDetection: boolean;
+  haptic: boolean;
+  voiceDetail?: 'minimal' | 'standard' | 'detailed';
+  minFrequency?: number;
+  maxFrequency?: number;
+}
+
+export interface QuestionGraph {
+  enabled: boolean;
+  type: GraphType;
+  title: string;
+  xAxisLabel: string;
+  yAxisLabel: string;
+  unit?: string;
+  data: GraphDataPoint[];
+  sonification: GraphSonificationConfig;
+}
+
 export interface QuestionItem {
   id: string;
   section: string;
   questionNumber: number;
   questionText: string;
+  questionType?: QuestionType;
   mathLatex?: string;
   diagramUrl?: string;
   diagramType?: DiagramType;
   diagramDescription?: string;
   diagramAiExplanation?: AiDiagramExplanation;
+  graph?: QuestionGraph;
   options: { id: string; number: number; text: string; mathLatex?: string }[];
   correctOption?: number;
   explanation?: string;
@@ -127,11 +161,13 @@ export interface PublicQuestion {
   section: string;
   questionNumber: number;
   questionText: string;
+  questionType?: QuestionType;
   mathLatex?: string;
   diagramUrl?: string;
   diagramType?: DiagramType;
   diagramDescription?: string;
   diagramAiExplanation?: AiDiagramExplanation;
+  graph?: QuestionGraph;
   options: QuestionOption[];
   /**
    * Practice mode only, and only when the attempt mode is 'practice'.
@@ -230,6 +266,7 @@ export interface StartAttemptResult {
   exam: ExamSummary;
   questions: PublicQuestion[];
   clock: AttemptClock;
+  state?: AttemptState;
 }
 
 /* ------------------------------------------------------------------ */

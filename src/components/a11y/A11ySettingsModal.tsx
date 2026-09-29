@@ -2,11 +2,12 @@ import React, { useEffect, useRef } from 'react';
 import { usePreferencesStore } from '../../store/usePreferencesStore';
 import type { ThemeMode, TextScale } from '../../store/usePreferencesStore';
 import { useExamStore } from '../../store/useExamStore';
-import { speechEngine } from '../../utils/speechEngine';
+import { speechEngine, EDGE_TTS_VOICES } from '../../utils/speechEngine';
 import { soundEffects } from '../../utils/soundEffects';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { geminiVoiceService } from '../../utils/geminiVoiceService';
-import { X, Sun, Volume2, Type, Sliders, Bell, Keyboard, Sparkles, Key } from 'lucide-react';
+import { earconManager, hapticManager } from '../../accessibility';
+import { X, Sun, Volume2, Type, Sliders, Bell, Keyboard, Sparkles, Key, Terminal } from 'lucide-react';
 
 export const A11ySettingsModal: React.FC = () => {
   const {
@@ -18,7 +19,11 @@ export const A11ySettingsModal: React.FC = () => {
     ttsPitch,
     ttsVoice,
     autoReadOnNavigate,
-    soundEffectsEnabled,
+    audioFeedbackEnabled,
+    earconsEnabled,
+    hapticEnabled,
+    acousticStagingEnabled,
+    a11yDebugMode,
     setTheme,
     setFontSize,
     setDyslexicFont,
@@ -27,7 +32,11 @@ export const A11ySettingsModal: React.FC = () => {
     setTtsPitch,
     setTtsVoice,
     setAutoReadOnNavigate,
-    setSoundEffectsEnabled,
+    setAudioFeedbackEnabled,
+    setEarconsEnabled,
+    setHapticEnabled,
+    setAcousticStagingEnabled,
+    setA11yDebugMode,
   } = usePreferencesStore();
 
   const { isSettingsOpen, setSettingsOpen } = useExamStore();
@@ -38,32 +47,78 @@ export const A11ySettingsModal: React.FC = () => {
   const themeButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const fontButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const themes: Array<{ id: ThemeMode; label: string; desc: string; icon: string }> = [
+  const themes: Array<{
+    id: ThemeMode;
+    label: string;
+    desc: string;
+    icon: string;
+    preview: {
+      bg: string;
+      surface: string;
+      text: string;
+      primary: string;
+      border: string;
+      badge: string;
+    };
+  }> = [
     {
-      id: 'dark-hc',
-      label: 'High-Contrast Dark',
-      desc: 'Midnight Obsidian (#090D16), Pure Light Text, Yellow Focus Ring',
+      id: 'teal-cream',
+      label: 'Teal & Cream',
+      desc: 'Warm Ivory background, Deep Teal primary, Amber focus ring — WCAG AAA (13:1+)',
+      icon: '🌿',
+      preview: {
+        bg: '#F7F4EF',
+        surface: '#FFFFFF',
+        text: '#1A2E2E',
+        primary: '#0D6E6E',
+        border: '#C5BFB4',
+        badge: 'Warm Ivory',
+      },
+    },
+    {
+      id: 'liquid-glass',
+      label: 'Liquid Glass (Frosted Light)',
+      desc: 'Pearlescent frosted glass, Royal Amethyst purple accents, Translucent crystal surfaces — WCAG AAA (15:1+)',
+      icon: '✨',
+      preview: {
+        bg: '#F4F1FA',
+        surface: 'rgba(255, 255, 255, 0.85)',
+        text: '#1B1428',
+        primary: '#7C3AED',
+        border: 'rgba(124, 58, 237, 0.30)',
+        badge: 'Frosted Light',
+      },
+    },
+    {
+      id: 'dark',
+      label: 'Charcoal Dark (Emerald)',
+      desc: 'Deep matte charcoal background, Vivid Emerald green primary, Amber focus ring — WCAG AAA (13:1+)',
       icon: '🌙',
+      preview: {
+        bg: '#111315',
+        surface: '#1A1D20',
+        text: '#F3F4F6',
+        primary: '#10B981',
+        border: '#374151',
+        badge: 'Emerald Green',
+      },
     },
     {
-      id: 'light-hc',
-      label: 'High-Contrast Light',
-      desc: 'Clean White (#FFFFFF), Deep Charcoal Text, 17.5:1 ratio',
-      icon: '☀️',
-    },
-    {
-      id: 'yellow-black',
-      label: 'Yellow on Black',
-      desc: 'Pitch Black (#000000), Electric Yellow (#FFFF00), 19.5:1 ratio',
+      id: 'high-contrast',
+      label: 'High Contrast',
+      desc: 'Pure Black (#000), Electric Yellow (#FFEE00), 21:1 maximum contrast — WCAG AAA',
       icon: '⚡',
-    },
-    {
-      id: 'cream-dark',
-      label: 'Warm Cream / Sepia',
-      desc: 'Soothing Cream (#FFFBEB), Dark Amber Text, Reduced Glare',
-      icon: '📜',
+      preview: {
+        bg: '#000000',
+        surface: '#0A0A0A',
+        text: '#FFEE00',
+        primary: '#FFEE00',
+        border: '#FFEE00',
+        badge: 'Black & Yellow',
+      },
     },
   ];
+
 
   const fontSizes: TextScale[] = [100, 125, 150, 175, 200];
 
@@ -199,6 +254,11 @@ export const A11ySettingsModal: React.FC = () => {
     } else if (e.key >= '1' && e.key <= '4') {
       e.preventDefault();
       nextIndex = parseInt(e.key, 10) - 1;
+    } else if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      const activeEl = document.activeElement;
+      const focusedIdx = themeButtonRefs.current.findIndex((el) => el === activeEl);
+      nextIndex = focusedIdx >= 0 ? focusedIdx : currentIndex;
     }
 
     if (nextIndex >= 0 && nextIndex < themes.length) {
@@ -275,9 +335,31 @@ export const A11ySettingsModal: React.FC = () => {
       );
   };
 
-  const handleTestEarcon = () => {
+  const handleTestVoice = (modality: 'hindi' | 'hinglish' | 'english') => {
     soundEffects.unlock();
-    soundEffects.playMark();
+    let sample = '';
+    if (modality === 'english') {
+      sample = 'Testing Microsoft Ava Multilingual neural voice. Question reading and English navigation are active.';
+    } else if (modality === 'hinglish') {
+      sample = 'Testing Microsoft Neerja neural voice. Aapka sawal number ek yahan hai, uttar vikalp chuniye.';
+    } else {
+      sample = 'दृष्टि एक्स परीक्षा पोर्टल में आपका स्वागत है। मधुर आवाज तैयार है।';
+    }
+    useAnnouncerStore.getState().announce(sample, 'assertive', true);
+  };
+
+  const handleTestEarcon = () => {
+    earconManager.unlock();
+    earconManager.playMarkReview();
+  };
+
+  const handleTestHaptic = () => {
+    const ok = hapticManager.vibrateMarkReview();
+    if (!ok) {
+      useAnnouncerStore
+        .getState()
+        .announce('Haptic vibration is not supported on this browser or device.', 'polite');
+    }
   };
 
   return (
@@ -362,10 +444,20 @@ export const A11ySettingsModal: React.FC = () => {
                         .getState()
                         .announce(`Theme changed to ${t.label}.`, 'assertive', true);
                     }}
-                    className={`p-3.5 rounded-xl border-2 text-left transition flex flex-col gap-1 focus:outline-none focus:ring-4 focus:ring-yellow-400 focus:border-yellow-400 ${
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        setTheme(t.id);
+                        soundEffects.playSelect();
+                        useAnnouncerStore
+                          .getState()
+                          .announce(`Theme changed to ${t.label}.`, 'assertive', true);
+                      }
+                    }}
+                    className={`p-3.5 rounded-xl border-2 text-left transition-all duration-200 flex flex-col gap-2 focus:outline-none focus:ring-4 focus:ring-yellow-400 focus:border-yellow-400 cursor-pointer ${
                       isSelected
-                        ? 'border-yellow-400 ring-2 ring-yellow-400/50 bg-theme-bg font-bold shadow-md'
-                        : 'border-theme-border bg-theme-surface hover:bg-theme-bg/80'
+                        ? 'border-yellow-400 ring-2 ring-yellow-400/50 bg-theme-bg font-bold shadow-lg scale-[1.01]'
+                        : 'border-theme-border bg-theme-surface hover:bg-theme-surface-elevated hover:border-theme-primary/60'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -373,13 +465,48 @@ export const A11ySettingsModal: React.FC = () => {
                         <span aria-hidden="true">{t.icon}</span>
                         <span>{t.label}</span>
                       </span>
-                      {isSelected && (
-                        <span className="text-xs px-2 py-0.5 rounded-md bg-yellow-400 text-black font-black uppercase tracking-wider">
-                          Active
+                      {isSelected ? (
+                        <span className="text-xs px-2.5 py-0.5 rounded-md bg-yellow-400 text-black font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                          <span>✓</span>
+                          <span>Active</span>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] px-2 py-0.5 rounded-md border border-theme-border text-theme-text/60 font-semibold">
+                          Click to apply
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-theme-text/70 leading-snug">
+
+                    {/* Visual Palette Preview Swatch */}
+                    <div
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs"
+                      style={{
+                        backgroundColor: t.preview.bg,
+                        borderColor: t.preview.border,
+                        color: t.preview.text,
+                      }}
+                      aria-hidden="true"
+                    >
+                      <span
+                        className="w-3.5 h-3.5 rounded-full shrink-0 border"
+                        style={{
+                          backgroundColor: t.preview.primary,
+                          borderColor: t.preview.border,
+                        }}
+                      />
+                      <span className="font-bold truncate">Aa Sample Text</span>
+                      <span
+                        className="text-[10px] ml-auto px-1.5 py-0.2 rounded font-mono font-bold"
+                        style={{
+                          backgroundColor: t.preview.primary,
+                          color: t.id === 'high-contrast' ? '#000000' : '#FFFFFF',
+                        }}
+                      >
+                        {t.preview.badge}
+                      </span>
+                    </div>
+
+                    <span className="text-xs text-theme-text/75 leading-snug">
                       {t.desc}
                     </span>
                   </button>
@@ -565,26 +692,93 @@ export const A11ySettingsModal: React.FC = () => {
                   </div>
 
                   {/* Voice Selector */}
-                  {voices.length > 0 && (
-                    <div>
-                      <label htmlFor="tts-voice-select" className="block text-xs sm:text-sm font-bold mb-1">
-                        Select Speech Voice:
-                      </label>
-                      <select
-                        id="tts-voice-select"
-                        value={ttsVoice}
-                        onChange={(e) => setTtsVoice(e.target.value)}
-                        className="w-full p-2.5 rounded-xl border-2 border-theme-border bg-theme-surface text-theme-text font-medium text-sm focus:outline-none focus:ring-4 focus:ring-yellow-400"
-                      >
-                        <option value="">Default System Voice</option>
-                        {voices.map((v) => (
-                          <option key={v.voiceURI} value={v.voiceURI}>
-                            {v.name} ({v.lang})
-                          </option>
-                        ))}
-                      </select>
+                  <div>
+                    <label htmlFor="tts-voice-select" className="block text-xs sm:text-sm font-bold mb-1">
+                      Select Speech Voice Engine:
+                    </label>
+                    <select
+                      id="tts-voice-select"
+                      value={ttsVoice}
+                      onChange={(e) => setTtsVoice(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border-2 border-theme-border bg-theme-surface text-theme-text font-medium text-sm focus:outline-none focus:ring-4 focus:ring-yellow-400"
+                    >
+                      <option value="">⚡ Default: Microsoft Edge Neural TTS (Auto: Madhur / Neerja / Ava)</option>
+                      <optgroup label="Microsoft Edge Neural Voices (Recommended)">
+                        <option value={EDGE_TTS_VOICES.HINDI}>Hindi (Devanagari): {EDGE_TTS_VOICES.HINDI}</option>
+                        <option value={EDGE_TTS_VOICES.HINGLISH}>Hinglish (Roman Hindi): {EDGE_TTS_VOICES.HINGLISH}</option>
+                        <option value={EDGE_TTS_VOICES.ENGLISH}>English (Default): {EDGE_TTS_VOICES.ENGLISH}</option>
+                      </optgroup>
+                      {voices.length > 0 && (
+                        <optgroup label="Installed Browser & System Voices">
+                          {voices.map((v) => (
+                            <option key={v.voiceURI} value={v.voiceURI}>
+                              {v.name} ({v.lang})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+
+                    {/* Edge Neural TTS Active Profile Card */}
+                    <div className="mt-2.5 p-3 rounded-xl border border-yellow-400/30 bg-yellow-400/5 text-xs text-theme-text space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold flex items-center gap-1.5 text-yellow-400">
+                          <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>Microsoft Edge Neural TTS Profile (Default Active)</span>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-400/20 text-yellow-300 font-semibold uppercase tracking-wider">
+                          Active
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-theme-muted">
+                        DristiX automatically routes speech to the optimal Microsoft Edge Natural neural voice based on language and script:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
+                        <div className="p-2 rounded-lg bg-theme-surface border border-theme-border flex flex-col justify-between">
+                          <div>
+                            <div className="text-theme-muted font-sans font-medium text-[10px]">Hindi (Devanagari)</div>
+                            <div className="font-bold text-yellow-400 truncate">{EDGE_TTS_VOICES.HINDI}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleTestVoice('hindi')}
+                            className="mt-2 text-[10px] font-sans font-semibold text-yellow-400 hover:underline flex items-center gap-1 text-left focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded"
+                          >
+                            <Volume2 className="w-3 h-3 inline" aria-hidden="true" />
+                            <span>Test Hindi</span>
+                          </button>
+                        </div>
+                        <div className="p-2 rounded-lg bg-theme-surface border border-theme-border flex flex-col justify-between">
+                          <div>
+                            <div className="text-theme-muted font-sans font-medium text-[10px]">Hinglish (Roman Hindi)</div>
+                            <div className="font-bold text-yellow-400 truncate">{EDGE_TTS_VOICES.HINGLISH}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleTestVoice('hinglish')}
+                            className="mt-2 text-[10px] font-sans font-semibold text-yellow-400 hover:underline flex items-center gap-1 text-left focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded"
+                          >
+                            <Volume2 className="w-3 h-3 inline" aria-hidden="true" />
+                            <span>Test Hinglish</span>
+                          </button>
+                        </div>
+                        <div className="p-2 rounded-lg bg-theme-surface border border-theme-border flex flex-col justify-between">
+                          <div>
+                            <div className="text-theme-muted font-sans font-medium text-[10px]">English (Default)</div>
+                            <div className="font-bold text-yellow-400 truncate">{EDGE_TTS_VOICES.ENGLISH}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleTestVoice('english')}
+                            className="mt-2 text-[10px] font-sans font-semibold text-yellow-400 hover:underline flex items-center gap-1 text-left focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded"
+                          >
+                            <Volume2 className="w-3 h-3 inline" aria-hidden="true" />
+                            <span>Test English</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  )}
+                  </div>
 
                   <div className="pt-2 flex justify-start">
                     <button
@@ -601,41 +795,162 @@ export const A11ySettingsModal: React.FC = () => {
             </div>
           </section>
 
-          {/* 4. Auditory Cues / Earcons */}
+          {/* 4. Multi-Sensory Feedback (Audio, Earcons & Haptics) */}
           <section aria-labelledby="sound-heading" className="pt-4 border-t border-theme-border">
-            <h3 id="sound-heading" className="text-base font-bold mb-3 flex items-center gap-2">
-              <Bell className="w-4 h-4 text-yellow-400" aria-hidden="true" />
-              <span>4. Non-Speech Auditory Cues (Earcons)</span>
+            <h3 id="sound-heading" className="text-base font-bold mb-3 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Bell className="w-4 h-4 text-yellow-400" aria-hidden="true" />
+                <span>4. Multi-Sensory Accessibility Core (Earcons, Staging & Haptics)</span>
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-yellow-400/20 text-yellow-400 border border-yellow-400/30 font-bold">
+                Acoustic Engine Active
+              </span>
             </h3>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border-2 border-theme-border bg-theme-bg focus-within:ring-4 focus-within:ring-yellow-400">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={soundEffectsEnabled}
-                  onChange={(e) => {
-                    setSoundEffectsEnabled(e.target.checked);
-                    soundEffects.playSelect();
-                  }}
-                  className="w-5 h-5 accent-yellow-400 rounded focus:outline-none"
-                />
-                <div>
-                  <span className="font-bold text-sm sm:text-base block">Auditory feedback tones</span>
-                  <p className="text-xs text-theme-text/70 mt-0.5">
-                    Subtle tones when options are selected, questions marked, and timer warnings fire.
-                  </p>
-                </div>
-              </label>
+            <div className="space-y-3">
+              {/* 4A. Master Audio Feedback Toggle */}
+              <div className="p-3.5 rounded-xl border-2 border-theme-border bg-theme-bg">
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={audioFeedbackEnabled}
+                      onChange={(e) => {
+                        setAudioFeedbackEnabled(e.target.checked);
+                        earconManager.playOptionSelected();
+                      }}
+                      className="w-5 h-5 accent-yellow-400 rounded focus:outline-none"
+                    />
+                    <div>
+                      <span className="font-bold text-sm sm:text-base block">Master Audio Feedback</span>
+                      <p className="text-xs text-theme-text/70 mt-0.5">
+                        Controls all application-wide speech, auditory earcons, and system audio alerts.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded border border-theme-border text-theme-text/80">
+                    {audioFeedbackEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </label>
+              </div>
 
-              {soundEffectsEnabled && (
-                <button
-                  type="button"
-                  onClick={handleTestEarcon}
-                  className="px-3 py-1.5 font-bold rounded-lg border-2 border-theme-border bg-theme-surface hover:bg-theme-bg text-theme-text text-xs focus:outline-none focus:ring-4 focus:ring-yellow-400"
-                >
-                  Play Sample Tone
-                </button>
-              )}
+              {/* 4B. Earcons (Non-Speech Auditory Tones) */}
+              <div className="p-3.5 rounded-xl border-2 border-theme-border bg-theme-bg flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-[240px]">
+                  <input
+                    type="checkbox"
+                    checked={earconsEnabled}
+                    onChange={(e) => {
+                      setEarconsEnabled(e.target.checked);
+                      earconManager.playOptionSelected();
+                    }}
+                    className="w-5 h-5 accent-yellow-400 rounded focus:outline-none"
+                  />
+                  <div>
+                    <span className="font-bold text-sm sm:text-base block">Non-Speech Auditory Cues (Earcons)</span>
+                    <p className="text-xs text-theme-text/70 mt-0.5">
+                      Harmonic frequency tones for option selection, review marking, timer alerts, and navigation.
+                    </p>
+                  </div>
+                </label>
+
+                {earconsEnabled && (
+                  <button
+                    type="button"
+                    onClick={handleTestEarcon}
+                    className="px-3 py-1.5 font-bold rounded-lg border-2 border-theme-border bg-theme-surface hover:bg-theme-bg text-theme-text text-xs focus:outline-none focus:ring-4 focus:ring-yellow-400 shrink-0"
+                  >
+                    Play Sample Earcon
+                  </button>
+                )}
+              </div>
+
+              {/* 4C. Acoustic Staging (Cognitive Separation) */}
+              <div className="p-3.5 rounded-xl border-2 border-theme-border bg-theme-bg">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={acousticStagingEnabled}
+                    onChange={(e) => {
+                      setAcousticStagingEnabled(e.target.checked);
+                      earconManager.playOptionSelected();
+                    }}
+                    className="w-5 h-5 accent-yellow-400 rounded focus:outline-none"
+                  />
+                  <div>
+                    <span className="font-bold text-sm sm:text-base block">Acoustic Staging (Cognitive Differentiation)</span>
+                    <p className="text-xs text-theme-text/70 mt-0.5">
+                      Differentiates speech cadence and timbre between questions, options, warnings, and success feedback to eliminate auditory fatigue.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* 4D. Haptic Feedback (Vibration API) */}
+              <div className="p-3.5 rounded-xl border-2 border-theme-border bg-theme-bg flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-[240px]">
+                  <input
+                    type="checkbox"
+                    checked={hapticEnabled}
+                    onChange={(e) => {
+                      setHapticEnabled(e.target.checked);
+                      hapticManager.vibrateOptionSelected();
+                    }}
+                    className="w-5 h-5 accent-yellow-400 rounded focus:outline-none"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm sm:text-base">Haptic Vibration Feedback</span>
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                          hapticManager.isSupported()
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-zinc-500/20 text-zinc-400 border border-zinc-500/30'
+                        }`}
+                      >
+                        {hapticManager.isSupported() ? 'Device Supported' : 'Hardware Fallback'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-theme-text/70 mt-0.5">
+                      Tactile micro-vibrations for silent option selection, marking review, and critical countdown.
+                    </p>
+                  </div>
+                </label>
+
+                {hapticEnabled && hapticManager.isSupported() && (
+                  <button
+                    type="button"
+                    onClick={handleTestHaptic}
+                    className="px-3 py-1.5 font-bold rounded-lg border-2 border-theme-border bg-theme-surface hover:bg-theme-bg text-theme-text text-xs focus:outline-none focus:ring-4 focus:ring-yellow-400 shrink-0"
+                  >
+                    Test Vibration
+                  </button>
+                )}
+              </div>
+
+              {/* 4E. Developer A11y Event Logger Mode */}
+              <div className="p-3.5 rounded-xl border-2 border-theme-border bg-theme-bg">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={a11yDebugMode}
+                    onChange={(e) => {
+                      setA11yDebugMode(e.target.checked);
+                      earconManager.playOptionSelected();
+                    }}
+                    className="w-5 h-5 accent-yellow-400 rounded focus:outline-none"
+                  />
+                  <div>
+                    <span className="font-bold text-sm sm:text-base flex items-center gap-1.5">
+                      <Terminal className="w-3.5 h-3.5 text-yellow-400" />
+                      <span>Accessibility Event Logger (Dev Inspection)</span>
+                    </span>
+                    <p className="text-xs text-theme-text/70 mt-0.5">
+                      Outputs real-time accessibility event dispatches (speech, earcon, and haptic channel logs) to the browser developer console.
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
           </section>
 

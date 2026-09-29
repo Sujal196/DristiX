@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
@@ -6,7 +6,10 @@ import { soundEffects } from '../../utils/soundEffects';
 import { getDataSource } from '../../services/dataSource';
 import { verbalizeMath } from '../../utils/mathVerbalizer';
 import { renderGeometrySvg, verbalizeGeometryDiagram } from '../../utils/geometryGenerator';
+import { extractQuestionsFromFile } from '../../utils/docxImport';
 import { MathEquation } from '../common/MathEquation';
+import { AdminGraphBuilder } from './AdminGraphBuilder';
+import { InteractiveSonificationGraph } from '../sonification/InteractiveSonificationGraph';
 import type { Exam, QuestionItem } from '../../../shared/types';
 import type { ExamCategory } from '../../data/examCategories';
 import {
@@ -25,9 +28,17 @@ import {
   Image,
   Loader2,
   Edit3,
-  UserCheck,
+  Eye,
   Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+
+/**
+ * The sample item the creator form opens with. The first Word import replaces
+ * it wholesale so an examiner never has to delete it by hand.
+ */
+const STARTER_QUESTION_TEXT = 'What is the sum of angles in a triangle?';
 
 interface AdminPanelProps {
   onReturnToStudent: () => void;
@@ -87,7 +98,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       id: `custom-q-1`,
       section: 'Quantitative Aptitude',
       questionNumber: 1,
-      questionText: 'What is the sum of angles in a triangle?',
+      questionText: STARTER_QUESTION_TEXT,
       mathLatex: 'A + B + C = 180^\\circ',
       options: [
         { id: 'opt_1', number: 1, text: '90 degrees' },
@@ -104,6 +115,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
   const [generatingDiagramAi, setGeneratingDiagramAi] = useState<Record<number, boolean>>({});
+  const [previewingQuestionIdx, setPreviewingQuestionIdx] = useState<number | null>(null);
+  /** Hidden Word picker, opened by the "Import from Word" button. */
+  const wordFileRef = useRef<HTMLInputElement | null>(null);
 
   const convertImageUrlToBase64 = async (url: string): Promise<string> => {
     if (!url || !url.trim() || url.startsWith('data:')) return url;
@@ -159,21 +173,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
         return;
       }
 
-      handleUpdateQuestion(qIdx, 'diagramAiExplanation', {
-        visualBreakdown: [
-          `Diagram Type: ${q.diagramType || 'Geometry Diagram'}`,
-          `Visual Details: ${q.diagramDescription || 'Question geometry/data figure.'}`,
-          `Formula Context: ${q.mathLatex || 'Standard Geometry/Algebra'}`
-        ],
-        educationalContext: `The diagram provides visual context for question statement: "${q.questionText}". Analyze labeled shapes, axes, and angles to compute the correct result.`,
-        keyPoints: [
-          'Identify given variables from diagram.',
-          'Apply core formula or theorem.',
-          'Verify final calculated option.'
-        ],
-        audioNarration: `Visual Diagram breakdown for question ${q.questionNumber}: ${q.diagramDescription || q.questionText}`,
-      });
-      soundEffects.playSuccess();
+      // Fail loudly. This used to write a canned non-AI paragraph into the
+      // question and play the success chime, so a broken provider looked like
+      // it had worked — the admin only noticed the useless text later.
+      const detail = typeof err?.message === 'string' ? err.message : '';
+      setFormError(
+        `AI Vision could not analyze the image for Question ${q.questionNumber}.` +
+          `${detail ? ` (${detail})` : ''} ` +
+          'Check that the image link opens in a browser, or pick the image file directly, then try again.'
+      );
     } finally {
       setGeneratingDiagramAi((prev) => ({ ...prev, [qIdx]: false }));
     }
@@ -235,25 +243,83 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
     announce(`Applied ${type} geometry diagram preset to Question ${qIdx + 1}.`, 'assertive', true);
   };
 
-  const handleImageFileUpload = (qIdx: number, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
-      const result = uploadEvent.target?.result as string;
-      if (result) {
-        const updated = [...questions];
-        updated[qIdx] = {
-          ...updated[qIdx],
-          diagramUrl: result,
-          diagramType: 'image',
+  /**
+   * Re-encodes a picked image at a bounded size.
+   *
+   * Uploaded pictures travel to the server as base64 data URLs; an unbounded
+   * phone photo is several megabytes, which used to blow past the body limit
+   * and quietly replace the real AI analysis with a canned fallback. Scaling
+   * to 1280px and re-encoding keeps the payload small and the stored exam
+   * document light. Anything that cannot be decoded as a raster image (an
+   * SVG, say) is passed through untouched.
+   */
+  const readAndCompressImage = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Could not read the selected file.'));
+      reader.onload = () => {
+        const src = reader.result as string;
+        // `window.Image`, not bare `Image`: the lucide `Image` icon imported at
+        // the top of this file shadows the DOM constructor.
+        const img = new window.Image();
+        img.onerror = () => resolve(src);
+        img.onload = () => {
+          const MAX_EDGE = 1280;
+          const longest = Math.max(img.width, img.height);
+          const scale = Math.min(1, MAX_EDGE / longest);
+          if (scale === 1 && file.size < 400_000) {
+            resolve(src);
+            return;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(src);
+            return;
+          }
+          // JPEG has no alpha; matting onto white keeps a transparent diagram's
+          // background white instead of the black a naive export would give.
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          try {
+            resolve(canvas.toDataURL('image/jpeg', 0.85));
+          } catch {
+            resolve(src);
+          }
         };
-        setQuestions(updated);
-        soundEffects.playSuccess();
-        announce(`Uploaded diagram image file for Question ${qIdx + 1}.`, 'polite', true);
-      }
-    };
-    reader.readAsDataURL(file);
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
+    });
+
+  const handleImageFileUpload = async (qIdx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file twice still fires a change event.
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFormError('Only image files can be attached to a question.');
+      return;
+    }
+
+    try {
+      const result = await readAndCompressImage(file);
+      const updated = [...questions];
+      updated[qIdx] = {
+        ...updated[qIdx],
+        diagramUrl: result,
+        diagramType: 'image',
+      };
+      setQuestions(updated);
+      setFormError('');
+      soundEffects.playSuccess();
+      announce(`Uploaded diagram image file for Question ${qIdx + 1}.`, 'polite', true);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not read that image file.');
+    }
   };
 
   // Calculations for KPI Cards
@@ -277,6 +343,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
     return matchesSearch && matchesExam;
   });
+
+  // Submissions Pagination (5 per page)
+  const SUBMISSIONS_PER_PAGE = 5;
+  const [submissionPage, setSubmissionPage] = useState(1);
+
+  useEffect(() => {
+    setSubmissionPage(1);
+  }, [submissionSearch, selectedExamFilter]);
+
+  const totalSubmissionPages = Math.max(1, Math.ceil(filteredSubmissions.length / SUBMISSIONS_PER_PAGE));
+  const paginatedAdminSubmissions = filteredSubmissions.slice(
+    (submissionPage - 1) * SUBMISSIONS_PER_PAGE,
+    submissionPage * SUBMISSIONS_PER_PAGE
+  );
 
   // Filtered Registered Students
   const filteredStudents = students.filter((std) => {
@@ -332,7 +412,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       setActiveAdminTab('create');
       soundEffects.playSelect();
       announce(`Loaded examination ${fullExam.code} for editing.`, 'assertive', true);
-    } catch (err) {
+    } catch {
       setFormError('Failed to load examination for editing.');
     } finally {
       setIsLoadingExamForEdit(false);
@@ -377,6 +457,78 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
     soundEffects.playNavigate();
   };
 
+  /**
+   * Bulk-authoring: read a Word (.docx) paper and drop every recognised
+   * question into the form — statement, options, correct answer, section,
+   * solution and hint — so an examiner reviews instead of retyping.
+   */
+  const handleImportWordFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so re-picking the same file still fires a change event.
+    e.target.value = '';
+    if (!file) return;
+
+    setFormError('');
+    setFormSuccess('');
+
+    try {
+      const result = await extractQuestionsFromFile(file);
+
+      if (result.questions.length === 0) {
+        setFormError(
+          `No questions were recognised in "${file.name}". Each question needs a number such as ` +
+            '"1." or "Q1.", options such as "a)" or "(a)", and ideally an answer line like "Ans: b".'
+        );
+        return;
+      }
+
+      const stamp = Date.now();
+      const imported: QuestionItem[] = result.questions.map((q, i) => {
+        const optionTexts = q.options.length > 0 ? q.options : ['', '', '', ''];
+        return {
+          id: `imported-q-${stamp}-${i}`,
+          section: q.section || 'General',
+          questionNumber: 0, // assigned by the merge below
+          questionText: q.questionText,
+          questionType: 'MCQ' as const,
+          options: optionTexts.map((text, oi) => ({
+            id: `opt_${stamp}_${i}_${oi + 1}`,
+            number: oi + 1,
+            text,
+          })),
+          // 0 means "the file carried no answer": the radio stays unselected
+          // so the gap is visible, and publishing refuses to proceed.
+          correctOption:
+            q.correctOption >= 1 && q.correctOption <= optionTexts.length ? q.correctOption : 0,
+          explanation: q.explanation,
+          hint: q.hint,
+        };
+      });
+
+      const replaceStarter =
+        !editingExamId && questions.length === 1 && questions[0].questionText === STARTER_QUESTION_TEXT;
+      const base = replaceStarter ? [] : questions;
+      const merged = [...base, ...imported].map((q, idx) => ({ ...q, questionNumber: idx + 1 }));
+      setQuestions(merged);
+
+      const missingAnswers = imported.filter((q) => !q.correctOption).length;
+      const shortOptions = imported.filter((q) => q.options.length < 4).length;
+
+      setFormSuccess(
+        `Imported ${imported.length} question${imported.length === 1 ? '' : 's'} from "${file.name}"` +
+          `${replaceStarter ? ' (starter question replaced)' : ''} — ${merged.length} in this paper now.` +
+          (missingAnswers
+            ? ` ${missingAnswers} had no answer in the file: mark the correct option for those before publishing.`
+            : '') +
+          (shortOptions ? ` ${shortOptions} have fewer than 4 options.` : '')
+      );
+      announce(`Imported ${imported.length} questions from ${file.name}.`, 'assertive', true);
+      soundEffects.playSuccess();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : `Could not read "${file.name}".`);
+    }
+  };
+
   const handleRemoveQuestion = (idx: number) => {
     if (questions.length <= 1) return;
     const updated = questions.filter((_, i) => i !== idx).map((q, i) => ({ ...q, questionNumber: i + 1 }));
@@ -418,6 +570,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
           setFormError(`Question ${i + 1}, Option ${opt.number} cannot be empty.`);
           return;
         }
+      }
+      // An imported question whose answer was missing from the file leaves the
+      // radio unselected; grading would otherwise mark every student wrong.
+      if (!q.correctOption || !q.options.some((o) => o.number === q.correctOption)) {
+        setFormError(`Question ${i + 1} has no correct option selected. Mark the right answer.`);
+        return;
       }
     }
 
@@ -636,6 +794,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             </div>
           </div>
 
+          {/* Data Sonification Feature Section Card */}
+          <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-900/20 via-purple-900/10 to-indigo-900/20 border-2 border-indigo-500/40 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl p-2.5 rounded-xl bg-indigo-600 text-white shadow">
+                  🎧
+                </span>
+                <div>
+                  <h3 className="text-lg font-black text-theme-text flex items-center gap-2">
+                    <span>Data Sonification Questions</span>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                      Live Production Feature
+                    </span>
+                  </h3>
+                  <p className="text-xs text-theme-text/70 mt-0.5">
+                    Real-time Web Audio pitch modulation (250Hz - 900Hz), Stereo spatial audio, trend detection, and tactile haptic feedback for visually impaired candidates.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveAdminTab('create');
+                    soundEffects.playSelect();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-extrabold text-xs flex items-center gap-1.5 shadow hover:bg-indigo-700 transition"
+                >
+                  <PlusCircle className="w-4 h-4" aria-hidden="true" />
+                  <span>Create DI Question</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveAdminTab('manage');
+                    soundEffects.playSelect();
+                  }}
+                  className="px-4 py-2 rounded-xl border border-theme-border bg-theme-surface hover:bg-theme-border/40 font-bold text-xs transition"
+                >
+                  Manage Questions
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Metrics */}
+            {(() => {
+              const allQs = [...availableExams, ...availablePracticeDrills].flatMap((e) => e.questions || []);
+              const sonifiedQs = allQs.filter((q) => q.graph && q.graph.enabled && q.graph.sonification?.enabled);
+              const barCount = sonifiedQs.filter((q) => q.graph?.type === 'bar').length;
+              const lineCount = sonifiedQs.filter((q) => q.graph?.type === 'line').length;
+              const pieCount = sonifiedQs.filter((q) => q.graph?.type === 'pie').length;
+
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-indigo-500/20 text-xs">
+                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Sonified Questions</span>
+                    <span className="text-lg font-black text-indigo-500">{sonifiedQs.length} active</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Bar Charts</span>
+                    <span className="text-lg font-black text-theme-text">{barCount}</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Line Charts</span>
+                    <span className="text-lg font-black text-theme-text">{lineCount}</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-theme-surface/60 border border-theme-border">
+                    <span className="text-theme-text/60 block text-[11px] font-bold uppercase">Pie Charts</span>
+                    <span className="text-lg font-black text-theme-text">{pieCount}</span>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
           {/* Submissions Filter & Table */}
           <div className="p-6 rounded-2xl bg-theme-surface border-2 border-theme-border shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
@@ -690,14 +924,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-theme-border">
-                  {filteredSubmissions.length === 0 ? (
+                  {paginatedAdminSubmissions.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="p-8 text-center text-theme-text/60">
                         No examination submissions match the current query.
                       </td>
                     </tr>
                   ) : (
-                    filteredSubmissions.map((sub) => (
+                    paginatedAdminSubmissions.map((sub) => (
                       <tr key={sub.id} className="hover:bg-theme-bg/60 transition-colors">
                         <td className="p-3 font-semibold text-theme-text">
                           <div className="font-bold">{sub.studentName}</div>
@@ -722,7 +956,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                           </span>
                         </td>
                         <td className="p-3 font-bold text-theme-text whitespace-nowrap">
-                          {sub.score} / {sub.maxScore} pts
+                          {Number(sub.score.toFixed(2))} / {sub.maxScore} pts
                         </td>
                         <td className="p-3">
                           <span
@@ -765,8 +999,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                 </tbody>
               </table>
             </div>
-          </div>
 
+            {/* Admin Submissions Pagination */}
+            {filteredSubmissions.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-theme-border">
+                <div className="text-xs text-theme-text/70 font-medium">
+                  Showing <span className="font-bold text-theme-text">{Math.min((submissionPage - 1) * SUBMISSIONS_PER_PAGE + 1, filteredSubmissions.length)}</span> to{' '}
+                  <span className="font-bold text-theme-text">{Math.min(submissionPage * SUBMISSIONS_PER_PAGE, filteredSubmissions.length)}</span> of{' '}
+                  <span className="font-bold text-theme-text">{filteredSubmissions.length}</span> submissions
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={submissionPage === 1}
+                    onClick={() => setSubmissionPage((p) => Math.max(1, p - 1))}
+                    className="px-3 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-xs hover:border-theme-primary hover:text-theme-primary disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Previous</span>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalSubmissionPages }, (_, i) => i + 1).map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setSubmissionPage(page)}
+                        className={`w-8 h-8 rounded-lg font-bold text-xs transition border-2 ${
+                          submissionPage === page
+                            ? 'bg-theme-primary text-white border-theme-primary shadow-xs'
+                            : 'bg-theme-bg border-theme-border text-theme-text hover:border-theme-primary'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={submissionPage === totalSubmissionPages}
+                    onClick={() => setSubmissionPage((p) => Math.min(totalSubmissionPages, p + 1))}
+                    className="px-3 py-1.5 rounded-lg border-2 border-theme-border bg-theme-bg text-theme-text font-bold text-xs hover:border-theme-primary hover:text-theme-primary disabled:opacity-40 disabled:hover:border-theme-border disabled:hover:text-theme-text transition flex items-center gap-1"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
@@ -899,12 +1182,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   </div>
                   <h3 className="text-lg font-bold text-theme-text mb-1">{exam.title}</h3>
                   <p className="text-xs text-theme-text/70 mb-4 line-clamp-2">{exam.description}</p>
-                  <div className="flex flex-wrap gap-3 text-xs text-theme-text/80 mb-4 font-medium">
+                  <div className="flex flex-wrap gap-3 text-xs text-theme-text/80 mb-4 font-medium items-center">
                     <span>⏱️ {exam.durationMinutes} min</span>
                     <span>•</span>
                     <span>❓ {exam.questions.length} questions</span>
                     <span>•</span>
                     <span>🏆 {exam.totalMarks} marks</span>
+                    {exam.questions.some((q) => q.graph && q.graph.enabled) && (
+                      <>
+                        <span>•</span>
+                        <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold">
+                          🎧 Audio Graph DI
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1013,6 +1304,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             <p className="text-sm text-theme-text/80 mt-1">
               Construct high-accessibility test papers with LaTeX math equations, 4 options, hints, and explanations.
             </p>
+
+            {/* Editing has no other exit — without this an examiner who opened
+                the wrong paper had to publish it to get out. */}
+            {editingExamId && (
+              <div className="flex flex-wrap items-center gap-3 mt-3">
+                <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-xs font-black uppercase tracking-wider">
+                  {isLoadingExamForEdit ? 'Loading exam…' : 'Editing existing paper'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-3 py-1.5 rounded-lg border border-theme-border bg-theme-surface text-theme-text font-bold text-xs hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/40 transition"
+                >
+                  Cancel edit
+                </button>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handlePublishExam} className="space-y-6">
@@ -1177,38 +1485,174 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleAddQuestion}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
-                >
-                  <PlusCircle className="w-4 h-4" aria-hidden="true" />
-                  <span>Add Another Question</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => wordFileRef.current?.click()}
+                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 shadow"
+                    title="Read questions out of a .docx file — statement, options, answer, solution and section land in their fields automatically"
+                  >
+                    <FileText className="w-4 h-4" aria-hidden="true" />
+                    <span>Import from Word</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleAddQuestion}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
+                  >
+                    <PlusCircle className="w-4 h-4" aria-hidden="true" />
+                    <span>Add Another Question</span>
+                  </button>
+
+                  <input
+                    ref={wordFileRef}
+                    type="file"
+                    accept=".docx,.txt,.md"
+                    onChange={handleImportWordFile}
+                    className="hidden"
+                    aria-label="Choose a Word document to import questions from"
+                  />
+                </div>
               </div>
 
               {/* Individual Question Cards */}
               {questions.map((q, qIdx) => (
                 <div key={q.id} className="p-6 rounded-2xl bg-theme-bg border-2 border-theme-border space-y-4">
-                  <div className="flex items-center justify-between border-b border-theme-border pb-3">
+                  <div className="flex flex-wrap items-center justify-between border-b border-theme-border pb-3 gap-2">
                     <div className="flex items-center gap-2">
                       <span className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center font-mono">
                         Q{q.questionNumber}
                       </span>
                       <span className="text-sm font-bold text-theme-text">Question {q.questionNumber}</span>
+                      {q.questionType === 'DI' && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/40">
+                          📊 DI Sonification
+                        </span>
+                      )}
                     </div>
 
-                    {questions.length > 1 && (
+                    <div className="flex items-center gap-2">
+                      {/* Preview as Student button */}
                       <button
                         type="button"
-                        onClick={() => handleRemoveQuestion(qIdx)}
-                        className="text-xs text-red-500 hover:text-red-700 font-bold flex items-center gap-1"
+                        onClick={() => setPreviewingQuestionIdx(qIdx)}
+                        className="px-2.5 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white font-bold text-xs flex items-center gap-1 transition"
                       >
-                        <Trash2 className="w-4 h-4" aria-hidden="true" />
-                        <span>Remove Question</span>
+                        <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Preview as Student</span>
                       </button>
+
+                      {questions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveQuestion(qIdx)}
+                          className="text-xs text-red-500 hover:text-red-700 font-bold flex items-center gap-1"
+                        >
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
+                          <span>Remove</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Question Format & Type Selector */}
+                  <div className="p-3 rounded-xl bg-theme-surface border border-theme-border flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs font-bold uppercase text-theme-text/70">
+                        Question Format:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-theme-text">
+                          <input
+                            type="radio"
+                            name={`q_type_${qIdx}`}
+                            checked={q.questionType !== 'DI'}
+                            onChange={() => {
+                              handleUpdateQuestion(qIdx, 'questionType', 'MCQ');
+                              if (q.graph) {
+                                handleUpdateQuestion(qIdx, 'graph', {
+                                  ...q.graph,
+                                  enabled: false,
+                                });
+                              }
+                            }}
+                            className="accent-indigo-600"
+                          />
+                          <span>Standard MCQ</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                          <input
+                            type="radio"
+                            name={`q_type_${qIdx}`}
+                            checked={q.questionType === 'DI'}
+                            onChange={() => {
+                              handleUpdateQuestion(qIdx, 'questionType', 'DI');
+                              const existingGraph = q.graph || {
+                                enabled: true,
+                                type: 'bar',
+                                title: 'Data Interpretation Graph',
+                                xAxisLabel: 'Category',
+                                yAxisLabel: 'Value',
+                                unit: '',
+                                data: [
+                                  { id: '1', label: 'Item A', value: 30 },
+                                  { id: '2', label: 'Item B', value: 65 },
+                                  { id: '3', label: 'Item C', value: 90 },
+                                ],
+                                sonification: {
+                                  enabled: true,
+                                  spatialAudio: true,
+                                  trendDetection: true,
+                                  peakDetection: true,
+                                  haptic: true,
+                                  voiceDetail: 'standard',
+                                  minFrequency: 250,
+                                  maxFrequency: 900,
+                                },
+                              };
+                              handleUpdateQuestion(qIdx, 'graph', {
+                                ...existingGraph,
+                                enabled: true,
+                              });
+                            }}
+                            className="accent-indigo-600"
+                          />
+                          <span>DI / Data Interpretation (Audio Sonification)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {q.questionType === 'DI' && (
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-theme-text">
+                        <span>Interactive Sonification:</span>
+                        <input
+                          type="checkbox"
+                          checked={q.graph?.enabled ?? true}
+                          onChange={(e) => {
+                            if (q.graph) {
+                              handleUpdateQuestion(qIdx, 'graph', {
+                                ...q.graph,
+                                enabled: e.target.checked,
+                              });
+                            }
+                          }}
+                          className="w-4 h-4 accent-indigo-600"
+                        />
+                        <span className={q.graph?.enabled ? 'text-emerald-500' : 'text-theme-text/60'}>
+                          {q.graph?.enabled ? 'ENABLED' : 'DISABLED'}
+                        </span>
+                      </label>
                     )}
                   </div>
+
+                  {/* If DI Question & Graph Enabled, Render Real AdminGraphBuilder */}
+                  {q.questionType === 'DI' && q.graph && q.graph.enabled && (
+                    <AdminGraphBuilder
+                      graph={q.graph}
+                      onChange={(updatedGraph) => handleUpdateQuestion(qIdx, 'graph', updatedGraph)}
+                    />
+                  )}
 
                   {/* Section name & Question Text */}
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -1336,6 +1780,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                         </label>
                       </div>
                     </div>
+
+                    {/* Geometry presets — the handler existed but was never
+                        rendered, so "Geometry / Vector Figure" produced
+                        nothing an examiner could click. */}
+                    {q.diagramType === 'geometry' && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-bold text-theme-text/70">Quick presets:</span>
+                        {(
+                          [
+                            ['triangle_60_30', '📐 60°-30° Triangle'],
+                            ['triangle_right', '📏 Right Triangle'],
+                            ['circle', '⭕ Circle'],
+                            ['motion', '🚄 Motion Diagram'],
+                          ] as const
+                        ).map(([preset, label]) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => handleApplyGeometryPreset(qIdx, preset)}
+                            className="px-3 py-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white font-bold text-[11px] transition"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Live Image Preview if diagramUrl present */}
                     {q.diagramUrl && (
@@ -1472,6 +1942,98 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
             </div>
           </form>
         </section>
+      )}
+
+      {/* STUDENT PREVIEW MODAL */}
+      {previewingQuestionIdx !== null && questions[previewingQuestionIdx] && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="student-preview-modal-title"
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div className="bg-theme-surface border-2 border-theme-border rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-theme-border pb-3">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider bg-emerald-600 text-white">
+                  Student-Side Experience Preview
+                </span>
+                <span className="text-xs text-theme-text/70">
+                  Exact component and auditory accessibility logic
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewingQuestionIdx(null)}
+                className="p-1.5 rounded-lg border border-theme-border hover:bg-theme-border text-theme-text font-bold text-xs"
+              >
+                ✕ Close Preview
+              </button>
+            </div>
+
+            {/* Simulated Question Card */}
+            {(() => {
+              const previewQ = questions[previewingQuestionIdx];
+              return (
+                <div className="space-y-4">
+                  <h3
+                    id="student-preview-modal-title"
+                    className="text-xl font-bold text-theme-text flex items-center gap-2"
+                  >
+                    <span className="text-indigo-600 font-black">Q{previewQ.questionNumber}.</span>
+                    <span>{previewQ.questionText || 'Question statement...'}</span>
+                  </h3>
+
+                  {previewQ.mathLatex && (
+                    <div className="p-3 rounded-xl bg-theme-bg border border-theme-border inline-block">
+                      <MathEquation latex={previewQ.mathLatex} displayMode={true} />
+                    </div>
+                  )}
+
+                  {/* Sonification Graph if enabled */}
+                  {previewQ.graph && previewQ.graph.enabled && (
+                    <InteractiveSonificationGraph graph={previewQ.graph} isStudentMode={true} />
+                  )}
+
+                  {/* 4 Options Grid */}
+                  <div className="space-y-2 pt-2">
+                    <label className="text-xs font-bold uppercase text-theme-text/60">
+                      Options Preview:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {previewQ.options.map((opt) => (
+                        <div
+                          key={opt.number}
+                          className={`p-3 rounded-xl border-2 flex items-center gap-3 ${
+                            previewQ.correctOption === opt.number
+                              ? 'border-emerald-500 bg-emerald-500/10'
+                              : 'border-theme-border bg-theme-bg'
+                          }`}
+                        >
+                          <span className="w-6 h-6 rounded-full bg-theme-border font-bold text-xs flex items-center justify-center">
+                            {opt.number}
+                          </span>
+                          <span className="text-xs font-medium text-theme-text">{opt.text || `Option ${opt.number}`}</span>
+                          {previewQ.correctOption === opt.number && (
+                            <span className="ml-auto text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                              ✓ Correct Answer
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {previewQ.explanation && (
+                    <div className="p-3 rounded-xl bg-theme-bg border border-theme-border text-xs text-theme-text/80">
+                      <strong>Solution Explanation:</strong> {previewQ.explanation}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
       )}
     </div>
   );
