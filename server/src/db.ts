@@ -1,5 +1,12 @@
+import dns from 'node:dns';
 import mongoose from 'mongoose';
 import { env } from './env.js';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignored on older Node runtimes
+}
 
 /**
  * Connects to MongoDB and builds the indexes.

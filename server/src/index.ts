@@ -1,5 +1,16 @@
+import dns from 'node:dns';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Prioritize IPv4 resolution globally for all Node network requests.
+// On networks with IPv6 translation prefixes (NAT64 / 64:ff9b::), MongoDB Atlas shard hostnames
+// fail with getaddrinfo ENOTFOUND unless IPv4 is explicitly preferred.
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignored on older Node runtimes
+}
+
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
