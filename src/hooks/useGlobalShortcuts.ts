@@ -175,7 +175,7 @@ export function useGlobalShortcuts() {
         }
       }
 
-      // Toggle AI Conversational Voice Assistant 'v' or 'V' (available everywhere outside text inputs)
+      // Toggle AI Conversational Voice Assistant 'v' or 'V'
       if (e.key.toLowerCase() === 'v' && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent('dristix-toggle-voice'));

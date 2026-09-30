@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
-import { UserCheck, LogIn, UserPlus, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { LogIn, UserPlus, Eye, EyeOff } from 'lucide-react';
 import type { AccessibilityPreference } from '../../../shared/types';
 
 interface StudentAuthScreenProps {
@@ -14,12 +15,18 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
   onAuthenticated,
   initialMode = 'login',
 }) => {
-  const { students, loginStudent, registerStudent } = useAuthStore();
+  const { loginStudent, registerStudent } = useAuthStore();
   const [authMode, setAuthMode] = useState<'login' | 'register'>(initialMode);
+
+  // Focus refs for keyboard navigation
+  const signInTabRef = useRef<HTMLButtonElement>(null);
+  const registerTabRef = useRef<HTMLButtonElement>(null);
+  const loginIdInputRef = useRef<HTMLInputElement>(null);
+  const regNameInputRef = useRef<HTMLInputElement>(null);
 
   // Login form state
   const [loginIdentifier, setLoginIdentifier] = useState('');
-  const [loginPassword, setLoginPassword] = useState('pass123');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,6 +40,51 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
   const [regPref, setRegPref] = useState<AccessibilityPreference>('Screen Reader');
   const [regPassword, setRegPassword] = useState('');
   const [regError, setRegError] = useState('');
+
+  // Auto-focus first input when mode changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (authMode === 'login') {
+        loginIdInputRef.current?.focus();
+      } else {
+        regNameInputRef.current?.focus();
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [authMode]);
+
+  // Arrow key navigation between Sign In and Register tabs (WCAG Tablist pattern)
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, currentTab: 'login' | 'register') => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const nextTab = currentTab === 'login' ? 'register' : 'login';
+      setAuthMode(nextTab);
+      soundEffects.playSelect();
+      useAnnouncerStore
+        .getState()
+        .announce(`Switched to ${nextTab === 'login' ? 'Sign In' : 'Register New Student'} tab`, 'assertive', true);
+      setTimeout(() => {
+        if (nextTab === 'login') {
+          signInTabRef.current?.focus();
+        } else {
+          registerTabRef.current?.focus();
+        }
+      }, 50);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setAuthMode('login');
+      signInTabRef.current?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setAuthMode('register');
+      registerTabRef.current?.focus();
+    }
+  };
+
+  // Vocalize input field prompt on focus for speech assistance
+  const speakInput = (message: string) => {
+    useAnnouncerStore.getState().announce(message, 'assertive', true, true);
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,9 +157,15 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
           className="flex p-1.5 rounded-2xl bg-theme-bg/80 border-2 border-theme-border mb-5 shadow-xs"
         >
           <button
+            ref={signInTabRef}
+            id="tab-login"
             type="button"
             role="tab"
             aria-selected={authMode === 'login'}
+            aria-controls="auth-panel-login"
+            tabIndex={authMode === 'login' ? 0 : -1}
+            onKeyDown={(e) => handleTabKeyDown(e, 'login')}
+            onFocus={() => speakInput('Sign In tab. Registration ke liye Right Arrow press karein')}
             onClick={() => {
               setAuthMode('login');
               soundEffects.playSelect();
@@ -123,9 +181,15 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
           </button>
 
           <button
+            ref={registerTabRef}
+            id="tab-register"
             type="button"
             role="tab"
             aria-selected={authMode === 'register'}
+            aria-controls="auth-panel-register"
+            tabIndex={authMode === 'register' ? 0 : -1}
+            onKeyDown={(e) => handleTabKeyDown(e, 'register')}
+            onFocus={() => speakInput('Register New Student tab. Sign In ke liye Left Arrow press karein')}
             onClick={() => {
               setAuthMode('register');
               soundEffects.playSelect();
@@ -143,7 +207,13 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
 
         {/* LOGIN FORM */}
         {authMode === 'login' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <form
+            id="auth-panel-login"
+            role="tabpanel"
+            aria-labelledby="tab-login"
+            onSubmit={handleLoginSubmit}
+            className="space-y-4"
+          >
             {loginError && (
               <div
                 role="alert"
@@ -161,10 +231,12 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                 Roll Number or Email <span className="text-red-500">*</span>
               </label>
               <input
+                ref={loginIdInputRef}
                 id="student-login-id"
                 type="text"
                 value={loginIdentifier}
                 onChange={(e) => setLoginIdentifier(e.target.value)}
+                onFocus={() => speakInput('Enter your email or roll number')}
                 placeholder="Your registered roll number or email"
                 required
                 className="w-full px-4 py-3 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition-all shadow-xs"
@@ -184,6 +256,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
+                  onFocus={() => speakInput('Enter your password')}
                   placeholder="Enter your candidate password"
                   required
                   className="w-full px-4 py-3 pr-12 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition-all shadow-xs"
@@ -191,6 +264,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  onFocus={() => speakInput(showPassword ? 'Hide password button' : 'Show password button')}
                   className="absolute right-3 top-3 p-1 text-theme-text/60 hover:text-theme-text focus:ring-2 focus:ring-theme-focus rounded-lg transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password as plain text'}
                 >
@@ -207,16 +281,37 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
               type="submit"
               disabled={isSubmitting}
               aria-busy={isSubmitting}
+              onFocus={() => speakInput('Sign in ke liye Enter press karein')}
               className="w-full py-3.5 px-5 rounded-xl bg-theme-primary text-theme-primary-text font-black text-sm sm:text-base dx-glow-button hover:scale-[1.01] active:scale-[0.99] transition-all shadow-md focus:ring-4 focus:ring-theme-focus disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Signing in…' : 'Sign In to Candidate Dashboard'}
             </button>
+
+            <div className="text-center pt-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('register');
+                  soundEffects.playSelect();
+                }}
+                onFocus={() => speakInput('Naya student registration ke liye Enter press karein')}
+                className="text-xs sm:text-sm font-bold text-theme-text/80 hover:text-theme-primary underline underline-offset-4 focus:outline-none focus:ring-2 focus:ring-theme-focus rounded-lg px-2 py-1 transition"
+              >
+                Don't have an account? Register New Student
+              </button>
+            </div>
           </form>
         )}
 
         {/* REGISTRATION FORM */}
         {authMode === 'register' && (
-          <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+          <form
+            id="auth-panel-register"
+            role="tabpanel"
+            aria-labelledby="tab-register"
+            onSubmit={handleRegisterSubmit}
+            className="space-y-3.5"
+          >
             {regError && (
               <div
                 role="alert"
@@ -231,10 +326,12 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                 Full Name <span className="text-red-500">*</span>
               </label>
               <input
+                ref={regNameInputRef}
                 id="reg-name"
                 type="text"
                 value={regName}
                 onChange={(e) => setRegName(e.target.value)}
+                onFocus={() => speakInput('Enter your full name')}
                 placeholder="e.g. Rahul Sharma"
                 required
                 className="w-full px-3.5 py-2.5 sm:py-3 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
@@ -254,6 +351,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                   type="email"
                   value={regEmail}
                   onChange={(e) => setRegEmail(e.target.value)}
+                  onFocus={() => speakInput('Enter your email address')}
                   placeholder="rahul@example.com"
                   required
                   className="w-full px-3.5 py-2.5 sm:py-3 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
@@ -272,6 +370,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                   type="text"
                   value={regRoll}
                   onChange={(e) => setRegRoll(e.target.value)}
+                  onFocus={() => speakInput('Enter your roll number or candidate ID')}
                   placeholder="DX-104"
                   required
                   className="w-full px-3.5 py-2.5 sm:py-3 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
@@ -293,6 +392,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                   onChange={(e) =>
                     setRegPref(e.target.value as AccessibilityPreference)
                   }
+                  onFocus={() => speakInput('Select your assistive preference')}
                   className="w-full px-3.5 py-2.5 sm:py-3 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
                 >
                   <option value="Screen Reader">Screen Reader / Voice Output</option>
@@ -314,6 +414,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
                   type="password"
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
+                  onFocus={() => speakInput('Create your password, minimum eight characters')}
                   placeholder="At least 8 characters"
                   required
                   className="w-full px-3.5 py-2.5 sm:py-3 rounded-xl bg-theme-surface border-2 border-theme-border text-theme-text placeholder:text-theme-text/50 focus:border-theme-primary focus:ring-4 focus:ring-theme-focus outline-none font-medium text-sm transition"
@@ -325,57 +426,29 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
               type="submit"
               disabled={isSubmitting}
               aria-busy={isSubmitting}
+              onFocus={() => speakInput('Registration complete karne ke liye Enter press karein')}
               className="w-full py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm sm:text-base shadow-md transition focus:ring-4 focus:ring-theme-focus disabled:opacity-60 disabled:cursor-not-allowed mt-1"
             >
               {isSubmitting ? 'Creating account…' : 'Complete Registration & Enter'}
             </button>
-          </form>
-        )}
 
-        {/* Demo credentials footer */}
-        <div className="mt-5 pt-4 border-t-2 border-theme-border">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-theme-primary" aria-hidden="true" />
-              <h2 className="text-xs uppercase font-extrabold tracking-wider text-theme-text/70">
-                Quick Demo Accounts
-              </h2>
-            </div>
-            <span className="text-xs text-theme-text/60">
-              Password: <code className="font-mono font-bold text-theme-primary">student123</code>
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2.5">
-            {students.slice(0, 3).map((std) => (
+            <div className="text-center pt-1.5">
               <button
-                key={std.id}
                 type="button"
                 onClick={() => {
-                  setLoginIdentifier(std.rollNumber);
-                  setLoginPassword('student123');
-                  setLoginError('');
                   setAuthMode('login');
+                  soundEffects.playSelect();
                 }}
-                className="p-2.5 text-left rounded-xl border-2 border-theme-border bg-theme-surface hover:border-theme-primary transition flex flex-col justify-between group focus:ring-4 focus:ring-theme-focus"
+                onFocus={() => speakInput('Already account hai to Sign In karne ke liye Enter press karein')}
+                className="text-xs sm:text-sm font-bold text-theme-text/80 hover:text-theme-primary underline underline-offset-4 focus:outline-none focus:ring-2 focus:ring-theme-focus rounded-lg px-2 py-1 transition"
               >
-                <div>
-                  <span className="text-xs font-black text-theme-primary font-mono block">
-                    {std.rollNumber}
-                  </span>
-                  <span className="text-xs sm:text-sm font-bold text-theme-text group-hover:text-theme-primary transition-colors block truncate">
-                    {std.name}
-                  </span>
-                </div>
-                <div className="mt-1.5 text-xs font-bold text-theme-primary flex items-center gap-1">
-                  <UserCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Use account</span>
-                </div>
+                Already have an account? Sign In
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
 };
+

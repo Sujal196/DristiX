@@ -18,7 +18,7 @@ import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { speechEngine } from '../../utils/speechEngine';
 import { AiDiagramViewer } from '../common/AiDiagramViewer';
 import { InteractiveSonificationGraph } from '../sonification/InteractiveSonificationGraph';
-import { verbalizeForSpeech } from '../../utils/mathVerbalizer';
+import { verbalizeForSpeech, verbalizeMath } from '../../utils/mathVerbalizer';
 
 export const ExamScreen: React.FC = () => {
   const {
@@ -55,6 +55,13 @@ export const ExamScreen: React.FC = () => {
   useEffect(() => {
     if (qHeadingRef.current) {
       qHeadingRef.current.focus({ preventScroll: false });
+    }
+
+    // Suppress redundant autoRead when voice assistant is announcing the question directly
+    const { suppressAutoRead, setSuppressAutoRead } = useExamStore.getState();
+    if (suppressAutoRead) {
+      setSuppressAutoRead(false);
+      return;
     }
 
     const autoRead = usePreferencesStore.getState().autoReadOnNavigate;
@@ -300,7 +307,13 @@ export const ExamScreen: React.FC = () => {
                     checked={isSelected}
                     onChange={() => handleOptionChange(option.number)}
                     className="sr-only"
-                    aria-label={`Option ${option.number}: ${verbalizeForSpeech(option.text)}`}
+                    aria-label={`Option ${option.number}: ${verbalizeForSpeech(
+                      option.mathLatex && option.text && option.text.trim().toLowerCase() === verbalizeMath(option.mathLatex).trim().toLowerCase()
+                        ? verbalizeMath(option.mathLatex)
+                        : option.mathLatex
+                          ? `${option.text}, ${verbalizeMath(option.mathLatex)}`
+                          : option.text
+                    )}`}
                   />
 
                   {/* Letter bubble — acts as visual radio */}
@@ -319,10 +332,25 @@ export const ExamScreen: React.FC = () => {
                   <span className={`flex-1 text-base sm:text-lg leading-snug transition-colors ${
                     isSelected ? 'text-theme-text font-semibold' : 'text-theme-text'
                   }`}>
-                    {option.text}
-                    {option.mathLatex && (
-                      <MathEquation latex={option.mathLatex} className="ml-2 font-mono" />
-                    )}
+                    {(() => {
+                      const mathVerbal = option.mathLatex ? verbalizeMath(option.mathLatex).trim().toLowerCase() : '';
+                      const rawText = option.text ? option.text.trim() : '';
+                      const isIdentical = mathVerbal && rawText.toLowerCase() === mathVerbal;
+
+                      return (
+                        <>
+                          {(!isIdentical || !option.mathLatex) && option.text && (
+                            <span>{option.text}</span>
+                          )}
+                          {option.mathLatex && (
+                            <MathEquation
+                              latex={option.mathLatex}
+                              className={!isIdentical && option.text ? "ml-2 font-mono" : "font-mono"}
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
                   </span>
 
                   {/* Keyboard shortcut badge */}

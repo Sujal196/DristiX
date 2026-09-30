@@ -236,7 +236,7 @@ export const Header: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void logoutStudent()}
-                className="ml-1 text-[11px] font-bold text-red-600 hover:text-red-700 underline cursor-pointer"
+                className="ml-1 text-xs font-bold text-red-700 dark:text-red-400 hover:text-red-800 underline cursor-pointer"
                 title="Sign out of student account"
                 aria-label={`Sign out candidate ${currentStudent.name}`}
               >
@@ -312,7 +312,7 @@ export const Header: React.FC = () => {
             <kbd
               className={`hidden sm:inline-block text-[11px] font-sans font-bold px-1.5 py-0.5 rounded border ${
                 voiceState === 'listening'
-                  ? 'border-white/50 bg-white/20 text-white'
+                  ? 'border-white/50 bg-slate-900 text-white'
                   : 'border-theme-border bg-theme-surface text-theme-text'
               }`}
             >

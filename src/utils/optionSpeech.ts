@@ -1,44 +1,60 @@
 import { verbalizeMath, verbalizeForSpeech } from './mathVerbalizer';
+import { isHindiPreferred } from './voiceRecognition';
 import type { QuestionItem } from '../../shared/types';
 
 /**
  * The spoken confirmation that an option is now on the record.
- *
- * It names the option *and* repeats the option's own words. "Option 3
- * selected" tells a candidate working without sight nothing about which answer
- * they just committed to, and the number alone is no better — hearing "270
- * degrees" read back is how a mis-speak gets caught before moving on.
- *
- * One sentence, built in one place, because a confirmation split across two
- * announcements is a confirmation that never gets heard: every announcement
- * interrupts the last, so the second one cuts the first off part-way through.
+ * Supports both Hindi and English based on the active language mode.
  */
 export function describeOptionSelection(
   question: QuestionItem | undefined,
   optionNumber: number
 ): string {
+  const isHindi = isHindiPreferred();
   const option = question?.options.find((o) => o.number === optionNumber);
-  if (!option) return `Option ${optionNumber} selected.`;
+  if (!option) {
+    return isHindi ? `विकल्प ${optionNumber} चुन लिया गया है।` : `Option ${optionNumber} selected.`;
+  }
 
-  const rawOptionSpeech = option.mathLatex
-    ? `${option.text}, ${verbalizeMath(option.mathLatex)}`
-    : option.text;
+  const mathVerbal = option.mathLatex ? verbalizeMath(option.mathLatex).trim() : '';
+  const rawText = option.text ? option.text.trim() : '';
+  let rawOptionSpeech = rawText;
+  if (mathVerbal) {
+    const normRaw = rawText.toLowerCase().replace(/\s+/g, ' ');
+    const normMath = mathVerbal.toLowerCase().replace(/\s+/g, ' ');
+    if (normRaw && (normRaw.includes(normMath) || normMath.includes(normRaw))) {
+      rawOptionSpeech = rawText || mathVerbal;
+    } else if (rawText) {
+      rawOptionSpeech = `${rawText}, ${mathVerbal}`;
+    } else {
+      rawOptionSpeech = mathVerbal;
+    }
+  }
   const optionSpeech = verbalizeForSpeech(rawOptionSpeech);
 
-  return `Option ${optionNumber} selected: ${optionSpeech}.`;
+  return isHindi
+    ? `विकल्प ${optionNumber} चुन लिया गया है: ${optionSpeech}।`
+    : `Option ${optionNumber} selected: ${optionSpeech}.`;
 }
 
 /**
  * The spoken confirmation that a choice is no longer on the record.
- *
- * `hadSelection` comes from the caller because this module deliberately knows
- * nothing about the store — the store imports it.
+ * Supports both Hindi and English based on the active language mode.
  */
 export function describeClearSelection(
   question: QuestionItem | undefined,
   hadSelection: boolean
 ): string {
-  if (!question) return 'There is no question loaded right now.';
+  const isHindi = isHindiPreferred();
+  if (!question) {
+    return isHindi ? 'इस समय कोई प्रश्न लोड नहीं है।' : 'There is no question loaded right now.';
+  }
+
+  if (isHindi) {
+    return hadSelection
+      ? `प्रश्न ${question.questionNumber} से चुना हुआ विकल्प हटा दिया गया है। अब आप दूसरा विकल्प चुन सकते हैं।`
+      : `प्रश्न ${question.questionNumber} में कोई विकल्प नहीं चुना गया था।`;
+  }
 
   return hadSelection
     ? `Selection cleared for Question ${question.questionNumber}. You can now choose a different option.`

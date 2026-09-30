@@ -380,6 +380,10 @@ class VoiceRecognitionService {
     return this.languageMode;
   }
 
+  public isHindiMode(): boolean {
+    return this.languageMode === 'hi-IN';
+  }
+
   /**
    * Selects the recognition language. Accepts 'auto', which follows the browser
    * locale and retries the other language if nothing is heard.
@@ -556,3 +560,27 @@ class VoiceRecognitionService {
 }
 
 export const voiceRecognition = new VoiceRecognitionService();
+
+/**
+ * Determines if Hindi should be used for TTS / assistant responses.
+ * Returns true if:
+ * 1. User explicitly selected Hindi mode ('hi-IN')
+ * 2. User spoke in Devanagari script or common Hindi/Hinglish phrasing (in 'auto' mode)
+ */
+export function isHindiPreferred(query?: string): boolean {
+  const mode = voiceRecognition.getLanguageMode();
+  if (mode === 'hi-IN') return true;
+  if (mode === 'en-US') return false;
+  if (!query) return false;
+  // If Devanagari script is present
+  if (/[\u0900-\u097F]/.test(query)) return true;
+  // Common Roman Hindi / Hinglish tokens
+  const hindiTokens = [
+    'kya', 'kyun', 'kaise', 'batao', 'suno', 'sunao', 'padho', 'chuno', 'sawal',
+    'prashna', 'agla', 'pichla', 'kitne', 'sahi', 'galat', 'meri', 'mera', 'mere',
+    'kholo', 'khatam', 'wapas', 'jao', 'chalo', 'dikhao', 'hai', 'hain', 'tha', 'the',
+    'parinaam', 'kaun', 'kon', 'chahiye', 'karo', 'kar', 'kripya', 'shuru', 'bataiye'
+  ];
+  const words = query.toLowerCase().split(/[\s,.-]+/);
+  return words.some((w) => hindiTokens.includes(w));
+}

@@ -421,7 +421,6 @@ export const App: React.FC = () => {
     if (wantsAuth) {
       return (
         <div className="min-h-screen bg-theme-bg text-theme-text transition-colors flex flex-col font-sans">
-          <SkipLinks />
           <LiveAnnouncer />
           <header className="p-3 sm:p-4 border-b-2 border-theme-border bg-theme-surface">
             <div className="max-w-7xl mx-auto flex justify-between items-center gap-3">
@@ -512,7 +511,7 @@ export const App: React.FC = () => {
       {/* Live WCAG 2.1 AA Audit Inspector */}
       <A11yInspector />
 
-      {/* AI Conversational Voice Assistant (Live Gem-style Floating Orb) */}
+      {/* AI Conversational Voice Assistant */}
       <VoiceAssistantOrb />
     </div>
   );

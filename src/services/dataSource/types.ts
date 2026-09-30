@@ -106,7 +106,11 @@ export interface ExplainDiagramPayload {
 
 export interface AiDataSource {
   chat(request: AiChatRequest): Promise<AiChatResponse>;
-  transcribe(audio: Blob, filename?: string): Promise<TranscribeResult>;
+  transcribe(
+    audio: Blob,
+    filename?: string,
+    options?: { prompt?: string; language?: string }
+  ): Promise<TranscribeResult>;
   explainDiagram(payload: ExplainDiagramPayload): Promise<import('../../../shared/types').AiDiagramExplanation>;
   /** False when no provider key is configured anywhere, so the UI can say so. */
   isConfigured(): boolean;

@@ -3,8 +3,9 @@ import { processVoiceCommand, isPhantomNoise } from './voiceCommandProcessor';
 import type { CommandProcessResult } from './voiceCommandProcessor';
 import { speechEngine } from './speechEngine';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
+import { useExamStore } from '../store/useExamStore';
 import { soundEffects } from './soundEffects';
-import { voiceRecognition } from './voiceRecognition';
+import { voiceRecognition, isHindiPreferred } from './voiceRecognition';
 import { getDataSource } from '../services/dataSource';
 
 export type LiveSessionState = 'idle' | 'listening' | 'user_speaking' | 'processing' | 'assistant_speaking' | 'error';
@@ -148,7 +149,13 @@ export class GeminiLiveVoiceSession {
       // Recording locally and running Whisper through our backend removes that
       // entire failure mode, and handles Hindi and English in one pass.
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: { ideal: 16000 },
+        },
       });
       this.mediaStream = stream;
       this.isRunning = true;
@@ -361,14 +368,14 @@ export class GeminiLiveVoiceSession {
             this.silenceTimer = null;
           }
         } else if (this.hasSpokenInCurrentChunk) {
-          // User was speaking and is now silent: commit after 700ms pause (clean endpointing)
+          // User was speaking and is now silent: commit after 950ms pause (natural endpointing)
           if (!this.silenceTimer && !this.finalCommitTimer) {
             this.silenceTimer = setTimeout(() => {
               this.silenceTimer = null;
               if (this.hasSpokenInCurrentChunk && this.isRunning) {
                 this.commitCurrentUtterance();
               }
-            }, 700);
+            }, 950);
           }
         }
       }
@@ -425,7 +432,23 @@ export class GeminiLiveVoiceSession {
 
     if (!capturedTranscript && audioBlob && audioBlob.size > 1000) {
       try {
-        const result = await getDataSource().ai.transcribe(audioBlob, 'clip.webm');
+        const examState = useExamStore.getState();
+        const activeQNum = examState.currentIndex + 1;
+        const totalQ = examState.questions?.length || 0;
+        const examTitle = examState.currentExam?.title || '';
+        const inHindi = isHindiPreferred();
+        const dynamicPrompt = inHindi
+          ? (examTitle
+              ? `परीक्षा: ${examTitle}। सक्रिय प्रश्न संख्या ${activeQNum} कुल ${totalQ} में से। विकल्प 1, 2, 3, 4। अगला सवाल, पिछला सवाल, सबमिट करो।`
+              : 'अभ्यर्थी पोर्टल निर्देश: परीक्षा शुरू करो, डैशबोर्ड, एनालिटिक्स, सवाल पढ़ो।')
+          : (examTitle
+              ? `Exam: ${examTitle}. Active Question: ${activeQNum} of ${totalQ}. Options 1, 2, 3, 4.`
+              : 'Candidate portal commands: Start exam, List exams, Practice arena, Analytics.');
+
+        const result = await getDataSource().ai.transcribe(audioBlob, 'clip.webm', {
+          prompt: dynamicPrompt,
+          language: inHindi ? 'hi' : 'en',
+        });
         if (this.currentUtteranceId !== thisUtteranceId || !this.isRunning) return;
         capturedTranscript = result.text.trim();
         console.log('[Live Voice] server transcription:', capturedTranscript);
@@ -467,8 +490,8 @@ export class GeminiLiveVoiceSession {
     this.currentSpeechTranscript = '';
     this.currentAlternatives = [];
 
-    // If completely silent/noise with no transcript and no valid audio, resume listening smoothly
-    if (!capturedTranscript && (!audioBlob || audioBlob.size < 1000)) {
+    // If completely silent/noise with no transcript, resume listening smoothly
+    if (!capturedTranscript) {
       console.log('[Live Voice] Acoustic activity detected without words, resuming listening.');
       this.setState('listening');
       this.startSegmentRecording();

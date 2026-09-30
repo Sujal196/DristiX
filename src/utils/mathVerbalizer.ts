@@ -11,6 +11,16 @@ export function verbalizeMath(latex: string): string {
   // Normalize common spacing
   verbal = verbal.replace(/\\quad|\\qquad|\\,|\\;/g, ' ');
 
+  // Angles & Geometry (must run before powers)
+  verbal = verbal.replace(/\\angle\s*([a-zA-Z0-9])/g, 'angle $1');
+  verbal = verbal.replace(/\\angle/g, 'angle ');
+  verbal = verbal.replace(/\\triangle\s*([a-zA-Z0-9]+)/g, 'triangle $1');
+  verbal = verbal.replace(/\\triangle/g, 'triangle ');
+
+  // Degrees (LaTeX standard ^\circ, ^{\circ}, \degree, °, unicode degrees)
+  verbal = verbal.replace(/([0-9]+(?:\.[0-9]+)?)\s*(?:\^\{\\circ\}|\^\\circ|\\circ|\^\{\\degree\}|\^\\degree|\\degree|[°\u00B0\u02DA\u2218])/g, '$1 degrees');
+  verbal = verbal.replace(/(?:\^\{\\circ\}|\^\\circ|\\circ|\^\{\\degree\}|\^\\degree|\\degree|[°\u00B0\u02DA\u2218])/g, ' degrees');
+
   // Units
   verbal = verbal.replace(/\\text\{\s*km\/h\s*\}/gi, ' kilometers per hour');
   verbal = verbal.replace(/\\text\{\s*m\/s\s*\}/gi, ' meters per second');
@@ -60,13 +70,27 @@ export function verbalizeMath(latex: string): string {
   verbal = verbal.replace(/\\gamma/g, 'gamma');
   verbal = verbal.replace(/\\Delta|\\delta/g, 'delta');
   verbal = verbal.replace(/\\infty/g, 'infinity');
-  verbal = verbal.replace(/\\degree|°/g, ' degrees');
+  verbal = verbal.replace(/\\degree|[°\u00B0\u02DA\u2218]/g, ' degrees');
   verbal = verbal.replace(/\\%/g, ' percent');
   verbal = verbal.replace(/\\sum_\{([^}]+)\}\^\{([^}]+)\}/g, 'sum from $1 to $2 of ');
   verbal = verbal.replace(/\\int_\{([^}]+)\}\^\{([^}]+)\}/g, 'integral from $1 to $2 of ');
 
+  // Arithmetic operators (explicit words so bilingual/Hindi TTS doesn't speak '+' as 'jod', '-' as 'ghatav', '=' as 'barabar')
+  verbal = verbal.replace(/=/g, ' equals ');
+  verbal = verbal.replace(/\\pm|±/g, ' plus or minus ');
+  verbal = verbal.replace(/\\mp|∓/g, ' minus or plus ');
+  verbal = verbal.replace(/\\times|×/g, ' multiplied by ');
+  verbal = verbal.replace(/\\div|÷/g, ' divided by ');
+  verbal = verbal.replace(/\\cdot/g, ' dot ');
+  verbal = verbal.replace(/\+/g, ' plus ');
+  verbal = verbal.replace(/[-−]/g, ' minus ');
+
   // Clean remaining backslashes
   verbal = verbal.replace(/\\/g, '');
+
+  // Guard against any leftover circ / ^circ being misread as 'sa' by TTS
+  verbal = verbal.replace(/([0-9]+(?:\.[0-9]+)?)\s*\^?\s*circ\b/gi, '$1 degrees');
+  verbal = verbal.replace(/\^?\bcirc\b/gi, ' degrees');
 
   // Consolidate extra spaces
   verbal = verbal.replace(/\s+/g, ' ').trim();
@@ -105,12 +129,18 @@ export function verbalizeForSpeech(rawText: string): string {
   text = text.replace(/(\d+(?:\.\d+)?)\s*%/g, '$1 percent');
   text = text.replace(/(\d+(?:\.\d+)?)\s*(?:°C|℃)/g, '$1 degrees Celsius');
   text = text.replace(/(\d+(?:\.\d+)?)\s*(?:°F|℉)/g, '$1 degrees Fahrenheit');
-  text = text.replace(/(\d+(?:\.\d+)?)\s*°(?!\w)/g, '$1 degrees');
+  text = text.replace(/(\d+(?:\.\d+)?)\s*(?:[°\u00B0\u02DA\u2218]|\^?\s*circ\b)/gi, '$1 degrees');
+  text = text.replace(/[°\u00B0\u02DA\u2218]/g, ' degrees ');
+  text = text.replace(/\^?\bcirc\b/gi, ' degrees ');
   text = text.replace(/(\d+(?:\.\d+)?)\s*km\/h/gi, '$1 kilometers per hour');
   text = text.replace(/(\d+(?:\.\d+)?)\s*m\/s/gi, '$1 meters per second');
 
-  // 7. Math comparisons in plain text
+  // 7. Math comparisons & operators in plain text
+  text = text.replace(/=/g, ' equals ');
+  text = text.replace(/\+/g, ' plus ');
+  text = text.replace(/(^|\s)[-−](\s|$)/g, '$1minus$2');
   text = text.replace(/±/g, ' plus or minus ');
+  text = text.replace(/∓/g, ' minus or plus ');
   text = text.replace(/≠/g, ' is not equal to ');
   text = text.replace(/≤/g, ' is less than or equal to ');
   text = text.replace(/≥/g, ' is greater than or equal to ');

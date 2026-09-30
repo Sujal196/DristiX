@@ -4,6 +4,7 @@ import { soundEffects } from '../utils/soundEffects';
 import { useAnnouncerStore } from './useAnnouncerStore';
 import { verbalizeMath, verbalizeForSpeech } from '../utils/mathVerbalizer';
 import { describeOptionSelection } from '../utils/optionSpeech';
+import { isHindiPreferred } from '../utils/voiceRecognition';
 import { useAuthStore } from './useAuthStore';
 import { getDataSource } from '../services/dataSource';
 import { dispatchAccessibilityEvent } from '../accessibility';
@@ -34,7 +35,35 @@ export interface DiagnosticReportData {
   strongAreas: string[];
 }
 
+export interface AnalyticsSnapshot {
+  totalTests: number;
+  timedExamsCount: number;
+  drillsCount: number;
+  bestScorePercentage: number;
+  bestScoreTitle: string;
+  bestScoreMarks: string;
+  averageAccuracy: number;
+  questionsSolved: number;
+  correctCount: number;
+  wrongCount: number;
+  recentSubmissions: Array<{
+    examTitle: string;
+    examCode: string;
+    examType: 'exam' | 'practice';
+    date: string;
+    time: string;
+    score: number;
+    maxScore: number;
+    percentage: number;
+    correctCount: number;
+    incorrectCount: number;
+    unattemptedCount: number;
+  }>;
+}
+
 interface ExamState {
+  currentAnalytics: AnalyticsSnapshot | null;
+  setCurrentAnalytics: (analytics: AnalyticsSnapshot | null) => void;
   portalTab: 'exams' | 'practice';
   availableExams: Exam[];
   availablePracticeDrills: Exam[];
@@ -115,9 +144,11 @@ interface ExamState {
   deleteCustomExam: (examId: string) => Promise<void>;
 
   // Question navigation actions
-  nextQuestion: () => void;
-  previousQuestion: () => void;
-  jumpToQuestion: (index: number) => void;
+  nextQuestion: (options?: { announce?: boolean }) => void;
+  previousQuestion: (options?: { announce?: boolean }) => void;
+  jumpToQuestion: (index: number, options?: { announce?: boolean }) => void;
+  suppressAutoRead: boolean;
+  setSuppressAutoRead: (val: boolean) => void;
   /**
    * `options.announce` lets a caller that is about to confirm the choice itself
    * stay the only voice. Two confirmations for one action means the second
@@ -162,6 +193,8 @@ const EMPTY_EXAM: Exam = {
 };
 
 export const useExamStore = create<ExamState>((set, get) => ({
+  currentAnalytics: null,
+  setCurrentAnalytics: (analytics) => set({ currentAnalytics: analytics }),
   portalTab: 'exams',
   availableExams: [],
   availablePracticeDrills: [],
@@ -188,8 +221,10 @@ export const useExamStore = create<ExamState>((set, get) => ({
   attemptId: null,
   expiresAtMs: null,
   serverReport: null,
+  suppressAutoRead: false,
+  setSuppressAutoRead: (val: boolean) => set({ suppressAutoRead: val }),
 
-  nextQuestion: () => {
+  nextQuestion: (options?: { announce?: boolean }) => {
     const { currentIndex, questions } = get();
     if (currentIndex < questions.length - 1) {
       const currentQ = questions[currentIndex];
@@ -197,6 +232,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
       const nextQ = questions[nextIdx];
       set((state) => ({
         currentIndex: nextIdx,
+        suppressAutoRead: options?.announce === false,
         visitedQuestions: { ...state.visitedQuestions, [nextQ.id]: true },
       }));
 
@@ -220,11 +256,13 @@ export const useExamStore = create<ExamState>((set, get) => ({
         reason: 'LAST_QUESTION',
         message: 'You are at the last question.',
       });
-      useAnnouncerStore.getState().announce('You are at the last question.', 'polite', true);
+      if (options?.announce !== false) {
+        useAnnouncerStore.getState().announce('You are at the last question.', 'polite', true);
+      }
     }
   },
 
-  previousQuestion: () => {
+  previousQuestion: (options?: { announce?: boolean }) => {
     const { currentIndex, questions } = get();
     if (currentIndex > 0) {
       const currentQ = questions[currentIndex];
@@ -232,6 +270,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
       const prevQ = questions[prevIdx];
       set((state) => ({
         currentIndex: prevIdx,
+        suppressAutoRead: options?.announce === false,
         visitedQuestions: { ...state.visitedQuestions, [prevQ.id]: true },
       }));
 
@@ -255,17 +294,20 @@ export const useExamStore = create<ExamState>((set, get) => ({
         reason: 'FIRST_QUESTION',
         message: 'You are at the first question.',
       });
-      useAnnouncerStore.getState().announce('You are at the first question.', 'polite', true);
+      if (options?.announce !== false) {
+        useAnnouncerStore.getState().announce('You are at the first question.', 'polite', true);
+      }
     }
   },
 
-  jumpToQuestion: (index: number) => {
+  jumpToQuestion: (index: number, options?: { announce?: boolean }) => {
     const { questions, currentIndex } = get();
     if (index >= 0 && index < questions.length) {
       const currentQ = questions[currentIndex];
       const targetQ = questions[index];
       set((state) => ({
         currentIndex: index,
+        suppressAutoRead: options?.announce === false,
         isPaletteOpen: false,
         visitedQuestions: { ...state.visitedQuestions, [targetQ.id]: true },
       }));
@@ -855,8 +897,21 @@ export const useExamStore = create<ExamState>((set, get) => ({
     if (includeOptions && currentQ.options && currentQ.options.length > 0) {
       msg += `Options are: `;
       currentQ.options.forEach((opt) => {
-        const optRaw = opt.mathLatex ? `${opt.text}, ${verbalizeMath(opt.mathLatex)}` : opt.text;
-        const optText = verbalizeForSpeech(optRaw);
+        const mathVerbal = opt.mathLatex ? verbalizeMath(opt.mathLatex).trim() : '';
+        const rawText = opt.text ? opt.text.trim() : '';
+        let optCombined = rawText;
+        if (mathVerbal) {
+          const normRaw = rawText.toLowerCase().replace(/\s+/g, ' ');
+          const normMath = mathVerbal.toLowerCase().replace(/\s+/g, ' ');
+          if (normRaw && (normRaw.includes(normMath) || normMath.includes(normRaw))) {
+            optCombined = rawText || mathVerbal;
+          } else if (rawText) {
+            optCombined = `${rawText}, ${mathVerbal}`;
+          } else {
+            optCombined = mathVerbal;
+          }
+        }
+        const optText = verbalizeForSpeech(optCombined);
         msg += `Option ${opt.number}: ${optText}. `;
       });
     }
@@ -894,10 +949,17 @@ export const useExamStore = create<ExamState>((set, get) => ({
    */
   readTimer: () => {
     const { timeRemaining, formattedTime, isSubmitted } = get();
+    const isHindi = isHindiPreferred();
     if (isSubmitted) {
       useAnnouncerStore
         .getState()
-        .announce('This test has already been submitted, so the timer is no longer running.', 'assertive', true);
+        .announce(
+          isHindi
+            ? 'यह परीक्षा पहले ही सबमिट हो चुकी है, इसलिए टाइमर अब नहीं चल रहा है।'
+            : 'This test has already been submitted, so the timer is no longer running.',
+          'assertive',
+          true
+        );
       return;
     }
     const minutes = Math.floor(timeRemaining / 60);
@@ -905,7 +967,9 @@ export const useExamStore = create<ExamState>((set, get) => ({
     useAnnouncerStore
       .getState()
       .announce(
-        `Time remaining: ${minutes} minutes and ${seconds} seconds. Timer display: ${formattedTime}.`,
+        isHindi
+          ? `शेष समय: ${minutes} मिनट और ${seconds} सेकंड। टाइमर: ${formattedTime}।`
+          : `Time remaining: ${minutes} minutes and ${seconds} seconds. Timer display: ${formattedTime}.`,
         'assertive',
         true
       );

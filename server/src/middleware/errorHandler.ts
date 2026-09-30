@@ -76,6 +76,25 @@ export function errorHandler(
     return;
   }
 
+  // Network connection timeouts / socket resets to external AI endpoints (Groq / Gemini)
+  const errCause = (err as { cause?: { code?: string; message?: string } })?.cause;
+  const isNetworkGlitch =
+    (err as Error)?.message?.includes('fetch failed') ||
+    errName === 'ConnectTimeoutError' ||
+    errCause?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    errCause?.code === 'ECONNRESET' ||
+    errCause?.code === 'ETIMEDOUT' ||
+    (err as { code?: string })?.code === 'ECONNRESET';
+
+  if (isNetworkGlitch) {
+    console.warn(`[dristix] Upstream AI service network timeout/reset: ${(err as Error)?.message || err}`);
+    res.status(504).json({
+      error: 'upstream_timeout',
+      message: 'External AI service connection timed out or reset. Please retry in a moment.',
+    });
+    return;
+  }
+
   console.error('[dristix] unhandled error:', err);
   const status = typeof parseErr?.status === 'number' ? parseErr.status
     : typeof parseErr?.statusCode === 'number' ? parseErr.statusCode

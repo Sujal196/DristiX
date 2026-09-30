@@ -44,6 +44,7 @@ interface ChatMessage {
 }
 
 export const VoiceAssistantOrb: React.FC = () => {
+
   const { activeView } = useExamStore();
 
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -58,7 +59,16 @@ export const VoiceAssistantOrb: React.FC = () => {
    * hears nothing. This was previously a static label while the underlying
    * language was hardcoded to Hindi, so the badge was decorative only.
    */
-  const [langMode, setLangMode] = useState<VoiceLangMode>('auto');
+  const [langMode, setLangMode] = useState<VoiceLangMode>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('dristix_voice_lang') as VoiceLangMode;
+      if (saved === 'hi-IN' || saved === 'en-US' || saved === 'auto') {
+        voiceRecognition.setLanguage(saved);
+        return saved;
+      }
+    }
+    return voiceRecognition.getLanguageMode() || 'auto';
+  });
   const langLabel =
     langMode === 'auto' ? 'Auto' : langMode === 'hi-IN' ? 'हिन्दी' : 'English';
 
@@ -67,11 +77,17 @@ export const VoiceAssistantOrb: React.FC = () => {
     const next = order[(order.indexOf(langMode) + 1) % order.length];
     setLangMode(next);
     voiceRecognition.setLanguage(next);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('dristix_voice_lang', next);
+    }
     useAnnouncerStore
       .getState()
       .announce(
-        `Recognition language set to ${next === 'auto' ? 'auto detect' : next === 'hi-IN' ? 'Hindi' : 'English'
-        }.`,
+        next === 'hi-IN'
+          ? 'आवाज़ पहचान और जवाब हिन्दी में सेट कर दिया गया है। अब सभी उत्तर हिन्दी में दिए जाएंगे।'
+          : next === 'auto'
+          ? 'Recognition language set to auto detect.'
+          : 'Recognition language set to English.',
         'polite',
         true
       );
@@ -89,7 +105,10 @@ export const VoiceAssistantOrb: React.FC = () => {
     {
       id: 'msg-welcome',
       sender: 'assistant',
-      text: 'Hello! I am the DristiX Conversational AI Voice Assistant. You can speak to me in English or Hindi—I will execute your commands and answer in English. Tap the microphone or press "V" to speak.',
+      text:
+        (typeof localStorage !== 'undefined' && localStorage.getItem('dristix_voice_lang') === 'hi-IN')
+          ? 'नमस्ते! मैं DristiX AI वॉयस असिस्टेंट हूँ। आप मुझसे हिन्दी में बात कर सकते हैं—मैं आपके सभी आदेशों का पालन करूँगा और हिन्दी में जवाब दूँगा। बोलने के लिए माइक दबाएँ या "V" दबाएँ।'
+          : 'Hello! I am the DristiX Conversational AI Voice Assistant. You can speak to me in English or Hindi—I will execute your commands and answer in English or Hindi. Tap the microphone or press "V" to speak.',
       timestamp: 0,
     },
   ]);

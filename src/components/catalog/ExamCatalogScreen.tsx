@@ -296,7 +296,7 @@ export const ExamCatalogScreen: React.FC = () => {
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-black ${
                       portalTab === 'exams'
-                        ? 'bg-white/20 text-white'
+                        ? 'bg-slate-900 text-white shadow-xs'
                         : 'bg-theme-border/60 text-theme-text'
                     }`}
                   >
@@ -305,7 +305,7 @@ export const ExamCatalogScreen: React.FC = () => {
                 </div>
                 <p
                   className={`text-[11px] leading-snug font-medium ${
-                    portalTab === 'exams' ? 'text-white/90' : 'text-theme-text-secondary'
+                    portalTab === 'exams' ? 'text-white' : 'text-theme-text-secondary'
                   }`}
                 >
                   Timed Simulation Tests
@@ -337,7 +337,7 @@ export const ExamCatalogScreen: React.FC = () => {
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-black ${
                       portalTab === 'practice'
-                        ? 'bg-white/20 text-white'
+                        ? 'bg-slate-900 text-white shadow-xs'
                         : 'bg-theme-border/60 text-theme-text'
                     }`}
                   >
@@ -346,7 +346,7 @@ export const ExamCatalogScreen: React.FC = () => {
                 </div>
                 <p
                   className={`text-[11px] leading-snug font-medium ${
-                    portalTab === 'practice' ? 'text-white/90' : 'text-theme-text-secondary'
+                    portalTab === 'practice' ? 'text-white' : 'text-theme-text-secondary'
                   }`}
                 >
                   Hints &amp; Step-by-Step Solutions
