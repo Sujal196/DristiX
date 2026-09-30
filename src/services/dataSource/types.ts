@@ -94,6 +94,16 @@ export interface ExamDataSource {
    * shared cohort.
    */
   listAllSubmissions(): Promise<AttemptSummary[]>;
+  submitFeedback(payload: {
+    examId: string;
+    examTitle: string;
+    rating: number;
+    tags?: string[];
+    comment?: string;
+    inputMethod?: 'voice' | 'keyboard' | 'mixed';
+    studentRoll?: string;
+    studentName?: string;
+  }): Promise<{ ok: boolean; message: string }>;
 }
 
 export interface ExplainDiagramPayload {

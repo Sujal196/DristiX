@@ -436,7 +436,7 @@ export const ExamScreen: React.FC = () => {
         <button
           id="btn-prev"
           type="button"
-          onClick={previousQuestion}
+          onClick={() => previousQuestion()}
           disabled={currentIndex === 0}
           className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 font-bold rounded-xl border border-theme-border bg-theme-surface text-theme-text hover:bg-theme-bg disabled:opacity-35 disabled:cursor-not-allowed transition text-sm"
           aria-label={`Go to previous question (Shortcut: Left Arrow or P). ${currentIndex === 0 ? 'Disabled — this is the first question.' : ''}`}
@@ -504,7 +504,7 @@ export const ExamScreen: React.FC = () => {
           <button
             id="btn-next"
             type="button"
-            onClick={nextQuestion}
+            onClick={() => nextQuestion()}
             className="inline-flex items-center gap-2 px-5 sm:px-6 py-2.5 font-bold rounded-xl bg-theme-primary hover:brightness-110 text-theme-primary-text transition shadow-sm text-sm"
             aria-label={`Go to next question (Shortcut: Right Arrow or N)`}
           >

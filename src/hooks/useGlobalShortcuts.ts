@@ -153,8 +153,13 @@ export function useGlobalShortcuts() {
         return;
       }
 
-      // On Diagnostic Report screen: 'r' to retake, 's' to read summary or stop speech
+      // On Diagnostic Report screen: 'r' to retake, 's' to read summary, 'f' to open feedback
       if (store.isSubmitted) {
+        if (e.key.toLowerCase() === 'f' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          store.openFeedbackModal(true);
+          return;
+        }
         if (e.key.toLowerCase() === 'r' && !e.altKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           store.resetExam();

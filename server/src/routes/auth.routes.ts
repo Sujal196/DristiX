@@ -90,10 +90,21 @@ authRouter.post(
   authLimiter,
   asyncHandler(async (req, res) => {
     const body = loginSchema.parse(req.body);
-    const identifier = body.identifier.toLowerCase();
+    const rawIdentifier = body.identifier.trim();
+    const identifier = rawIdentifier.toLowerCase();
+    const upperIdentifier = rawIdentifier.toUpperCase();
+
+    const possibleRolls = Array.from(
+      new Set([
+        rawIdentifier,
+        upperIdentifier,
+        identifier,
+        ...(rawIdentifier.match(/^\d+$/) ? [`DX-${rawIdentifier}`] : []),
+      ])
+    );
 
     const user = await User.findOne({
-      $or: [{ email: identifier }, { rollNumber: identifier }],
+      $or: [{ email: identifier }, { rollNumber: { $in: possibleRolls } }],
     }).exec();
 
     // Compare against a dummy hash when the user is absent so that response

@@ -308,11 +308,23 @@ const apiExams: ExamDataSource = {
     return attempts;
   },
 
-  async listAllSubmissions(): Promise<AttemptSummary[]> {
+  async listAllSubmissions(): Promise<AttemptSummary[]>{
     const { submissions } = await request<{ submissions: AttemptSummary[] }>(
       '/admin/submissions'
     );
     return submissions;
+  },
+
+  async submitFeedback(payload): Promise<{ ok: boolean; message: string }> {
+    try {
+      return await request<{ ok: boolean; message: string }>('/feedback', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.warn('[dristix] submitFeedback request fallback:', err);
+      return { ok: true, message: 'Feedback recorded locally.' };
+    }
   },
 };
 

@@ -8,6 +8,7 @@ import { isHindiPreferred } from '../utils/voiceRecognition';
 import { useAuthStore } from './useAuthStore';
 import { getDataSource } from '../services/dataSource';
 import { dispatchAccessibilityEvent } from '../accessibility';
+import { offlinePracticeStorage } from '../services/offlinePracticeStorage';
 import type { GradeResult, StartAttemptResult } from '../../shared/types';
 
 export interface SectionDiagnostic {
@@ -170,6 +171,26 @@ interface ExamState {
   announceCurrentQuestion: (speakTTS?: boolean, includeOptions?: boolean) => void;
   readCurrentQuestion: () => void;
   readTimer: () => void;
+
+  // Feedback State & Actions
+  feedback: ExamFeedbackState;
+  openFeedbackModal: (force?: boolean) => void;
+  closeFeedbackModal: () => void;
+  setFeedbackRating: (rating: number, method?: 'voice' | 'keyboard') => void;
+  toggleFeedbackTag: (tag: string, method?: 'voice' | 'keyboard') => void;
+  setFeedbackComment: (comment: string, method?: 'voice' | 'keyboard') => void;
+  submitExamFeedback: () => Promise<void>;
+  skipExamFeedback: () => void;
+}
+
+export interface ExamFeedbackState {
+  isOpen: boolean;
+  rating: number; // 0 (unselected) or 1-5
+  tags: string[];
+  comment: string;
+  inputMethod: 'voice' | 'keyboard' | 'mixed';
+  isSubmitting: boolean;
+  isSubmitted: boolean;
 }
 
 /**
@@ -222,6 +243,15 @@ export const useExamStore = create<ExamState>((set, get) => ({
   expiresAtMs: null,
   serverReport: null,
   suppressAutoRead: false,
+  feedback: {
+    isOpen: false,
+    rating: 0,
+    tags: [],
+    comment: '',
+    inputMethod: 'keyboard',
+    isSubmitting: false,
+    isSubmitted: false,
+  },
   setSuppressAutoRead: (val: boolean) => set({ suppressAutoRead: val }),
 
   nextQuestion: (options?: { announce?: boolean }) => {
@@ -409,16 +439,35 @@ export const useExamStore = create<ExamState>((set, get) => ({
    * because the catalog is already seeded from the bundled data.
    */
   loadCatalog: async () => {
+    // Only fetch catalog if a student session is active, avoiding 401 errors on public/login screens
+    if (!useAuthStore.getState().currentStudent) {
+      return;
+    }
     set({ isCatalogLoading: true, catalogError: null });
     try {
       const { exams, drills } = await getDataSource().exams.getFullCatalog();
       set({ availableExams: exams, availablePracticeDrills: drills, catalogError: null });
 
+      // Cache practice drills in IndexedDB for 100% offline practice
+      void offlinePracticeStorage.cachePracticeDrills(
+        drills.length ? drills : offlinePracticeStorage.bundledDrills
+      );
+
+      // Pre-cache practice drill questions into IndexedDB for offline access
+      offlinePracticeStorage.bundledDrills.forEach((bd) => {
+        if (bd.questions && bd.questions.length > 0) {
+          void offlinePracticeStorage.cacheDrillQuestions(bd.id, bd.questions as QuestionItem[]);
+          if (bd.code) {
+            void offlinePracticeStorage.cacheDrillQuestions(bd.code, bd.questions as QuestionItem[]);
+          }
+        }
+      });
+
       // Keep the placeholder currentExam pointing at something real so the
       // header does not read "Loading examinations…" forever.
       const all = get();
       if (!all.currentExam.id) {
-        const first = all.availableExams[0] ?? all.availablePracticeDrills[0];
+        const first = all.availableExams[0] ?? all.availablePracticeDrills[0] ?? offlinePracticeStorage.bundledDrills[0];
         if (first) set({ currentExam: first });
       }
     } catch (err) {
@@ -426,9 +475,29 @@ export const useExamStore = create<ExamState>((set, get) => ({
       // have been published yet" message, which reads as an empty database when
       // the truth is usually "the server is unreachable" or "your session
       // expired". Both need very different responses from the user.
-      const message =
-        err instanceof Error ? err.message : 'Could not reach the DristiX server.';
-      set({ catalogError: message });
+      const cachedDrills = await offlinePracticeStorage.getCachedPracticeDrills();
+      if (cachedDrills && cachedDrills.length > 0) {
+        set({
+          availablePracticeDrills: cachedDrills,
+          portalTab: 'practice',
+          catalogError: null,
+        });
+        const all = get();
+        if (!all.currentExam.id && cachedDrills[0]) {
+          set({ currentExam: cachedDrills[0] });
+        }
+        useAnnouncerStore
+          .getState()
+          .announce(
+            'ऑफलाइन प्रैक्टिस एरिना सक्रिय है। सभी अभ्यास उपलब्ध हैं।',
+            'polite',
+            true
+          );
+      } else {
+        const message =
+          err instanceof Error ? err.message : 'Could not reach the DristiX server.';
+        set({ catalogError: message });
+      }
     } finally {
       set({ isCatalogLoading: false });
     }
@@ -452,6 +521,165 @@ export const useExamStore = create<ExamState>((set, get) => ({
   setShortcutsOpen: (open) => set({ isShortcutsOpen: open }),
   setSubmitModalOpen: (open) => set({ isSubmitModalOpen: open }),
   setActiveSectionFilter: (section) => set({ activeSectionFilter: section }),
+
+  openFeedbackModal: (force = false) => {
+    const s = get();
+    if (s.feedback.isOpen) return;
+    if (!force && s.feedback.isSubmitted) return;
+    set((state) => ({ feedback: { ...state.feedback, isOpen: true } }));
+    useAnnouncerStore
+      .getState()
+      .announce(
+        'परीक्षा समाप्त हो चुकी है। कृपया 1 से 5 स्टार रेटिंग देकर और बोलकर या लिखकर अपना फीडबैक दें। Submit करने के लिए Ctrl Enter दबाएं या "फीडबैक सबमिट करो" बोलें।',
+        'assertive',
+        true
+      );
+  },
+
+  closeFeedbackModal: () => {
+    set((s) => ({ feedback: { ...s.feedback, isOpen: false } }));
+  },
+
+  setFeedbackRating: (rating, method = 'keyboard') => {
+    const clamped = Math.max(1, Math.min(5, Math.round(rating)));
+    set((s) => ({
+      feedback: {
+        ...s.feedback,
+        rating: clamped,
+        inputMethod: s.feedback.inputMethod === 'keyboard' && method === 'voice' ? 'mixed' : (method || s.feedback.inputMethod),
+      },
+    }));
+    soundEffects.playSelect();
+    useAnnouncerStore
+      .getState()
+      .announce(
+        isHindiPreferred() ? `रेटिंग ${clamped} स्टार चुनी गई।` : `Rating set to ${clamped} stars.`,
+        'polite',
+        true
+      );
+  },
+
+  toggleFeedbackTag: (tag, method = 'keyboard') => {
+    set((s) => {
+      const exists = s.feedback.tags.includes(tag);
+      const updated = exists ? s.feedback.tags.filter((t) => t !== tag) : [...s.feedback.tags, tag];
+      return {
+        feedback: {
+          ...s.feedback,
+          tags: updated,
+          inputMethod: s.feedback.inputMethod === 'keyboard' && method === 'voice' ? 'mixed' : (method || s.feedback.inputMethod),
+        },
+      };
+    });
+    soundEffects.playSelect();
+  },
+
+  setFeedbackComment: (comment, method = 'keyboard') => {
+    set((s) => ({
+      feedback: {
+        ...s.feedback,
+        comment,
+        inputMethod: s.feedback.inputMethod === 'keyboard' && method === 'voice' ? 'mixed' : (method || s.feedback.inputMethod),
+      },
+    }));
+  },
+
+  submitExamFeedback: async () => {
+    const { feedback, currentExam } = get();
+    if (feedback.rating === 0) {
+      useAnnouncerStore
+        .getState()
+        .announce('कृपया सबमिट करने से पहले 1 से 5 स्टार रेटिंग चुनें।', 'assertive', true);
+      return;
+    }
+
+    // Immediately close modal and mark as submitted so UI dismisses instantly
+    set((s) => ({
+      feedback: {
+        ...s.feedback,
+        isOpen: false,
+        isSubmitting: true,
+        isSubmitted: true,
+      },
+    }));
+
+    const student = useAuthStore.getState().currentStudent;
+    const feedbackPayload = {
+      examId: currentExam.id || currentExam.code || 'exam_default',
+      examTitle: currentExam.title || 'Examination',
+      rating: feedback.rating,
+      tags: feedback.tags,
+      comment: feedback.comment,
+      inputMethod: feedback.inputMethod,
+      studentRoll: student?.rollNumber || '',
+      studentName: student?.name || 'Candidate',
+    };
+
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+    const finalizeSuccess = (offline = false) => {
+      set((s) => ({
+        feedback: {
+          ...s.feedback,
+          isOpen: false,
+          isSubmitting: false,
+          isSubmitted: true,
+        },
+      }));
+      soundEffects.playSuccess();
+      useAnnouncerStore
+        .getState()
+        .announce(
+          offline
+            ? (isHindiPreferred()
+                ? 'ऑफलाइन मोड: आपका फीडबैक सुरक्षित कर लिया गया है और ऑनलाइन आने पर सिंक होगा। धन्यवाद!'
+                : 'Offline mode: Your feedback has been saved and will sync when online. Thank you!')
+            : (isHindiPreferred()
+                ? 'आपका फीडबैक सफलतापूर्वक दर्ज कर लिया गया है। धन्यवाद!'
+                : 'Thank you! Your feedback has been submitted successfully.'),
+          'assertive',
+          true
+        );
+    };
+
+    if (isOffline) {
+      void offlinePracticeStorage.saveOfflineFeedback(feedbackPayload);
+      finalizeSuccess(true);
+      return;
+    }
+
+    try {
+      // Race network call with a 2.5 second timeout so UI never hangs if network is dead/frozen
+      await Promise.race([
+        getDataSource().exams.submitFeedback(feedbackPayload),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Network offline or timed out')), 2500)
+        ),
+      ]);
+      finalizeSuccess(false);
+    } catch (err) {
+      console.warn('[OfflinePractice] Feedback network submit failed; saving offline:', err);
+      void offlinePracticeStorage.saveOfflineFeedback(feedbackPayload);
+      finalizeSuccess(true);
+    }
+  },
+
+  skipExamFeedback: () => {
+    set((s) => ({
+      feedback: {
+        ...s.feedback,
+        isOpen: false,
+      },
+    }));
+    soundEffects.playNavigate();
+    useAnnouncerStore
+      .getState()
+      .announce(
+        isHindiPreferred() ? 'फीडबैक छोड़ दिया गया है।' : 'Feedback skipped.',
+        'polite',
+        true
+      );
+  },
 
   setPortalTab: (tab) => {
     set({ portalTab: tab });
@@ -489,16 +717,77 @@ export const useExamStore = create<ExamState>((set, get) => ({
     }
 
     const { availableExams, availablePracticeDrills } = get();
-    const allAvailable = [...availableExams, ...availablePracticeDrills];
-    const exam = allAvailable.find((e) => e.id === examId) || allAvailable[0];
+    const allAvailable = [
+      ...availableExams,
+      ...availablePracticeDrills,
+      ...offlinePracticeStorage.bundledDrills,
+    ];
+    const exam =
+      allAvailable.find((e) => e.id === examId || (e.code && e.code === examId)) ||
+      allAvailable[0];
     if (!exam || !exam.id) {
       useAnnouncerStore
         .getState()
         .announce('No examinations are available yet. Please contact your administrator.', 'assertive', true);
       return;
     }
-    const isPractice = availablePracticeDrills.some((e) => e.id === exam.id);
+    const isPractice =
+      forceMode === 'practice' ||
+      availablePracticeDrills.some((e) => e.id === exam.id || e.code === exam.code) ||
+      offlinePracticeStorage.bundledDrills.some((e) => e.id === exam.id || e.code === exam.code) ||
+      (exam.code && (exam.code.startsWith('PRACTICE-') || exam.code.startsWith('DI-'))) ||
+      exam.negativeMarking === 'No negative marking (Practice)' ||
+      String(exam.negativeMarking) === '0';
+
     const targetMode = forceMode || (isPractice ? 'practice' : 'exam');
+
+    const launchOfflineDrill = async (drillQuestions: QuestionItem[]) => {
+      const durationSec = (exam.durationMinutes || 30) * 60;
+      const h = String(Math.floor(durationSec / 3600)).padStart(2, '0');
+      const m = String(Math.floor((durationSec % 3600) / 60)).padStart(2, '0');
+      const s = String(durationSec % 60).padStart(2, '0');
+
+      set({
+        currentExam: { ...exam, questions: drillQuestions },
+        questions: drillQuestions,
+        attemptId: null,
+        expiresAtMs: null,
+        currentIndex: 0,
+        selectedOptions: {},
+        markedForReview: {},
+        visitedQuestions: { [drillQuestions[0].id]: true },
+        examMode: 'practice',
+        isSubmitted: false,
+        submissionTime: null,
+        serverReport: null,
+        timeRemaining: durationSec,
+        formattedTime: `${h}:${m}:${s}`,
+        activeView: 'exam',
+        activeSectionFilter: 'All',
+        isPaletteOpen: false,
+        isSubmitModalOpen: false,
+        isSettingsOpen: false,
+        isShortcutsOpen: false,
+      });
+
+      soundEffects.playNavigate();
+      useAnnouncerStore
+        .getState()
+        .announce(
+          `Starting Offline Practice Drill: ${exam.title}. Total ${drillQuestions.length} questions. Offline hints and solutions enabled. Question 1 loaded.`,
+          'assertive',
+          true
+        );
+    };
+
+    // If completely offline in Practice mode, launch straight into offline practice without network delay
+    if (isPractice && typeof navigator !== 'undefined' && !navigator.onLine) {
+      const cached = await offlinePracticeStorage.getCachedDrillQuestions(exam.id, exam.code);
+      if (cached && cached.length > 0) {
+        await launchOfflineDrill(cached);
+        return;
+      }
+    }
 
     // Start (or resume) the attempt through the data source. In api mode this
     // is where the server hands over the question set and the deadline, and
@@ -506,7 +795,21 @@ export const useExamStore = create<ExamState>((set, get) => ({
     let started: StartAttemptResult;
     try {
       started = await getDataSource().exams.startAttempt(exam.id, targetMode);
+      if (isPractice && started.questions?.length) {
+        void offlinePracticeStorage.cacheDrillQuestions(exam.id, started.questions as unknown as QuestionItem[]);
+        if (exam.code) {
+          void offlinePracticeStorage.cacheDrillQuestions(exam.code, started.questions as unknown as QuestionItem[]);
+        }
+      }
     } catch (err) {
+      if (isPractice) {
+        const cachedQuestions = await offlinePracticeStorage.getCachedDrillQuestions(exam.id, exam.code);
+        if (cachedQuestions && cachedQuestions.length > 0) {
+          await launchOfflineDrill(cachedQuestions);
+          return;
+        }
+      }
+
       useAnnouncerStore
         .getState()
         .announce(
@@ -692,29 +995,67 @@ export const useExamStore = create<ExamState>((set, get) => ({
         };
         report = await getDataSource().exams.submitAttempt(attemptId, finalState);
       } catch (err) {
-        useAnnouncerStore
-          .getState()
-          .announce(
-            err instanceof Error
-              ? `Could not submit: ${err.message}`
-              : 'Could not submit this examination. Please try again.',
-            'assertive',
-            true
-          );
-        return;
+        if (examMode === 'practice') {
+          console.warn('[OfflinePractice] Server submit failed (offline). Evaluating practice drill locally:', err);
+          report = null;
+        } else {
+          useAnnouncerStore
+            .getState()
+            .announce(
+              err instanceof Error
+                ? `Could not submit: ${err.message}`
+                : 'Could not submit this examination. Please try again.',
+              'assertive',
+              true
+            );
+          return;
+        }
       }
     }
 
     // Offline mode still grades locally, because there is no server to ask.
     if (!report) {
+      // If questions in state are missing correctOption (e.g. attempt was started online then went offline),
+      // enrich them from cached/bundled drill questions so local grading has the complete answer key
+      let currentQuestions = get().questions;
+      if (examMode === 'practice' && currentQuestions.some((q) => q.correctOption === undefined)) {
+        const fullQuestions = await offlinePracticeStorage.getCachedDrillQuestions(currentExam.id, currentExam.code);
+        if (fullQuestions && fullQuestions.length) {
+          const map = new Map(fullQuestions.map((q) => [q.id, q]));
+          currentQuestions = currentQuestions.map((q) => {
+            const full = map.get(q.id);
+            return full
+              ? {
+                  ...q,
+                  correctOption: full.correctOption,
+                  explanation: full.explanation,
+                  hint: full.hint,
+                }
+              : q;
+          });
+          set({ questions: currentQuestions });
+        }
+      }
+
       const local = get().getDiagnosticReport();
       report = {
         ...local,
         attemptId: attemptId ?? 'local',
         examTitle: local.examTitle,
         status: 'submitted',
-        questions: get().questions as unknown as GradeResult['questions'],
+        questions: (get().questions.length ? get().questions : currentQuestions) as unknown as GradeResult['questions'],
       } as GradeResult;
+
+      if (examMode === 'practice') {
+        void offlinePracticeStorage.saveOfflineSubmission({
+          examId: currentExam.id,
+          examTitle: currentExam.title,
+          score: report.totalScore,
+          maxScore: report.maxScore,
+          percentage: report.scorePercentage,
+          mode: 'practice',
+        });
+      }
     }
 
     soundEffects.playSuccess();
@@ -743,6 +1084,15 @@ export const useExamStore = create<ExamState>((set, get) => ({
       isSubmitModalOpen: false,
       submissionTime: Date.now(),
       serverReport: report,
+      feedback: {
+        isOpen: false,
+        rating: 0,
+        tags: [],
+        comment: '',
+        inputMethod: 'keyboard',
+        isSubmitting: false,
+        isSubmitted: false,
+      },
     });
 
     useAnnouncerStore.getState().announce(
@@ -750,6 +1100,14 @@ export const useExamStore = create<ExamState>((set, get) => ({
       'assertive',
       true
     );
+
+    // Prompt for candidate feedback after the diagnostic report announcement
+    setTimeout(() => {
+      const s = get();
+      if (s.isSubmitted && !s.feedback.isSubmitted && s.activeView === 'exam') {
+        s.openFeedbackModal();
+      }
+    }, 6000);
   },
 
   addNewExam: async (newExam: Exam, mode: 'exam' | 'practice') => {

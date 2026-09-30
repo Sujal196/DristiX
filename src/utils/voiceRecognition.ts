@@ -53,14 +53,14 @@ class VoiceRecognitionService {
     });
 
     speechEngine.onSpeechEnd(() => {
-      // When TTS finishes, wait for speaker room echo to decay before resuming listening state
+      // When TTS finishes, quickly restore listening state without keeping mic muted
       if (this.isListeningActive) {
         setTimeout(() => {
           if (this.isListeningActive && !speechEngine.isSpeaking()) {
             this.setState('listening');
-            this.scheduleRestart(100);
+            this.scheduleRestart(80);
           }
-        }, 750);
+        }, 150);
       }
     });
   }
@@ -139,11 +139,11 @@ class VoiceRecognitionService {
 
     try {
       const rec = new SpeechRecognitionAPI();
-      // Single-utterance turn-based mode:
-      // Stops cleanly when the speaker finishes speaking rather than accumulating
-      // room noise, ambient conversation, or background hallucinations indefinitely.
-      // After processing/speech ends, the onend / onSpeechEnd restart loop resumes listening.
-      rec.continuous = false;
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /android|iphone|ipad|ipod/i.test(navigator.userAgent || '');
+      // Continuous mode on desktop prevents constant onend/restart cycling
+      rec.continuous = !isMobile;
       rec.interimResults = true;
       rec.lang = this.effectiveLanguage;
       rec.maxAlternatives = 5;
@@ -154,13 +154,7 @@ class VoiceRecognitionService {
       };
 
       rec.onresult = (event: any) => {
-        // Discard any audio if the assistant's synthetic voice is actively playing
-        if (speechEngine.isSpeaking()) {
-          return;
-        }
-
-        // Any recognised text proves the mic is live, which resets the silent
-        // restart counter that guards against a dead microphone.
+        // Any recognised audio proves the mic is live
         this.lastTranscriptAt = Date.now();
         this.consecutiveSilentRestarts = 0;
 
@@ -254,40 +248,15 @@ class VoiceRecognitionService {
         return;
       }
 
-      // Restarting is only useful if recognition has worked at least once. A
-      // loop of restarts that never produces a word is indistinguishable from a
-      // frozen microphone, so try the other language first, then give up.
-      if (Date.now() - this.lastTranscriptAt > 12000) {
-        this.consecutiveSilentRestarts++;
-
-        // In auto mode, one retry in the other language is often enough: the
-        // speech service may simply not support the locale we guessed.
-        if (
-          this.languageMode === 'auto' &&
-          !this.hasTriedFallback &&
-          this.consecutiveSilentRestarts >= 2
-        ) {
-          this.currentLanguage = this.fallbackLanguage;
-          this.hasTriedFallback = true;
-          this.consecutiveSilentRestarts = 0;
-          this.initRecognition();
-          this.scheduleRestart(200);
-          return;
-        }
-
-        if (this.consecutiveSilentRestarts >= 4) {
-          this.shouldAutoRestart = false;
-          this.isListeningActive = false;
-          this.setState('error');
-          this.notifyError(
-            this.hasTriedFallback
-              ? `No speech detected in ${this.currentLanguage} or ${this.fallbackLanguage}. Check that nothing else is using the microphone, or type your command in the box below.`
-              : 'The microphone is not producing any speech. Check that nothing else is using it, or type your command in the box below.'
-          );
-          return;
-        }
-      } else {
-        this.consecutiveSilentRestarts = 0;
+      // Seamlessly switch between auto languages if prolonged silence
+      if (
+        this.languageMode === 'auto' &&
+        !this.hasTriedFallback &&
+        Date.now() - this.lastTranscriptAt > 20000
+      ) {
+        this.currentLanguage = this.fallbackLanguage;
+        this.hasTriedFallback = true;
+        this.initRecognition();
       }
 
       try {
@@ -421,6 +390,9 @@ class VoiceRecognitionService {
   public start(): boolean {
     this.shouldAutoRestart = true;
     this.isListeningActive = true;
+    this.lastTranscriptAt = Date.now();
+    this.consecutiveSilentRestarts = 0;
+    this.hasTriedFallback = false;
 
     if (!this.recognition) {
       this.initRecognition();

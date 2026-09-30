@@ -18,6 +18,7 @@ import { QuestionPalette } from './components/exam/QuestionPalette';
 import { A11ySettingsModal } from './components/a11y/A11ySettingsModal';
 import { ShortcutsHelpModal } from './components/a11y/ShortcutsHelpModal';
 import { SubmitConfirmModal } from './components/exam/SubmitConfirmModal';
+import { ExamFeedbackModal } from './components/exam/ExamFeedbackModal';
 import { A11yInspector } from './components/a11y/A11yInspector';
 import { StudentAuthScreen } from './components/auth/StudentAuthScreen';
 import { LandingPage } from './components/landing/LandingPage';
@@ -29,8 +30,10 @@ import { useBootstrapStore } from './stores/useBootstrapStore';
 import { getDataSource } from './services/dataSource';
 import { formatDuration } from './utils/formatDuration';
 import { dispatchAccessibilityEvent } from './accessibility';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
 
 export const App: React.FC = () => {
+  useNetworkStatus();
   const { applyToDOM } = usePreferencesStore();
   const {
     activeView,
@@ -288,10 +291,10 @@ export const App: React.FC = () => {
   // be wasteful. Re-reading the catalog when the tab regains focus costs one
   // request and means a student who switches away and back sees new tests.
   useEffect(() => {
-    if (activeView !== 'catalog') return;
+    if (activeView !== 'catalog' || !currentStudent) return;
 
     const onFocus = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && useAuthStore.getState().currentStudent) {
         void useExamStore.getState().loadCatalog();
       }
     };
@@ -302,7 +305,7 @@ export const App: React.FC = () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, [activeView]);
+  }, [activeView, currentStudent]);
 
   // Flush in-progress answers when the tab is hidden or closed.
   //
@@ -507,6 +510,7 @@ export const App: React.FC = () => {
       <A11ySettingsModal />
       <ShortcutsHelpModal />
       {activeView === 'exam' && <SubmitConfirmModal />}
+      <ExamFeedbackModal />
 
       {/* Live WCAG 2.1 AA Audit Inspector */}
       <A11yInspector />

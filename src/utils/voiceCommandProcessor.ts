@@ -2,7 +2,7 @@ import { getAssistantContext } from './assistantContext';
 import { useExamStore } from '../store/useExamStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
 import { usePreferencesStore } from '../store/usePreferencesStore';
-import type { ThemeMode, TextScale } from '../store/usePreferencesStore';
+import type { TextScale } from '../store/usePreferencesStore';
 import { soundEffects } from './soundEffects';
 import { verbalizeMath, verbalizeForSpeech } from './mathVerbalizer';
 import { describeOptionSelection, describeClearSelection } from './optionSpeech';
@@ -117,7 +117,7 @@ export function buildFullQuestionSpeech(
     q.options && q.options.length > 0
       ? (isHindi
           ? ` विकल्प हैं: ${q.options
-              .map((o) => {
+              .map((o: any) => {
                 const mathVerbal = o.mathLatex ? verbalizeMath(o.mathLatex).trim() : '';
                 const rawText = o.text ? o.text.trim() : '';
                 let optCombined = rawText;
@@ -136,7 +136,7 @@ export function buildFullQuestionSpeech(
               })
               .join('। ')}।`
           : ` The options are: ${q.options
-              .map((o) => {
+              .map((o: any) => {
                 const mathVerbal = o.mathLatex ? verbalizeMath(o.mathLatex).trim() : '';
                 const rawText = o.text ? o.text.trim() : '';
                 let optCombined = rawText;
@@ -1470,6 +1470,116 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
         ? 'परीक्षा रीसेट कर दी गई है। प्रश्न 1 स्क्रीन पर लोड हो चुका है। शुरू करने के लिए "प्रश्न पढ़ो" बोलें।'
         : 'Exam has been reset. Question 1 is now loaded. Say "Read question" to begin.';
       return makeReply('RETAKE_EXAM', reply, 'Retook Exam');
+    }
+  }
+
+  // ==========================================
+  // 14. EXAM FEEDBACK COMMANDS (Voice & Accessibility)
+  // ==========================================
+  const isFeedbackContext = context.activeView === 'report' || examStore.feedback?.isOpen;
+  if (isFeedbackContext) {
+    // 1. Submit Feedback
+    const isSubmitKeyword =
+      rawLower.includes('submit') ||
+      rawLower.includes('सबमिट') ||
+      rawLower.includes('जमा') ||
+      normalized.includes('submit');
+
+    const isFeedbackMentioned =
+      rawLower.includes('feedback') ||
+      rawLower.includes('फीडबैक') ||
+      examStore.feedback?.isOpen;
+
+    if (isSubmitKeyword && isFeedbackMentioned) {
+      if (examStore.feedback.rating === 0) {
+        const reply = isHindi ? 'कृपया सबमिट करने से पहले 1 से 5 स्टार रेटिंग चुनें।' : 'Please select a 1 to 5 star rating before submitting.';
+        return makeReply('FEEDBACK_RATING_REQUIRED', reply, 'Rating Required');
+      }
+      examStore.closeFeedbackModal();
+      examStore.submitExamFeedback();
+      const reply = isHindi ? 'आपका फीडबैक सफलतापूर्वक सबमिट कर दिया गया है। धन्यवाद!' : 'Your feedback has been submitted successfully. Thank you!';
+      return makeReply('SUBMIT_FEEDBACK', reply, 'Submitted Feedback');
+    }
+
+    // 2. Skip or Close Feedback
+    if (
+      (rawLower.includes('skip') || rawLower.includes('स्किप') || rawLower.includes('बंद') || rawLower.includes('close') || rawLower.includes('हटाओ')) &&
+      (rawLower.includes('feedback') || rawLower.includes('फीडबैक') || examStore.feedback?.isOpen)
+    ) {
+      examStore.skipExamFeedback();
+      const reply = isHindi ? 'फीडबैक छोड़ दिया गया है।' : 'Feedback closed.';
+      return makeReply('SKIP_FEEDBACK', reply, 'Skipped Feedback');
+    }
+
+    // 3. Star Rating Selection (1 to 5 stars)
+    const starMatch =
+      rawLower.match(/(?:rating|रेटिंग)\s*([1-5])/i) ||
+      rawLower.match(/([1-5])\s*(?:star|stars|स्टार)/i);
+
+    let starNumber = 0;
+    if (starMatch && starMatch[1]) {
+      starNumber = parseInt(starMatch[1], 10);
+    } else if (rawLower.includes('पांच स्टार') || rawLower.includes('पाँच स्टार') || rawLower.includes('five star') || rawLower.includes('5 star')) {
+      starNumber = 5;
+    } else if (rawLower.includes('चार स्टार') || rawLower.includes('four star') || rawLower.includes('4 star')) {
+      starNumber = 4;
+    } else if (rawLower.includes('तीन स्टार') || rawLower.includes('three star') || rawLower.includes('3 star')) {
+      starNumber = 3;
+    } else if (rawLower.includes('दो स्टार') || rawLower.includes('two star') || rawLower.includes('2 star')) {
+      starNumber = 2;
+    } else if (rawLower.includes('एक स्टार') || rawLower.includes('one star') || rawLower.includes('1 star')) {
+      starNumber = 1;
+    }
+
+    if (starNumber >= 1 && starNumber <= 5) {
+      examStore.setFeedbackRating(starNumber, 'voice');
+      if (!examStore.feedback.isOpen && !examStore.feedback.isSubmitted) {
+        examStore.openFeedbackModal();
+      }
+      const reply = isHindi
+        ? `रेटिंग ${starNumber} स्टार चुनी गई है। आप टिप्पणी बोल सकते हैं या "फीडबैक सबमिट करो" बोलकर जमा कर सकते हैं।`
+        : `Rating set to ${starNumber} stars. Dictate comments or say "Submit feedback" to send.`;
+      return makeReply('SET_FEEDBACK_RATING', reply, `Rated ${starNumber} Stars`);
+    }
+
+    // 4. Open Feedback Window (Explicit open/rate intents only; never re-open if already submitted)
+    const isOpenFeedbackCommand =
+      rawLower.includes('open feedback') ||
+      rawLower.includes('give feedback') ||
+      rawLower.includes('share feedback') ||
+      rawLower.includes('rate exam') ||
+      rawLower.includes('फीडबैक खोलो') ||
+      rawLower.includes('फीडबैक दो') ||
+      rawLower.includes('फीडबैक देना') ||
+      rawLower.includes('रेटिंग दो') ||
+      rawLower.includes('रेटिंग देना') ||
+      rawLower.includes('feedback kholo') ||
+      rawLower.includes('feedback do');
+
+    if (!examStore.feedback?.isOpen && !examStore.feedback?.isSubmitted && isOpenFeedbackCommand) {
+      examStore.openFeedbackModal();
+      const reply = isHindi
+        ? 'परीक्षा फीडबैक विंडो खुल चुकी है। 1 से 5 स्टार रेटिंग दें या बोलकर अपना अनुभव बताएं।'
+        : 'Exam feedback window is now open. Choose a 1 to 5 star rating or dictate your feedback.';
+      return makeReply('OPEN_FEEDBACK', reply, 'Opened Feedback Modal');
+    }
+
+    // 5. Edit/Reopen Feedback Window if already submitted
+    const isEditFeedbackCommand =
+      rawLower.includes('edit feedback') ||
+      rawLower.includes('change feedback') ||
+      rawLower.includes('update feedback') ||
+      rawLower.includes('reopen feedback') ||
+      rawLower.includes('फीडबैक बदलो') ||
+      rawLower.includes('फीडबैक एडिट') ||
+      rawLower.includes('फीडबैक दोबारा');
+
+    if (examStore.feedback?.isSubmitted && isEditFeedbackCommand) {
+      examStore.openFeedbackModal(true);
+      const reply = isHindi
+        ? 'फीडबैक विंडो दोबारा खुल गई है। आप अपनी रेटिंग या टिप्पणी बदल सकते हैं।'
+        : 'Feedback window reopened. You can update your rating or comments.';
+      return makeReply('EDIT_FEEDBACK', reply, 'Reopened Feedback Modal');
     }
   }
 

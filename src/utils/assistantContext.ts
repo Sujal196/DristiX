@@ -35,6 +35,15 @@ export interface PageContextSnapshot {
     verbalSummary: string[];
   };
 
+  // Candidate Exam Feedback context
+  feedback?: {
+    isOpen: boolean;
+    rating: number;
+    tags: string[];
+    comment: string;
+    isSubmitted: boolean;
+  };
+
   // Catalog context
   availableExams: {
     id: string;
@@ -262,6 +271,13 @@ export function getAssistantContext(): PageContextSnapshot {
       correctCount: totalCorrect,
       wrongCount: totalIncorrect,
       recentSubmissions: recentSubs,
+    },
+    feedback: {
+      isOpen: examStore.feedback?.isOpen || false,
+      rating: examStore.feedback?.rating || 0,
+      tags: examStore.feedback?.tags || [],
+      comment: examStore.feedback?.comment || '',
+      isSubmitted: examStore.feedback?.isSubmitted || false,
     },
   };
 

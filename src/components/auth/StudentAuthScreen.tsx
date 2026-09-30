@@ -4,6 +4,7 @@ import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
 import { LogIn, UserPlus, Eye, EyeOff } from 'lucide-react';
 import type { AccessibilityPreference } from '../../../shared/types';
+import { VoiceGuidedLoginCard } from './VoiceGuidedLoginCard';
 
 interface StudentAuthScreenProps {
   onAuthenticated?: () => void;
@@ -83,27 +84,33 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
 
   // Vocalize input field prompt on focus for speech assistance
   const speakInput = (message: string) => {
-    useAnnouncerStore.getState().announce(message, 'assertive', true, true);
+    useAnnouncerStore.getState().announce(message, 'polite', true, false);
   };
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const performLogin = async (identifier = loginIdentifier, pass = loginPassword): Promise<boolean> => {
     setLoginError('');
-    if (!loginIdentifier.trim()) {
+    if (!identifier.trim()) {
       setLoginError('Please enter your Roll Number or Email.');
-      return;
+      return false;
     }
     setIsSubmitting(true);
     try {
-      const ok = await loginStudent(loginIdentifier, loginPassword);
+      const ok = await loginStudent(identifier.trim(), pass);
       if (!ok) {
         setLoginError('Invalid student credentials. Please check your email, roll number and password.');
+        return false;
       } else {
         onAuthenticated?.();
+        return true;
       }
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await performLogin();
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -214,6 +221,17 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
             onSubmit={handleLoginSubmit}
             className="space-y-4"
           >
+            {/* Interactive Guided Voice Flow (तरीका 1) */}
+            <VoiceGuidedLoginCard
+              loginIdentifier={loginIdentifier}
+              setLoginIdentifier={setLoginIdentifier}
+              loginPassword={loginPassword}
+              setLoginPassword={setLoginPassword}
+              onLogin={performLogin}
+              isSubmitting={isSubmitting}
+              errorMessage={loginError}
+            />
+
             {loginError && (
               <div
                 role="alert"

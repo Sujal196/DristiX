@@ -460,23 +460,41 @@ class SpeechEngine {
   }
 
   /**
-   * Checks if candidate recognized transcript is just an echo of what the assistant just spoke aloud.
+   * Checks if candidate recognized transcript is just an acoustic echo of what the assistant just spoke aloud.
    */
   public isTextEcho(candidateText: string): boolean {
     if (!candidateText || !this.lastSpokenText) return false;
+
+    // Acoustic speaker echo is physically impossible if assistant is not currently speaking
+    // and has not spoken within the last 900ms.
+    const isRecentlySpeaking = this.internalSpeaking || (Date.now() - this.lastSpeechEndTime < 900);
+    if (!isRecentlySpeaking) {
+      return false;
+    }
+
+    // Never suppress if candidate text contains digits (e.g., roll numbers, pins, questions, dates)
+    if (/\d/.test(candidateText)) {
+      return false;
+    }
+
     const normCand = candidateText.toLowerCase().replace(/[^\w\s\u0900-\u097F]/gi, '').trim();
     const normSpoken = this.lastSpokenText.replace(/[^\w\s\u0900-\u097F]/gi, '').trim();
     if (!normCand || !normSpoken) return false;
 
-    // Direct match or substring
-    if (normSpoken.includes(normCand) && normCand.length > 6) return true;
-    if (normCand.includes(normSpoken) && normSpoken.length > 6) return true;
+    // Never suppress if candidate text mentions specific identification or passwords
+    if (/\b(?:dx|roll|password|student)\b/i.test(normCand) || /रोल|पासवर्ड/i.test(normCand)) {
+      return false;
+    }
 
-    // Word overlap (if >60% of words in candidate were spoken by assistant recently)
+    // Direct match (candidate text is almost identical to what was spoken)
+    if (normSpoken === normCand) return true;
+    if (normSpoken.includes(normCand) && normCand.length > 15) return true;
+
+    // Word overlap: only if nearly identical (>85%) AND at least 3 significant words
     const candWords = normCand.split(/\s+/).filter((w) => w.length > 2);
-    if (candWords.length >= 2) {
+    if (candWords.length >= 3) {
       const matchWords = candWords.filter((w) => normSpoken.includes(w));
-      if (matchWords.length / candWords.length >= 0.6) return true;
+      if (matchWords.length / candWords.length >= 0.85) return true;
     }
 
     return false;

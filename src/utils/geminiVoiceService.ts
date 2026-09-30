@@ -2,7 +2,7 @@ import { getAssistantContext } from './assistantContext';
 import { useExamStore } from '../store/useExamStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
 import { usePreferencesStore } from '../store/usePreferencesStore';
-import type { ThemeMode, TextScale } from '../store/usePreferencesStore';
+import type { TextScale } from '../store/usePreferencesStore';
 import { soundEffects } from './soundEffects';
 import { buildFullQuestionSpeech } from './voiceCommandProcessor';
 import type { CommandProcessResult } from './voiceCommandProcessor';
@@ -711,8 +711,9 @@ Return ONLY a valid JSON object matching this schema:
           ],
           temperature: 0.1,
         });
-        if (res && res.content) {
-          parsed = this.parseCommandJson(res.content);
+        const replyText = res && (res.reply || (res as any).content);
+        if (replyText) {
+          parsed = this.parseCommandJson(replyText);
           if (parsed) console.log('🤖 Processed via Backend AI Proxy (Groq LLaMA)');
         }
       } catch (proxyErr) {
@@ -726,8 +727,9 @@ Return ONLY a valid JSON object matching this schema:
             ],
             temperature: 0.1,
           });
-          if (res && res.content) {
-            parsed = this.parseCommandJson(res.content);
+          const geminiReply = res && (res.reply || (res as any).content);
+          if (geminiReply) {
+            parsed = this.parseCommandJson(geminiReply);
             if (parsed) console.log('🤖 Processed via Backend AI Proxy (Gemini)');
           }
         } catch (geminiProxyErr) {

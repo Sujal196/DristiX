@@ -1,0 +1,26 @@
+{
+  "name": "DristiX - Accessible Examination & Practice Platform",
+  "short_name": "DristiX",
+  "description": "Accessible, voice-guided examination and offline practice platform for visually impaired candidates.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0d9488",
+  "categories": ["education", "accessibility"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%23000'/><circle cx='50' cy='50' r='30' fill='%23ffff00'/><circle cx='50' cy='50' r='15' fill='%23000'/></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Practice Arena",
+      "url": "/?tab=practice",
+      "description": "Jump directly to offline-ready practice drills and skill drills"
+    }
+  ]
+}
