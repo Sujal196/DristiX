@@ -12,10 +12,10 @@ export type LiveSessionState = 'idle' | 'listening' | 'user_speaking' | 'process
 /**
  * Longest single audio clip handed to transcription.
  *
- * Long clips cost more, transcribe worse, and are the only way a segment could
- * grow without bound if voice activity is never detected.
+ * Capped at 5 seconds (down from 12s) to prevent the microphone from running
+ * away indefinitely in a noisy room and recording extraneous conversation.
  */
-const MAX_SEGMENT_MS = 12_000;
+const MAX_SEGMENT_MS = 5_000;
 
 export interface LiveSessionCallbacks {
   onStateChange: (state: LiveSessionState) => void;
@@ -40,14 +40,14 @@ export class GeminiLiveVoiceSession {
   private audioChunks: Blob[] = [];
   private animFrameId: number | null = null;
   private silenceTimer: any = null;
+  private finalCommitTimer: any = null;
+  /** Adaptive ambient noise baseline to prevent room hum/fans from falsely triggering speech activity. */
+  private ambientNoiseBaseline: number = 15;
   /**
    * Hard cap on one recording segment.
    *
    * The segment is normally closed by the voice-activity detector once the user
-   * stops talking. But a noisy room can hold the average volume above the
-   * speech threshold permanently, in which case the detector never releases and
-   * the recorder would run unbounded. Capping it also keeps clips inside the
-   * window where transcription is accurate.
+   * stops talking. Capping it keeps clips inside the window where transcription is accurate.
    */
   private segmentTimeout: any = null;
   private hasSpokenInCurrentChunk = false;
@@ -178,24 +178,26 @@ export class GeminiLiveVoiceSession {
             }
             this.callbacks.onLiveTranscript?.(transcript.trim(), isFinal);
 
-            // Speech activity is now derived from the transcript, because the
-            // microphone is no longer held open for volume analysis — doing so
-            // starved the recogniser of audio. Any recognised text means the
-            // student is talking.
+            // Speech activity is now derived from the transcript
             this.hasSpokenInCurrentChunk = true;
             if (this.state === 'listening') this.setState('user_speaking');
 
-            // If a final recognition arrives while user spoke, commit promptly after brief settle
+            // If a final recognition arrives while user spoke, commit promptly after brief settle (300ms).
+            // This timer is protected so background noise will not wipe it out and force 12s of recording.
             if (isFinal && this.isRunning) {
               if (this.silenceTimer) {
                 clearTimeout(this.silenceTimer);
                 this.silenceTimer = null;
               }
-              this.silenceTimer = setTimeout(() => {
+              if (this.finalCommitTimer) {
+                clearTimeout(this.finalCommitTimer);
+              }
+              this.finalCommitTimer = setTimeout(() => {
+                this.finalCommitTimer = null;
                 if (this.isRunning && this.hasSpokenInCurrentChunk) {
                   this.commitCurrentUtterance();
                 }
-              }, 250);
+              }, 300);
             }
           }
         },
@@ -338,28 +340,35 @@ export class GeminiLiveVoiceSession {
 
       // Voice Activity Detection (VAD)
       if (this.state === 'listening' || this.state === 'user_speaking') {
-        const SPEECH_THRESHOLD = 18;
+        // Adaptively calibrate background room noise baseline during quiet periods
+        if (!this.hasSpokenInCurrentChunk) {
+          this.ambientNoiseBaseline = this.ambientNoiseBaseline * 0.95 + normalizedVolume * 0.05;
+        }
 
-        if (normalizedVolume > SPEECH_THRESHOLD) {
+        // Dynamic threshold: at least 24, or 12 units above room baseline (capped at 50)
+        const activeSpeechThreshold = Math.max(24, Math.min(50, Math.round(this.ambientNoiseBaseline + 12)));
+
+        if (normalizedVolume > activeSpeechThreshold) {
           // User is speaking
           this.hasSpokenInCurrentChunk = true;
           if (this.state !== 'user_speaking') {
             this.setState('user_speaking');
           }
 
-          // Clear any pending silence timer
-          if (this.silenceTimer) {
+          // Reset silence timer only if finalCommitTimer is not active
+          if (this.silenceTimer && !this.finalCommitTimer) {
             clearTimeout(this.silenceTimer);
             this.silenceTimer = null;
           }
         } else if (this.hasSpokenInCurrentChunk) {
-          // User was speaking and is now silent: start silence countdown (1500ms)
-          if (!this.silenceTimer) {
+          // User was speaking and is now silent: commit after 700ms pause (clean endpointing)
+          if (!this.silenceTimer && !this.finalCommitTimer) {
             this.silenceTimer = setTimeout(() => {
+              this.silenceTimer = null;
               if (this.hasSpokenInCurrentChunk && this.isRunning) {
                 this.commitCurrentUtterance();
               }
-            }, 1500);
+            }, 700);
           }
         }
       }
@@ -371,12 +380,22 @@ export class GeminiLiveVoiceSession {
   }
 
   /**
-   * Force commit current utterance immediately (e.g. user taps Send / Orb)
+   * Force commit current utterance immediately (e.g. user taps Send / Orb or speech endpoint reached)
    */
   public commitCurrentUtterance() {
+    if (this.finalCommitTimer) {
+      clearTimeout(this.finalCommitTimer);
+      this.finalCommitTimer = null;
+    }
+
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = null;
+    }
+
+    if (this.segmentTimeout) {
+      clearTimeout(this.segmentTimeout);
+      this.segmentTimeout = null;
     }
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
@@ -553,6 +572,11 @@ export class GeminiLiveVoiceSession {
   public stop() {
     this.isRunning = false;
     soundEffects.playMicStop();
+
+    if (this.finalCommitTimer) {
+      clearTimeout(this.finalCommitTimer);
+      this.finalCommitTimer = null;
+    }
 
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);

@@ -57,6 +57,25 @@ export function errorHandler(
     return;
   }
 
+  // MongoDB network/pool cleared errors: occur during transient Atlas latency spikes or IP transitions.
+  // Returning 503 allows the client or retry logic to cleanly retry without crashing or dumping noisy stack traces.
+  const errName = (err as Error)?.name || '';
+  if (
+    errName === 'MongoPoolClearedError' ||
+    errName === 'MongoNetworkTimeoutError' ||
+    errName === 'MongoNetworkError' ||
+    errName === 'MongoServerSelectionError' ||
+    errName === 'MongoTopologyClosedError' ||
+    errName === 'MongoNotConnectedError'
+  ) {
+    console.warn(`[dristix] MongoDB transient network glitch (${errName}): ${(err as Error).message}`);
+    res.status(503).json({
+      error: 'database_unavailable',
+      message: 'Database is momentarily reconnecting. Please retry in a few seconds.',
+    });
+    return;
+  }
+
   console.error('[dristix] unhandled error:', err);
   const status = typeof parseErr?.status === 'number' ? parseErr.status
     : typeof parseErr?.statusCode === 'number' ? parseErr.statusCode

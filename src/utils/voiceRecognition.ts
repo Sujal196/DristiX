@@ -107,10 +107,6 @@ class VoiceRecognitionService {
     return this.currentLanguage === 'hi-IN' ? 'en-US' : 'hi-IN';
   }
 
-  private isMobile(): boolean {
-    if (typeof navigator === 'undefined') return false;
-    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  }
 
   private initRecognition() {
     if (typeof window === 'undefined') return;
@@ -143,9 +139,11 @@ class VoiceRecognitionService {
 
     try {
       const rec = new SpeechRecognitionAPI();
-      // Desktop handles continuous mode well. Mobile relies on the restart
-      // loop in scheduleRestart(), which fires from onend after each utterance.
-      rec.continuous = !this.isMobile();
+      // Single-utterance turn-based mode:
+      // Stops cleanly when the speaker finishes speaking rather than accumulating
+      // room noise, ambient conversation, or background hallucinations indefinitely.
+      // After processing/speech ends, the onend / onSpeechEnd restart loop resumes listening.
+      rec.continuous = false;
       rec.interimResults = true;
       rec.lang = this.effectiveLanguage;
       rec.maxAlternatives = 5;
@@ -156,6 +154,11 @@ class VoiceRecognitionService {
       };
 
       rec.onresult = (event: any) => {
+        // Discard any audio if the assistant's synthetic voice is actively playing
+        if (speechEngine.isSpeaking()) {
+          return;
+        }
+
         // Any recognised text proves the mic is live, which resets the silent
         // restart counter that guards against a dead microphone.
         this.lastTranscriptAt = Date.now();

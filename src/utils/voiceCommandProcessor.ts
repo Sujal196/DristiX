@@ -42,10 +42,30 @@ export const PHANTOM_NOISE_TOKENS = new Set([
   'हूं',
   'the',
   'a',
+  'पूल',
+  'पुल',
+  'pool',
+  'चीज',
+  'चीजे',
+  'चीजें',
+  'मास्टर',
+  'चलाते',
+  'yes',
+  'no',
+  'hlo',
+  'hello',
+  'shh',
+  'bye',
+  'ok',
+  'okay',
+  'tu',
+  'tum',
+  'main',
+  'mai',
 ]);
 
 /**
- * Checks whether an incoming transcript is a phantom noise hallucination or meaningless ambient sound.
+ * Checks whether an incoming transcript is a phantom noise hallucination, acoustic artifact, or meaningless ambient sound.
  */
 export function isPhantomNoise(text: string): boolean {
   if (!text) return true;
@@ -56,6 +76,15 @@ export function isPhantomNoise(text: string): boolean {
   if (!cleaned) return true;
   if (cleaned.length <= 1) return true;
   if (PHANTOM_NOISE_TOKENS.has(cleaned)) return true;
+
+  // Repetitive hallucination loop detection (e.g. "सारी सारी", "पूल पूल पूल", "sau sau")
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    const unique = new Set(words);
+    if (unique.size === 1) return true;
+    if (words.length >= 4 && unique.size <= 2) return true;
+  }
+
   return false;
 }
 
@@ -152,8 +181,17 @@ function normalizePhonetics(raw: string): string {
   text = text.replace(/(सबमिट|जमा|खत्म|submit|finish|khatam|jama)/gi, 'submit');
   text = text.replace(/(वापस|बैक|होम|back|return|home|wapas)/gi, 'back');
 
-  // 8. Analytics & Scores
-  text = text.replace(/(एनालिटिक्स|स्कोर|रिजल्ट|परफॉर्मेंस|रिपोर्ट|analytics|score|result|performance|report)/gi, 'analytics');
+  // 8. Analytics & Scores (Devanagari, phonetic Hindi spellings, Hinglish & English)
+  text = text.replace(
+    /(एनालिटिक्स|एनलेटेक्स|एनलिटिक्स|अनैलिटिक्स|एनेलिटिक्स|एनालेटिक्स|परफॉर्मेंस|रिपोर्ट्स?|स्कोर|रिजल्ट|परिणाम|analytics|score|result|performance|reports?)/gi,
+    'analytics'
+  );
+
+  // 8b. Explain Current Page / Location (Grounded Navigation Inquiries)
+  text = text.replace(
+    /(यह कौन सा पेज है|ये कौन सा पेज है|कौन सा पेज है|कौनसा पेज है|किस पेज पर हैं?|किस पेज पर|कहाँ हूँ|कहाँ पर हूँ|यह क्या है|ये क्या है|स्क्रीन समझाओ|पेज समझाओ|screen batao|page batao|explain page|which page|where am i|what page|kaun sa page|konsa page|kis page)/gi,
+    'explain_page'
+  );
 
   // 9. Hints & Solutions
   text = text.replace(/(हिंट|मदद|सहायता|hint|help)/gi, 'hint');
@@ -162,7 +200,7 @@ function normalizePhonetics(raw: string): string {
   // 10. Exam lists / inquiries
   text = text.replace(/(मॉक\s*टेस्ट्स?|मॉकटेस्ट|mock\s*tests?|mocktest)/gi, 'mocktest');
   text = text.replace(
-    /(कितने|कितना|कौन कौन से|कौन-कौन से|कौन-कौन|कौन सा|कौन से|कौन-सा|कौन-सी|कौन सी|क्या क्या|क्या-क्या|उपलब्ध|kaun kaun se|kon kon se|kaun kaun|kon kon|koun koun|kaun se|kon se|koun se|konsa|kousa|kaun sa|kaun si|kon si|kya kya|kitne|kitna|list|lists|available|avalable|uplabdh|show\s*all|which|what)/gi,
+    /(कितने|कितना|कौन कौन से|कौन-कौन से|कौन-कौन|कौन से|क्या क्या|क्या-क्या|उपलब्ध|kaun kaun se|kon kon se|kaun kaun|kon kon|koun koun|kaun se|kon se|koun se|kya kya|kitne|kitna|list|lists|available|avalable|uplabdh|show\s*all)/gi,
     'list'
   );
   text = text.replace(/(एग्जाम्स?|परीक्षाएं|परीक्षा|टेस्ट्स?|exams?|tests?|pariksha)/gi, 'exam');
@@ -771,8 +809,13 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   // 16. EXPLAIN CURRENT PAGE (Grounded)
   // ==========================================
   if (
+    normalized.includes('explain_page') ||
     rawLower.includes('kis page') ||
     rawLower.includes('किस पेज') ||
+    rawLower.includes('कौन सा पेज') ||
+    rawLower.includes('कौनसा पेज') ||
+    rawLower.includes('यह कौन सा') ||
+    rawLower.includes('ये कौन सा') ||
     rawLower.includes('which page') ||
     rawLower.includes('where am i') ||
     rawLower.includes('kahan hoon') ||
@@ -785,7 +828,12 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     rawLower.includes('is page par kya hai') ||
     rawLower.includes('yahan kya kar sakte hain') ||
     rawLower.includes('kya chal raha hai') ||
-    rawLower.includes('explain page')
+    rawLower.includes('explain page') ||
+    rawLower.includes('कहाँ हूँ') ||
+    rawLower.includes('कहाँ पर हूँ') ||
+    rawLower.includes('यह क्या है') ||
+    rawLower.includes('स्क्रीन समझाओ') ||
+    rawLower.includes('पेज समझाओ')
   ) {
     if (context.activeView === 'report') {
       const rep = context.diagnosticReport;
@@ -872,14 +920,47 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
 }
 
 /**
- * High-accuracy multi-candidate processor
+ * High-accuracy multi-candidate processor with clause extraction for trailing noise resilience
  */
 export function processVoiceCommand(
   rawTranscriptOrAlternatives: string | string[]
 ): CommandProcessResult {
-  const candidates: string[] = Array.isArray(rawTranscriptOrAlternatives)
+  const initialCandidates: string[] = Array.isArray(rawTranscriptOrAlternatives)
     ? rawTranscriptOrAlternatives
     : [rawTranscriptOrAlternatives];
+
+  const candidates: string[] = [];
+
+  for (const c of initialCandidates) {
+    const trimmed = c.trim();
+    if (!trimmed || isPhantomNoise(trimmed)) continue;
+    if (!candidates.includes(trimmed)) {
+      candidates.push(trimmed);
+    }
+
+    // Extract leading sentence/clause if trailing background talk was appended
+    // Split by punctuation (Devanagari danda ।, question mark ?, period ., exclamation !, newline)
+    const clauses = trimmed.split(/[।?!.\n\r]+/).map((s) => s.trim()).filter(Boolean);
+    if (clauses.length > 1) {
+      const firstClause = clauses[0];
+      if (firstClause && !candidates.includes(firstClause) && !isPhantomNoise(firstClause)) {
+        candidates.push(firstClause);
+      }
+    }
+
+    // Also extract leading words if candidate is long (>= 5 words)
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length >= 5) {
+      const leading5 = words.slice(0, 5).join(' ');
+      if (!candidates.includes(leading5) && !isPhantomNoise(leading5)) {
+        candidates.push(leading5);
+      }
+      const leading8 = words.slice(0, 8).join(' ');
+      if (!candidates.includes(leading8) && !isPhantomNoise(leading8)) {
+        candidates.push(leading8);
+      }
+    }
+  }
 
   let bestResult: CommandProcessResult | null = null;
 
@@ -887,8 +968,10 @@ export function processVoiceCommand(
   for (const transcript of candidates) {
     if (!transcript.trim()) continue;
     const res = executeCommand(transcript, false);
-    if (res.intent !== 'FALLBACK') {
+    if (res.intent !== 'FALLBACK' && res.intent !== 'UNRECOGNIZED') {
       bestResult = res;
+      // Use the clean matched phrase as the userQuery so trailing room noise doesn't clutter chat
+      bestResult.userQuery = transcript;
       break; // Immediate high-confidence match!
     }
     if (!bestResult) {
@@ -896,16 +979,8 @@ export function processVoiceCommand(
     }
   }
 
-  const finalResult = bestResult || executeCommand(candidates[0] || '', false);
+  const finalResult = bestResult || executeCommand(candidates[0] || initialCandidates[0] || '', false);
 
-  // A recognised command speaks for itself here; both callers then find the
-  // engine already talking and stay quiet.
-  //
-  // An *unrecognised* transcript does not, because it is only a provisional
-  // guess — the caller still has a Gemini/Groq pass to try, and voicing a
-  // placeholder would both reach the candidate and, now that the engine reports
-  // honestly, crowd out the real answer that follows. Each caller has its own
-  // final fallback for the case where nothing at all is recognised.
   if (finalResult.intent !== 'UNRECOGNIZED' && finalResult.assistantReply) {
     useAnnouncerStore.getState().announce(finalResult.assistantReply, 'assertive', true);
   }
