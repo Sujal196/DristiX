@@ -1,3 +1,4 @@
+
 import dns from 'node:dns';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -127,7 +128,7 @@ async function start(): Promise<void> {
     if (err.code === 'EADDRINUSE') {
       console.error(
         `\n❌ Port ${env.PORT} is already in use.\n` +
-          `   Another DristiX server is probably still running. Stop it, or set PORT in server/.env.\n`
+        `   Another DristiX server is probably still running. Stop it, or set PORT in server/.env.\n`
       );
     } else {
       console.error(`\n❌ Server error: ${err.message}\n`);

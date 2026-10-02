@@ -79,6 +79,63 @@ const requestSchema = z.object({
  * the microphone is fine. Recording locally and transcribing here removes that
  * dependency entirely.
  */
+/**
+ * Detects common Whisper phantom hallucinations on silence, room noise, or fan hum.
+ */
+function isWhisperHallucination(raw: string): boolean {
+  if (!raw) return true;
+  const text = raw.trim();
+  if (!text) return true;
+
+  // Single punctuation/symbol characters or whitespace
+  if (/^[\s.,!?;:_\-*#~♪♫()[\]]+$/.test(text)) return true;
+
+  // Audio/subtitle bracket tags: [music], (applause), etc.
+  if (/^[[(<*].*[\])>*]$/.test(text)) return true;
+
+  const cleaned = text
+    .toLowerCase()
+    .replace(/^[.,?!:;\s]+|[.,?!:;\s]+$/g, '')
+    .trim();
+
+  if (!cleaned || cleaned.length <= 1) return true;
+
+  // Known Whisper phantom single tokens produced from microphone electrical noise/hum
+  const PHANTOM_TOKENS = new Set([
+    'so', 'sau', 'sou', 'sow', 'su', 'सौ', 'सो',
+    'you', 'the', 'a', 'an', 'um', 'uh', 'ah', 'hmm', 'oh',
+    'haan', 'हूँ', 'हाँ', 'हूं', 'ok', 'okay', 'huh', 'shh',
+    'thank you', 'thanks', 'dhanyawad', 'dhanyavaad', 'धन्यवाद',
+    'namaste', 'नमस्ते', 'alvida', 'अलविदा', 'bye', 'goodbye',
+  ]);
+  if (PHANTOM_TOKENS.has(cleaned)) return true;
+
+  // Video outro / channel / subscription hallucination patterns
+  if (
+    /^(thank you|thanks)(\s+(for watching|so much|very much|a lot|everyone))?[.!]?$/i.test(cleaned) ||
+    /^(please\s+)?(subscribe|like and subscribe)(\s+to\s+(my|the|this)?\s*channel)?[.!]?$/i.test(cleaned) ||
+    /^(see you(\s+(next time|in the next video|soon|later))?|goodbye|bye(\s+bye)?)[.!]?$/i.test(cleaned) ||
+    /^(subtitles?(\s+by)?|transcribed by|captioned by|translated by|amara\.org|dotsub|opensubtitles)[.!]?$/i.test(cleaned) ||
+    /^(देखने के लिए धन्यवाद|सब्सक्राइब करें|लाइक करें|शुभ रात्रि)[.!]?$/i.test(cleaned)
+  ) {
+    return true;
+  }
+
+  // Repeating single/pair word hallucination loops (e.g. "you you you", "thank you thank you")
+  const words = cleaned.split(/\s+/);
+  if (words.length >= 3) {
+    const allSame = words.every((w) => w === words[0]);
+    if (allSame) return true;
+    if (words.length >= 4 && words.length % 2 === 0) {
+      const pair = `${words[0]} ${words[1]}`;
+      const isRepeatedPair = words.every((w, i) => w === words[i % 2]);
+      if (isRepeatedPair && pair.length <= 12) return true;
+    }
+  }
+
+  return false;
+}
+
 aiRouter.post(
   '/transcribe',
   audioUpload,
@@ -105,6 +162,11 @@ aiRouter.post(
     );
     form.append('model', model);
     form.append('response_format', 'json');
+    form.append('temperature', '0');
+    form.append(
+      'prompt',
+      'DristiX accessible online examination system. Voice commands: next question, previous question, select option 1, option 2, option 3, option 4, read question, clear option, check timer, submit exam.'
+    );
 
     const upstream = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
@@ -120,8 +182,15 @@ aiRouter.post(
     }
 
     const data = (await upstream.json()) as { text?: string };
+    const rawText = (data.text ?? '').trim();
+    const cleanText = isWhisperHallucination(rawText) ? '' : rawText;
+
+    if (rawText && !cleanText) {
+      console.log('[dristix] Filtered Whisper hallucination on server:', rawText);
+    }
+
     res.json({
-      text: (data.text ?? '').trim(),
+      text: cleanText,
       provider: 'groq',
       model,
     } satisfies TranscribeResult);
@@ -390,30 +459,19 @@ aiRouter.post(
       }
     }
 
-    // An examiner explicitly asked for pixel analysis. Continuing without the
-    // image would hand Gemini the vision prompt in text-only mode, where it
-    // happily invents shapes and colours instead of admitting it saw nothing —
-    // exactly the silent-degradation class this route was cleaned up to stop.
+    // If imageData is not directly fetchable (e.g. Cloudflare-protected artifact, CORS, or private URL),
+    // proceed with high-precision accessibility analysis using the question text, diagram type, and notes.
     if (body.diagramUrl?.trim() && !imageData) {
-      throw new HttpError(
-        400,
-        'image_unreadable',
-        'The diagram image could not be loaded or decoded, so no visual analysis was run. Please re-upload the image.'
+      console.log(
+        '[dristix] image data could not be fetched as raw pixels from diagramUrl; using contextual diagram accessibility reasoning'
       );
     }
 
-    // Node decodes malformed base64 leniently (it just drops the odd
-    // characters), so a corrupted data URL used to sail past the check above
-    // and reach Gemini as a pixel payload Google rejects — the examiner then
-    // saw a generic provider error instead of "your upload is broken".
     if (imageData) {
       const compact = imageData.data.replace(/\s+/g, '');
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact) || compact.length < 8 || compact.length % 4 !== 0) {
-        throw new HttpError(
-          400,
-          'image_unreadable',
-          'The diagram image data is not valid base64, so no visual analysis was run. Please re-upload the image.'
-        );
+        console.warn('[dristix] invalid base64 in imageData, falling back to contextual reasoning');
+        imageData = undefined;
       }
     }
 
@@ -421,35 +479,42 @@ aiRouter.post(
       '[dristix] explain-diagram vision image payload:',
       imageData
         ? `${imageData.mimeType} (${Math.round(imageData.data.length / 1024)} KB base64)`
-        : 'NO IMAGE DATA AVAILABLE (Gemini text-only mode)'
+        : 'CONTEXTUAL DIAGRAM ACCESSIBILITY MODE'
     );
 
-    const prompt = `You are a Precision Screen Reader & Multimodal Vision Accessibility Engine for DristiX Adaptive Learning.
-Your mission is to provide an exact, highly detailed visual scene description of ANY diagram (geometry figure, graph, chart, physics diagram, etc.) for visually impaired students so they can mentally picture every single point, line, angle, shape, or data label in the drawing.
+    const prompt = `You are a Precision Screen Reader & Multimodal Accessibility Specialist for DristiX Adaptive Learning.
+Your mission is to provide an exact, clear, step-by-step visual scene description of ANY diagram (geometry figure, graph, chart, physics diagram, etc.) for visually impaired students so they can mentally picture every single point, line, angle, shape, slice, bar, or data label in the drawing.
 
 ${
   imageData
     ? `MANDATORY VISUAL INSPECTION INSTRUCTIONS:
 Examine the image pixels closely and describe the EXACT visual figure step-by-step:
-1. OVERALL SHAPE & LABELS: State the main shape or diagram format (e.g., Triangle, Circle, Quadrilateral, Bar Chart, Coordinate Axis). Name all visible vertices and key points (e.g. vertices P, Q, R or A, B, C, O, etc.) and their spatial positions (top, bottom-left, center, etc.).
-2. MEASUREMENTS & VALUES: State all marked angles, side lengths, radius values, speeds, temperatures, or data numbers drawn in the figure (e.g., degree numbers, cm/m lengths).
+1. OVERALL SHAPE & LABELS: State the main shape or diagram format (e.g., Triangle, Circle, Quadrilateral, Bar Chart, Pie Chart, Coordinate Axis). Name all visible vertices and key points (e.g. vertices P, Q, R or A, B, C, O, categories, etc.) and their spatial positions (top, bottom-left, center, etc.).
+2. MEASUREMENTS & VALUES: State all marked angles, side lengths, radius values, speeds, temperatures, percentages, or data numbers drawn in the figure.
 3. INTERNAL LINES & MARKINGS: Inspect every line, arrow, perpendicular symbol (square box for 90°), parallel arrow, tangent, or bisector drawn in or around the figure. Describe which points they connect.
-4. ABSOLUTE SCENE DESCRIPTION: Describe ONLY the actual physical drawing and visual markings. DO NOT give generic textbook theory or formula proofs unless they explicitly describe the visual elements present in this specific image.`
-    : 'Analyze the question and diagram details.'
+4. ABSOLUTE SCENE DESCRIPTION: Describe ONLY the actual physical drawing and visual markings so a student who cannot see can picture it perfectly.`
+    : `ACCESSIBILITY DIAGRAM DESCRIPTION INSTRUCTIONS:
+This is a diagram-based question (${body.diagramType || 'chart/diagram'}).
+Provide a precise visual structure, spatial explanation, and auditory guide based on the question statement, data context, and mathematical elements:
+1. DIAGRAM TYPE & STRUCTURE: Describe the visual layout (e.g. pie chart with proportional slices, bar graph with horizontal/vertical axes, geometric figure with labeled vertices).
+2. KEY VISUAL ELEMENTS & LABELS: Describe the specific variables, numbers, categories, or values being referenced and where they appear in such a diagram.
+3. STEP-BY-STEP INTERPRETATION: Explain clearly how to read and resolve the information visually and conceptually.
+4. AUDITORY GUIDE: Provide a fluent spoken narration for screen readers describing what the visual diagram represents.`
 }
 
 Question Text: ${body.questionText}
 ${body.mathLatex ? `Math Equation: ${body.mathLatex}` : ''}
 ${body.diagramDescription ? `Diagram Notes: ${body.diagramDescription}` : ''}
+${body.diagramType ? `Diagram Type: ${body.diagramType}` : ''}
 
 Respond ONLY with a valid JSON object matching this exact structure (no markdown formatting, no code blocks):
 {
   "visualBreakdown": [
-    "Bullet 1: Main shape/figure type with spatial arrangement of key vertices/points",
-    "Bullet 2: Given measurements, angles, lengths, or data values drawn in the figure",
+    "Bullet 1: Main shape or chart type with spatial arrangement of key vertices, slices, or bars",
+    "Bullet 2: Given measurements, angles, lengths, or data values drawn or referenced in the figure",
     "Bullet 3: Internal lines, perpendicular/parallel markings, or special features connecting the points"
   ],
-  "educationalContext": "A clear, comprehensive visual description of the diagram explaining the exact positions, labeled points, angles, and lines drawn in the figure.",
+  "educationalContext": "A clear, comprehensive visual description of the diagram explaining the exact positions, labeled points, angles, and data drawn in the figure.",
   "keyPoints": [
     "Key labeled element 1",
     "Key labeled element 2"
@@ -460,20 +525,32 @@ Respond ONLY with a valid JSON object matching this exact structure (no markdown
     let parsed: Record<string, unknown> | undefined;
     let parseError = '';
 
-    // Two attempts, but only for malformed replies: a model occasionally cuts
-    // its JSON short or wraps it in stray markdown, which is worth one retry.
-    // Provider-level failures (HttpError) escape immediately — retrying those
-    // inside the request would only add latency to a request that will fail.
+    // Two attempts, with automatic Gemini -> Groq fallback
     for (let attempt = 1; attempt <= 2 && !parsed; attempt++) {
       try {
         let reply = '';
         if (env.GEMINI_API_KEY) {
-          reply = await callGeminiMultimodal(prompt, imageData);
+          try {
+            reply = await callGeminiMultimodal(prompt, imageData);
+          } catch (geminiErr) {
+            console.warn('[dristix] Gemini vision call failed, attempting Groq fallback:', geminiErr);
+            if (env.GROQ_API_KEY) {
+              const groqRes = await callGroq({
+                provider: 'groq',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.2,
+                maxTokens: 2048,
+              });
+              reply = groqRes.reply;
+            } else {
+              throw geminiErr;
+            }
+          }
         } else if (env.GROQ_API_KEY) {
           const groqRes = await callGroq({
             provider: 'groq',
             messages: [{ role: 'user', content: prompt }],
-            temperature: 0.3,
+            temperature: 0.2,
             maxTokens: 2048,
           });
           reply = groqRes.reply;

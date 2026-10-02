@@ -7,12 +7,14 @@
 export const timerWorkerScript = `
 let timerId = null;
 let remainingSeconds = 0;
+let targetEndTime = 0;
 let isRunning = false;
 
 function formatTime(totalSec) {
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
+  const safeSec = Math.max(0, Math.floor(totalSec || 0));
+  const h = Math.floor(safeSec / 3600);
+  const m = Math.floor((safeSec % 3600) / 60);
+  const s = safeSec % 60;
   return [
     h.toString().padStart(2, '0'),
     m.toString().padStart(2, '0'),
@@ -38,8 +40,15 @@ self.onmessage = function(e) {
 
   if (action === 'START') {
     if (payload && typeof payload.seconds === 'number') {
-      remainingSeconds = payload.seconds;
+      remainingSeconds = Math.max(0, Math.floor(payload.seconds));
     }
+    if (payload && typeof payload.expiresAtMs === 'number' && payload.expiresAtMs > Date.now()) {
+      targetEndTime = payload.expiresAtMs;
+      remainingSeconds = Math.max(0, Math.round((targetEndTime - Date.now()) / 1000));
+    } else {
+      targetEndTime = Date.now() + remainingSeconds * 1000;
+    }
+
     isRunning = true;
     if (timerId) clearInterval(timerId);
 
@@ -51,8 +60,11 @@ self.onmessage = function(e) {
 
     timerId = setInterval(() => {
       if (!isRunning) return;
-      if (remainingSeconds > 0) {
-        remainingSeconds--;
+      const now = Date.now();
+      const currentRemaining = Math.max(0, Math.round((targetEndTime - now) / 1000));
+
+      if (currentRemaining !== remainingSeconds || currentRemaining === 0) {
+        remainingSeconds = currentRemaining;
         const milestone = checkMilestones(remainingSeconds);
 
         self.postMessage({
@@ -65,19 +77,66 @@ self.onmessage = function(e) {
         if (remainingSeconds === 0) {
           isRunning = false;
           clearInterval(timerId);
+          timerId = null;
           self.postMessage({ type: 'TIMEOUT' });
         }
       }
-    }, 1000);
+    }, 500);
   } else if (action === 'PAUSE') {
     isRunning = false;
+    if (timerId) {
+      clearInterval(timerId);
+      timerId = null;
+    }
   } else if (action === 'RESUME') {
     isRunning = true;
+    targetEndTime = Date.now() + remainingSeconds * 1000;
+    if (timerId) clearInterval(timerId);
+    timerId = setInterval(() => {
+      if (!isRunning) return;
+      const now = Date.now();
+      const currentRemaining = Math.max(0, Math.round((targetEndTime - now) / 1000));
+      if (currentRemaining !== remainingSeconds || currentRemaining === 0) {
+        remainingSeconds = currentRemaining;
+        const milestone = checkMilestones(remainingSeconds);
+        self.postMessage({
+          type: 'TICK',
+          remainingSeconds,
+          formattedTime: formatTime(remainingSeconds),
+          milestone
+        });
+        if (remainingSeconds === 0) {
+          isRunning = false;
+          clearInterval(timerId);
+          timerId = null;
+          self.postMessage({ type: 'TIMEOUT' });
+        }
+      }
+    }, 500);
   } else if (action === 'RESET') {
     isRunning = false;
-    if (timerId) clearInterval(timerId);
+    if (timerId) {
+      clearInterval(timerId);
+      timerId = null;
+    }
     if (payload && typeof payload.seconds === 'number') {
-      remainingSeconds = payload.seconds;
+      remainingSeconds = Math.max(0, Math.floor(payload.seconds));
+    }
+    targetEndTime = Date.now() + remainingSeconds * 1000;
+    self.postMessage({
+      type: 'TICK',
+      remainingSeconds,
+      formattedTime: formatTime(remainingSeconds)
+    });
+  } else if (action === 'SYNC') {
+    if (payload && typeof payload.seconds === 'number') {
+      remainingSeconds = Math.max(0, Math.floor(payload.seconds));
+    }
+    if (payload && typeof payload.expiresAtMs === 'number' && payload.expiresAtMs > Date.now()) {
+      targetEndTime = payload.expiresAtMs;
+      remainingSeconds = Math.max(0, Math.round((targetEndTime - Date.now()) / 1000));
+    } else {
+      targetEndTime = Date.now() + remainingSeconds * 1000;
     }
     self.postMessage({
       type: 'TICK',

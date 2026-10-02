@@ -58,6 +58,8 @@ export class GeminiLiveVoiceSession {
   private currentSpeechTranscript: string = '';
   private currentAlternatives: string[] = [];
   private currentUtteranceId: number = 0;
+  private ambientNoiseFloor: number = 15;
+  private speechConsecutiveFrames: number = 0;
 
   constructor(callbacks: Partial<LiveSessionCallbacks> = {}) {
     this.callbacks = callbacks;
@@ -224,12 +226,14 @@ export class GeminiLiveVoiceSession {
       this.unbindSpeechEnd = speechEngine.onSpeechEnd(() => {
         if (this.isRunning && this.state === 'assistant_speaking') {
           setTimeout(() => {
-            if (this.isRunning && !speechEngine.isSpeaking()) {
+            if (this.isRunning && !speechEngine.isSpeaking() && !speechEngine.isEchoGuardActive()) {
               this.currentSpeechTranscript = '';
+              this.audioChunks = [];
+              this.hasSpokenInCurrentChunk = false;
               this.setState('listening');
               this.startSegmentRecording();
             }
-          }, 750);
+          }, 850);
         }
       });
 
@@ -280,9 +284,12 @@ export class GeminiLiveVoiceSession {
           const blobType = recorder.mimeType || 'audio/webm';
           const fullAudioBlob = new Blob(this.audioChunks, { type: blobType });
           this.audioChunks = [];
+          this.hasSpokenInCurrentChunk = false;
           this.dispatchAudioToGemini(fullAudioBlob);
         } else if (this.isRunning && this.state !== 'processing' && this.state !== 'assistant_speaking') {
           // Restart segment if silence or no audio
+          this.audioChunks = [];
+          this.hasSpokenInCurrentChunk = false;
           this.startSegmentRecording();
         }
       };
@@ -290,11 +297,18 @@ export class GeminiLiveVoiceSession {
       recorder.start(100);
       this.mediaRecorder = recorder;
 
-      // Close the segment even if the voice-activity detector never sees a pause.
+      // Close the segment if user has been speaking continuously for MAX_SEGMENT_MS
       this.segmentTimeout = setTimeout(() => {
         if (this.isRunning && recorder.state !== 'inactive') {
-          this.hasSpokenInCurrentChunk = true;
-          this.commitCurrentUtterance();
+          if (this.hasSpokenInCurrentChunk) {
+            this.commitCurrentUtterance();
+          } else {
+            // No speech detected in 12s. Do NOT force hasSpokenInCurrentChunk to true!
+            // Cleanly restart segment to recycle memory without sending silence to Whisper.
+            try {
+              recorder.stop();
+            } catch {}
+          }
         }
       }, MAX_SEGMENT_MS);
     } catch (err) {
@@ -303,7 +317,7 @@ export class GeminiLiveVoiceSession {
   }
 
   /**
-   * Monitor real-time mic volume and detect Voice Activity (VAD)
+   * Monitor real-time mic volume and detect Voice Activity (VAD) with dynamic noise calibration
    */
   private startVolumeMonitoring() {
     if (!this.analyser) return;
@@ -315,19 +329,29 @@ export class GeminiLiveVoiceSession {
 
       this.analyser.getByteFrequencyData(dataArray);
 
-      // Compute average audio power
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i];
+      // Compute speech-band audio power (bins 3 to 45 correspond roughly to ~300Hz-3500Hz)
+      // ignoring low electrical/fan rumble (<150Hz) and high-frequency hiss
+      let speechBandSum = 0;
+      const minBin = Math.min(3, dataArray.length - 1);
+      const maxBin = Math.min(45, dataArray.length);
+      const binCount = Math.max(1, maxBin - minBin);
+
+      for (let i = minBin; i < maxBin; i++) {
+        speechBandSum += dataArray[i];
       }
-      const avg = sum / dataArray.length;
+      const avg = speechBandSum / binCount;
       const normalizedVolume = Math.min(100, Math.round((avg / 128) * 100));
 
       this.callbacks.onVolumeChange?.(normalizedVolume);
 
-      // Guard: Ignore mic input while assistant is speaking aloud to prevent speaker feedback loop
-      if (speechEngine.isSpeaking() || this.state === 'assistant_speaking') {
+      // Guard: Ignore mic input while assistant is speaking aloud or within echo guard window
+      if (
+        speechEngine.isSpeaking() ||
+        speechEngine.isEchoGuardActive() ||
+        this.state === 'assistant_speaking'
+      ) {
         this.hasSpokenInCurrentChunk = false;
+        this.speechConsecutiveFrames = 0;
         if (this.silenceTimer) {
           clearTimeout(this.silenceTimer);
           this.silenceTimer = null;
@@ -336,30 +360,42 @@ export class GeminiLiveVoiceSession {
         return;
       }
 
+      // Dynamic noise floor tracking: slowly adapt when volume is quiet
+      if (normalizedVolume < 40) {
+        this.ambientNoiseFloor = this.ambientNoiseFloor * 0.96 + normalizedVolume * 0.04;
+      }
+
       // Voice Activity Detection (VAD)
       if (this.state === 'listening' || this.state === 'user_speaking') {
-        const SPEECH_THRESHOLD = 18;
+        // Speech threshold adapts dynamically to room noise floor with a sensible baseline
+        const SPEECH_THRESHOLD = Math.max(24, Math.round(this.ambientNoiseFloor + 14));
 
         if (normalizedVolume > SPEECH_THRESHOLD) {
-          // User is speaking
-          this.hasSpokenInCurrentChunk = true;
-          if (this.state !== 'user_speaking') {
-            this.setState('user_speaking');
-          }
+          this.speechConsecutiveFrames++;
+          // Require at least 3 consecutive frames (~50-80ms) above threshold to avoid false triggers from clicks/pops
+          if (this.speechConsecutiveFrames >= 3) {
+            this.hasSpokenInCurrentChunk = true;
+            if (this.state !== 'user_speaking') {
+              this.setState('user_speaking');
+            }
 
-          // Clear any pending silence timer
-          if (this.silenceTimer) {
-            clearTimeout(this.silenceTimer);
-            this.silenceTimer = null;
+            // Clear any pending silence timer
+            if (this.silenceTimer) {
+              clearTimeout(this.silenceTimer);
+              this.silenceTimer = null;
+            }
           }
-        } else if (this.hasSpokenInCurrentChunk) {
-          // User was speaking and is now silent: start silence countdown (1500ms)
-          if (!this.silenceTimer) {
-            this.silenceTimer = setTimeout(() => {
-              if (this.hasSpokenInCurrentChunk && this.isRunning) {
-                this.commitCurrentUtterance();
-              }
-            }, 1500);
+        } else {
+          this.speechConsecutiveFrames = 0;
+          if (this.hasSpokenInCurrentChunk) {
+            // User was speaking and is now silent: start silence countdown (1500ms)
+            if (!this.silenceTimer) {
+              this.silenceTimer = setTimeout(() => {
+                if (this.hasSpokenInCurrentChunk && this.isRunning) {
+                  this.commitCurrentUtterance();
+                }
+              }, 1500);
+            }
           }
         }
       }
@@ -448,9 +484,9 @@ export class GeminiLiveVoiceSession {
     this.currentSpeechTranscript = '';
     this.currentAlternatives = [];
 
-    // If completely silent/noise with no transcript and no valid audio, resume listening smoothly
-    if (!capturedTranscript && (!audioBlob || audioBlob.size < 1000)) {
-      console.log('[Live Voice] Acoustic activity detected without words, resuming listening.');
+    // If completely silent/noise with no transcript, resume listening smoothly
+    if (!capturedTranscript) {
+      console.log('[Live Voice] No speech recognized in audio, resuming listening.');
       this.setState('listening');
       this.startSegmentRecording();
       return;
@@ -463,7 +499,12 @@ export class GeminiLiveVoiceSession {
     if (capturedTranscript) {
       const candidates = [capturedTranscript, ...capturedAlternatives];
       const localResult = processVoiceCommand(candidates);
-      if (localResult && localResult.intent !== 'UNRECOGNIZED') {
+      if (
+        localResult &&
+        localResult.success &&
+        localResult.intent !== 'FALLBACK' &&
+        localResult.intent !== 'UNRECOGNIZED'
+      ) {
         console.log('[Live Voice] Instantly executed via high-precision local NLP:', localResult.intent);
         result = localResult;
       }
@@ -501,49 +542,30 @@ export class GeminiLiveVoiceSession {
 
     // 4. Final attempt with local NLP if text LLM returned null
     if (!result && capturedTranscript) {
-      result = processVoiceCommand([capturedTranscript, ...capturedAlternatives]);
+      const fallbackResult = processVoiceCommand([capturedTranscript, ...capturedAlternatives]);
+      if (fallbackResult.intent !== 'UNRECOGNIZED') {
+        result = fallbackResult;
+      }
     }
 
     if (this.currentUtteranceId !== thisUtteranceId || !this.isRunning) return;
 
-    if (result && result.intent !== 'UNRECOGNIZED') {
+    if (result && result.intent !== 'UNRECOGNIZED' && result.assistantReply) {
       this.callbacks.onResult?.(result);
 
       // Assistant speaking state: for a locally recognised command the reply is
       // already being spoken, and this must not restart it. When the answer
       // came from the LLM instead, nothing has spoken yet — announce it so both
       // the candidate and the ARIA live region get the same text.
-      if (result.assistantReply) {
-        this.setState('assistant_speaking');
-        this.currentSpeechTranscript = '';
-        if (!speechEngine.isSpeaking()) {
-          useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
-        }
-      } else {
-        this.setState('listening');
-        this.startSegmentRecording();
+      this.setState('assistant_speaking');
+      this.currentSpeechTranscript = '';
+      if (!speechEngine.isSpeaking()) {
+        useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
       }
     } else {
-      // Only announce prompt if user actually said meaningful words that were not recognized
-      if (capturedTranscript && !isPhantomNoise(capturedTranscript)) {
-        const promptReply =
-          'I heard "' +
-          capturedTranscript +
-          '". For questions or options, say "Option 1", "Option 2", "Next question", or "Read question".';
-        this.callbacks.onResult?.({
-          success: false,
-          intent: 'UNRECOGNIZED',
-          userQuery: capturedTranscript,
-          assistantReply: promptReply,
-          actionExecuted: undefined,
-        });
-        this.setState('assistant_speaking');
-        useAnnouncerStore.getState().announce(promptReply, 'assertive', true);
-      } else {
-        // Acoustic noise or phantom token: resume listening silently
-        this.setState('listening');
-        this.startSegmentRecording();
-      }
+      // Acoustic noise, silence, or phantom token: resume listening silently without speaking
+      this.setState('listening');
+      this.startSegmentRecording();
     }
   }
 

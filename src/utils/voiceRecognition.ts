@@ -1,5 +1,5 @@
 import { speechEngine } from './speechEngine';
-import { isPhantomNoise } from './voiceCommandProcessor';
+import { isPhantomNoise, isIntentionalVoiceCommand } from './voiceCommandProcessor';
 
 export type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
@@ -53,14 +53,10 @@ class VoiceRecognitionService {
     });
 
     speechEngine.onSpeechEnd(() => {
-      // When TTS finishes, wait for speaker room echo to decay before resuming listening state
+      // When TTS finishes, immediately resume listening state without sluggish artificial delays
       if (this.isListeningActive) {
-        setTimeout(() => {
-          if (this.isListeningActive && !speechEngine.isSpeaking()) {
-            this.setState('listening');
-            this.scheduleRestart(100);
-          }
-        }, 750);
+        this.setState('listening');
+        this.scheduleRestart(50);
       }
     });
   }
@@ -219,8 +215,9 @@ class VoiceRecognitionService {
         if (this.shouldAutoRestart && this.isListeningActive) {
           if (speechEngine.isSpeaking()) {
             this.setState('speaking');
+            this.scheduleRestart(250);
           } else {
-            this.scheduleRestart(150);
+            this.scheduleRestart(100);
           }
         } else {
           this.isListeningActive = false;
@@ -312,8 +309,22 @@ class VoiceRecognitionService {
   }
 
   private notifyTranscript(transcript: string, isFinal: boolean, alternatives?: string[]) {
-    // Suppress if the transcript is an echo of the assistant's own voice
-    if (speechEngine.isTextEcho(transcript)) {
+    const isCommand =
+      isIntentionalVoiceCommand(transcript) ||
+      (alternatives && alternatives.some((alt) => isIntentionalVoiceCommand(alt)));
+
+    // If candidate gave an explicit command (e.g. "Yes, Final Submit", "Continue to Exam", "Option 2"),
+    // immediately silence TTS and dispatch with zero delay!
+    if (isCommand) {
+      if (speechEngine.isSpeaking()) {
+        speechEngine.stop();
+      }
+      this.listeners.forEach((cb) => cb.onTranscript(transcript, isFinal, alternatives));
+      return;
+    }
+
+    // Suppress if the transcript is an echo of the assistant's own voice or within echo guard window
+    if (speechEngine.isSpeaking() || speechEngine.isEchoGuardActive() || speechEngine.isTextEcho(transcript)) {
       console.log('🔇 Suppressed acoustic speaker echo transcript:', transcript);
       return;
     }
@@ -322,11 +333,6 @@ class VoiceRecognitionService {
     if (isPhantomNoise(transcript)) {
       console.log('🔇 Suppressed phantom noise transcript:', transcript);
       return;
-    }
-
-    // If user speaks a clear command while assistant is talking, interrupt speech so candidate is heard immediately
-    if (isFinal && speechEngine.isSpeaking()) {
-      speechEngine.stop();
     }
 
     this.listeners.forEach((cb) => cb.onTranscript(transcript, isFinal, alternatives));

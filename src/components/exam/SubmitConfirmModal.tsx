@@ -1,14 +1,17 @@
 import React, { useEffect, useRef } from 'react';
 import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
-import { AlertTriangle, CheckCircle, X } from 'lucide-react';
+import { speechEngine } from '../../utils/speechEngine';
+import { AlertTriangle, CheckCircle, X, Loader2 } from 'lucide-react';
 
 export const SubmitConfirmModal: React.FC = () => {
   const {
     isSubmitModalOpen,
+    isSubmitting,
     setSubmitModalOpen,
     submitExam,
     questions,
+    currentIndex,
     selectedOptions,
     markedForReview,
     formattedTime,
@@ -16,6 +19,7 @@ export const SubmitConfirmModal: React.FC = () => {
 
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
   const modalContainerRef = useRef<HTMLDivElement>(null);
+  const announcedForModalRef = useRef(false);
 
   const total = questions.length;
   const attempted = Object.keys(selectedOptions).length;
@@ -24,25 +28,48 @@ export const SubmitConfirmModal: React.FC = () => {
 
   useEffect(() => {
     if (isSubmitModalOpen) {
-      setTimeout(() => {
-        confirmBtnRef.current?.focus();
-      }, 50);
-      useAnnouncerStore
-        .getState()
-        .announce(
-          `Confirm exam submission. You have answered ${attempted} of ${total} questions. ${unattempted} questions unattempted. ${marked} marked for review. Press Enter to submit, or Escape to cancel.`,
-          'assertive',
-          true,
-          true
-        );
+      if (!announcedForModalRef.current) {
+        announcedForModalRef.current = true;
+        setTimeout(() => {
+          confirmBtnRef.current?.focus();
+        }, 50);
+        useAnnouncerStore
+          .getState()
+          .announce(
+            `Confirm exam submission. You have answered ${attempted} of ${total} questions. ${unattempted} questions unattempted. ${marked} marked for review. Say "Yes, Final Submit" or press Enter to submit. Say "Continue to Exam" or press Escape to resume your test.`,
+            'assertive',
+            true,
+            true
+          );
+      }
+    } else {
+      announcedForModalRef.current = false;
     }
   }, [isSubmitModalOpen, attempted, total, unattempted, marked]);
 
   const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (isSubmitting) return;
+
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
+      speechEngine.stop();
       setSubmitModalOpen(false);
+      useAnnouncerStore
+        .getState()
+        .announce(
+          `Submission cancelled. Resuming exam at Question ${currentIndex + 1}.`,
+          'assertive',
+          true
+        );
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      speechEngine.stop();
+      void submitExam();
       return;
     }
 
@@ -137,19 +164,54 @@ export const SubmitConfirmModal: React.FC = () => {
         <div className="p-4 border-t-2 border-theme-border bg-theme-bg flex flex-wrap justify-end gap-3">
           <button
             type="button"
-            onClick={() => setSubmitModalOpen(false)}
-            className="px-5 py-2.5 font-bold rounded-lg border-2 border-theme-border bg-theme-surface hover:bg-theme-bg text-theme-text transition text-sm sm:text-base"
+            disabled={isSubmitting}
+            onClick={() => {
+              if (isSubmitting) return;
+              speechEngine.stop();
+              setSubmitModalOpen(false);
+              useAnnouncerStore
+                .getState()
+                .announce(
+                  `Submission cancelled. Resuming exam at Question ${currentIndex + 1}.`,
+                  'assertive',
+                  true
+                );
+            }}
+            aria-label="Continue to Exam and close modal (Shortcut: Escape, or say Continue to Exam)"
+            className="px-5 py-2.5 font-bold rounded-lg border-2 border-theme-border bg-theme-surface hover:bg-theme-bg text-theme-text transition text-sm sm:text-base flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Cancel & Return to Exam
+            <span>Continue to Exam</span>
+            <kbd className="text-xs font-mono opacity-70 border border-theme-border rounded px-1.5 py-0.5 ml-1 bg-theme-bg">
+              Esc
+            </kbd>
           </button>
           <button
             ref={confirmBtnRef}
             type="button"
-            onClick={submitExam}
-            className="px-6 py-2.5 font-bold rounded-lg border-2 border-emerald-600 bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 transition text-sm sm:text-base shadow-sm"
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
+            onClick={() => {
+              if (isSubmitting) return;
+              speechEngine.stop();
+              void submitExam();
+            }}
+            aria-label="Yes, Final Submit exam (Shortcut: Enter, or say Yes, Final Submit)"
+            className="px-6 py-2.5 font-bold rounded-lg border-2 border-emerald-600 bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 transition text-sm sm:text-base shadow-sm cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
           >
-            <CheckCircle className="w-5 h-5" aria-hidden="true" />
-            <span>Yes, Final Submit</span>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
+                <span>Verifying & Submitting...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-5 h-5" aria-hidden="true" />
+                <span>Yes, Final Submit</span>
+                <kbd className="text-xs font-mono opacity-80 border border-emerald-500 rounded px-1.5 py-0.5 ml-1 bg-emerald-800">
+                  Enter
+                </kbd>
+              </>
+            )}
           </button>
         </div>
       </div>

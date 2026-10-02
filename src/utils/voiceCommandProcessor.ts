@@ -29,8 +29,9 @@ export const PHANTOM_NOISE_TOKENS = new Set([
   'सौ',
   'सो',
   'you',
-  'thank you',
-  'thanks',
+  'the',
+  'a',
+  'an',
   'um',
   'uh',
   'ah',
@@ -40,22 +41,127 @@ export const PHANTOM_NOISE_TOKENS = new Set([
   'हूँ',
   'हाँ',
   'हूं',
-  'the',
-  'a',
+  'ok',
+  'okay',
+  'huh',
+  'shh',
+  'thank you',
+  'thanks',
+  'dhanyawad',
+  'dhanyavaad',
+  'धन्यवाद',
+  'namaste',
+  'नमस्ते',
+  'alvida',
+  'अलविदा',
+  'bye',
+  'goodbye',
+  'bye bye',
 ]);
+
+/**
+ * Detects whether an incoming user transcript is an intentional exam or navigation command.
+ * Intentional commands must never be filtered out as phantom noise, acoustic echo, or ambient speech.
+ */
+export function isIntentionalVoiceCommand(text: string): boolean {
+  if (!text) return false;
+  const raw = text.trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  const norm = lower.replace(/[^\w\s\u0900-\u097F]/gi, '').trim();
+
+  // If submit confirmation modal is currently open, confirm/resume responses are active
+  const examStoreState = useExamStore.getState();
+  if (examStoreState.isSubmitModalOpen) {
+    if (
+      /^(?:yes[, ]+final\s+submit|yes\s+final\s+submit|final\s+submit|yes\s+submit|confirm\s+submit|submit\s+final|yes|haan|ha|confirm|submit|submit\s+exam|submit\s+test|finish|finish\s+exam|jama\s*karo|enter)$/i.test(lower) ||
+      /^(?:continue\s+to\s+exam|continue\s+the\s+exam|continue\s+exam|continue\s+test|continue|resume\s+exam|resume\s+the\s+exam|resume\s+test|resume|return\s+to\s+exam|back\s+to\s+exam|go\s+back\s+to\s+exam|cancel\s+submit|cancel\s+submission|cancel|no|nahi|nahin|wapas|ruk|ruko|stop|mat\s*karo|escape|esc)$/i.test(lower)
+    ) {
+      return true;
+    }
+  }
+
+  // Submit modal explicit commands (active anywhere in exam)
+  if (
+    /^(?:yes[, ]+final\s+submit|yes\s+final\s+submit|final\s+submit|yes\s+submit|confirm\s+submit|submit\s+final|confirm\s+submission|final\s+submission|yes\s+submit\s+exam|yes\s+submit\s+the\s+exam|yes\s+final)$/i.test(lower) ||
+    /^(?:continue\s+to\s+exam|continue\s+the\s+exam|continue\s+exam|continue\s+test|continue|resume\s+exam|resume\s+the\s+exam|resume\s+test|resume|return\s+to\s+exam|back\s+to\s+exam|cancel\s+submit|cancel\s+submission|cancel)$/i.test(lower)
+  ) {
+    return true;
+  }
+
+  // Diagnostic and Analytics Report commands when exam is submitted
+  if (examStoreState.isSubmitted) {
+    if (
+      /^(?:summary|read\s+summary|score|result|analytics|report|read\s+report|performance|explain\s+result|explain\s+report|explain\s+analytics|result\s+batao|analytics\s+batao|retake|retake\s+exam|retake\s+test|dobara|again)$/i.test(norm) ||
+      norm.includes('result') ||
+      norm.includes('analytics') ||
+      norm.includes('summary') ||
+      norm.includes('score')
+    ) {
+      return true;
+    }
+  }
+
+  // General exam and navigation commands
+  if (
+    /^(?:next|next\s+question|agla\s+sawal|aage|previous|prev|previous\s+question|pichhla\s+sawal|read\s+question|repeat\s+question|sawal\s+padho|clear\s+option|unselect|check\s+timer|time\s+remaining|time\s+left|samay\s+batao|kitna\s+time|submit\s+exam|finish\s+exam|stop|ruko|pause|chup)$/i.test(norm) ||
+    /^(?:option|select\s+option|vikalp|choice)\s+[1-4a-d]$/i.test(norm)
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Checks whether an incoming transcript is a phantom noise hallucination or meaningless ambient sound.
  */
 export function isPhantomNoise(text: string): boolean {
   if (!text) return true;
-  const cleaned = text
-    .trim()
+  const raw = text.trim();
+  if (!raw) return true;
+
+  // Never filter intentional commands as phantom noise!
+  if (isIntentionalVoiceCommand(raw)) return false;
+
+  // Single punctuation/symbol characters or whitespace
+  if (/^[\s.,!?;:_\-*#~♪♫()[\]]+$/.test(raw)) return true;
+
+  // Audio/subtitle bracket tags: [music], (applause), etc.
+  if (/^[[(<*].*[\])>*]$/.test(raw)) return true;
+
+  const cleaned = raw
     .toLowerCase()
-    .replace(/^[.,?!:;\s]+|[.,?!:;\s]+$/g, '');
+    .replace(/^[.,?!:;\s]+|[.,?!:;\s]+$/g, '')
+    .trim();
+
   if (!cleaned) return true;
   if (cleaned.length <= 1) return true;
   if (PHANTOM_NOISE_TOKENS.has(cleaned)) return true;
+
+  // Common Whisper video outro / channel / subscription hallucination patterns
+  if (
+    /^(thank you|thanks)(\s+(for watching|so much|very much|a lot|everyone))?[.!]?$/i.test(cleaned) ||
+    /^(please\s+)?(subscribe|like and subscribe)(\s+to\s+(my|the|this)?\s*channel)?[.!]?$/i.test(cleaned) ||
+    /^(see you(\s+(next time|in the next video|soon|later))?|goodbye|bye(\s+bye)?)[.!]?$/i.test(cleaned) ||
+    /^(subtitles?(\s+by)?|transcribed by|captioned by|translated by|amara\.org|dotsub|opensubtitles)[.!]?$/i.test(cleaned) ||
+    /^(देखने के लिए धन्यवाद|सब्सक्राइब करें|लाइक करें|शुभ रात्रि)[.!]?$/i.test(cleaned)
+  ) {
+    return true;
+  }
+
+  // Repeating single/pair word hallucination loops (e.g. "you you you", "thank you thank you")
+  const words = cleaned.split(/\s+/);
+  if (words.length >= 3) {
+    const allSame = words.every((w) => w === words[0]);
+    if (allSame) return true;
+    if (words.length >= 4 && words.length % 2 === 0) {
+      const pair = `${words[0]} ${words[1]}`;
+      const isRepeatedPair = words.every((w, i) => w === words[i % 2]);
+      if (isRepeatedPair && pair.length <= 12) return true;
+    }
+  }
+
   return false;
 }
 
@@ -70,6 +176,13 @@ export function buildFullQuestionSpeech(
   const formulaText = q.equationLatex
     ? ` Equation: ${verbalizeMath(q.equationLatex)}.`
     : '';
+  const diagramText = q.diagramAiExplanation?.audioNarration
+    ? ` Visual Diagram Breakdown: ${q.diagramAiExplanation.audioNarration}.`
+    : q.diagramDescription
+    ? ` Visual Diagram: ${q.diagramDescription}.`
+    : q.diagramUrl
+    ? ` This question includes an attached visual diagram. Say "Explain diagram" to hear the full visual breakdown.`
+    : '';
   const graphText =
     q.graph && q.graph.enabled
       ? ` Graph details: ${SonificationEngine.generateSummary(q.graph)}.`
@@ -83,7 +196,7 @@ export function buildFullQuestionSpeech(
     : ' No option has been selected yet.';
 
   const leading = prefix ? `${prefix} ` : '';
-  return `${leading}Question ${q.number}: ${verbalizeForSpeech(q.text)}.${formulaText}${graphText}${optionsText}${statusText}`;
+  return `${leading}Question ${q.number}: ${verbalizeForSpeech(q.text)}.${formulaText}${diagramText}${graphText}${optionsText}${statusText}`;
 }
 
 /**
@@ -157,7 +270,12 @@ function normalizePhonetics(raw: string): string {
 
   // 9. Hints & Solutions
   text = text.replace(/(हिंट|मदद|सहायता|hint|help)/gi, 'hint');
-  text = text.replace(/(सॉल्यूशन|हल|एक्सप्लेनेशन|समझाइए|समझाओ|solution|explanation|explain)/gi, 'solution');
+  // Only convert explain/solution to 'solution' when not referencing a diagram/chart/visual asset
+  if (!/(?:diagram|chart|graph|figure|visual|image|चित्र|आरेख|ग्राफ)\b/i.test(text)) {
+    text = text.replace(/(सॉल्यूशन|हल|एक्सप्लेनेशन|समझाइए|समझाओ|solution|explanation|explain)/gi, 'solution');
+  } else {
+    text = text.replace(/(सॉल्यूशन|हल)/gi, 'solution');
+  }
 
   // 10. Exam lists / inquiries
   text = text.replace(/(मॉक\s*टेस्ट्स?|मॉकटेस्ट|mock\s*tests?|mocktest)/gi, 'mocktest');
@@ -209,10 +327,39 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   };
 
   // ==========================================
+  // DIAGRAM & VISUAL CHART ACCESSIBILITY:
+  // Strictly permitted during live exams / mock tests for visually impaired candidates
+  // ==========================================
+  const combinedText = `${rawLower} ${normalized}`;
+  const isDiagramQuery =
+    /(?:diagram|chart|graph|figure|visual|image|chitra|aarekh|चित्र|आरेख|ग्राफ|voice\s*guide|visual\s*guide)\b/i.test(combinedText) &&
+    (/(?:explain|describe|read|bolo|sunao|what|tell|batao|samjhao|dekho|khol|open|show|dikhao|detail|breakdown|guide|voice|audio)\b/i.test(combinedText) ||
+      /^(?:explain\s+diagram|describe\s+diagram|read\s+diagram|diagram\s+explain|diagram\s+samjhao|chart\s+samjhao|diagram|chart|figure|voice\s*guide|visual\s*guide|diagram\s*breakdown)$/i.test(rawLower));
+
+  if (isDiagramQuery && context.activeView === 'exam') {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dristix:open-diagram-explainer'));
+    }
+    const q = context.currentQuestion;
+    const qNum = q?.questionNumber ?? q?.number ?? 1;
+    void examStore.explainCurrentDiagram(true);
+    const reply = q?.diagramAiExplanation?.audioNarration
+      ? q.diagramAiExplanation.audioNarration
+      : `Opening AI Diagram Explainer and Voice Guide for Question ${qNum}.`;
+    return {
+      success: true,
+      intent: 'EXPLAIN_DIAGRAM',
+      userQuery: rawTranscript,
+      assistantReply: reply,
+      actionExecuted: 'Explained Visual Diagram',
+    };
+  }
+
+  // ==========================================
   // EXAM INTEGRITY GUARD:
   // Strictly prevent solving questions or revealing answers during live exam
   // ==========================================
-  if (context.activeView === 'exam') {
+  if (context.activeView === 'exam' && !isDiagramQuery) {
     const isSolveOrAnswerRequest =
       normalized.includes('solve') ||
       normalized.includes('solution') ||
@@ -237,6 +384,58 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
         assistantReply: reply,
         actionExecuted: 'Exam Integrity Protected (Answer Withheld)',
       };
+    }
+  }
+
+  // ==========================================
+  // EXAM SUBMIT CONFIRMATION & RESUME MODAL ACCESSIBILITY:
+  // "Continue to Exam" (resumes test) & "Yes, Final Submit" (submits test)
+  // Accessible via voice during the confirmation modal and throughout the exam
+  // ==========================================
+  const isContinueToExam =
+    /^(?:continue\s+to\s+exam|continue\s+the\s+exam|continue\s+exam|continue\s+test|continue|resume\s+exam|resume\s+the\s+exam|resume\s+test|resume|return\s+to\s+exam|back\s+to\s+exam|go\s+back\s+to\s+exam|cancel\s+submit|cancel\s+submission|cancel|don'?t\s+submit|do\s+not\s+submit|no\s+submit|close\s+submit|close\s+modal|keep\s+testing|keep\s+writing)$/i.test(rawLower) ||
+    /^(?:continue\s+to\s+exam|continue\s+exam|continue|resume\s+exam|resume|cancel\s+submit|cancel|back\s+to\s+exam|return\s+to\s+exam)$/i.test(normalized) ||
+    /(?:continue\s+to\s+exam|resume\s+exam|return\s+to\s+exam|cancel\s+submit|cancel\s+submission|continue\s+the\s+exam|resume\s+the\s+exam)/i.test(rawLower) ||
+    /(?:continue\s+to\s+exam|resume\s+exam|cancel\s+submit)/i.test(normalized) ||
+    (examStore.isSubmitModalOpen && (
+      /^(?:no|nahi|nahin|cancel|wapas|back|close|exit|ruk|ruko|stop|mat\s*karo|continue|resume|escape)$/i.test(rawLower) ||
+      /^(?:no|nahi|nahin|cancel|back|continue|resume)$/i.test(normalized) ||
+      /(?:continue|resume|wapas\s+exam|exam\s+jari|pariksha\s+jari|abhi\s+nahi)/i.test(rawLower)
+    ));
+
+  const isFinalSubmit =
+    /^(?:yes[, ]+final\s+submit|yes\s+final\s+submit|final\s+submit|yes\s+submit|confirm\s+submit|submit\s+final|confirm\s+submission|final\s+submission|yes\s+submit\s+exam|yes\s+submit\s+the\s+exam|yes\s+final)$/i.test(rawLower) ||
+    /(?:yes[, ]+final\s+submit|yes\s+final\s+submit|final\s+submit|confirm\s+submit|submit\s+final|confirm\s+submission|final\s+submission)/i.test(rawLower) ||
+    /(?:yes[, ]+final\s+submit|final\s+submit|confirm\s+submit)/i.test(normalized) ||
+    (examStore.isSubmitModalOpen && (
+      /^(?:yes|haan|ha|confirm|submit|submit\s+exam|submit\s+test|finish|finish\s+exam|jama\s*karo|haan\s*submit|submit\s*karo|enter)$/i.test(rawLower) ||
+      /^(?:yes|haan|ha|confirm|submit)$/i.test(normalized) ||
+      /(?:final\s*submit|yes.*submit|submit.*final|confirm.*submit|jama\s*kar)/i.test(rawLower)
+    ));
+
+  if (isContinueToExam) {
+    if (context.activeView === 'exam') {
+      speechEngine.stop();
+      const wasModalOpen = examStore.isSubmitModalOpen;
+      examStore.setSubmitModalOpen(false);
+      soundEffects.playSelect();
+      const q = context.currentQuestion;
+      const qNum = q?.number || (examStore.currentIndex + 1);
+      const reply = wasModalOpen
+        ? `Submission cancelled. Resuming exam at Question ${qNum}. You can say "Read question", "Next question", or select an option.`
+        : `You are continuing your active exam on Question ${qNum}. Say "Read question" to hear the question.`;
+      return makeReply('RESUME_EXAM', reply, 'Resumed Exam (Cancelled Submission)');
+    }
+  }
+
+  if (isFinalSubmit) {
+    if (context.activeView === 'exam' && !examStore.isSubmitted) {
+      speechEngine.stop();
+      examStore.setSubmitModalOpen(false);
+      soundEffects.playSuccess();
+      void examStore.submitExam();
+      const reply = 'Final submission confirmed. Submitting your examination now...';
+      return makeReply('FINAL_SUBMIT', reply, 'Final Submitted Exam');
     }
   }
 
@@ -340,9 +539,13 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
 
   const isCatalogNavigation =
     !matchedExamFromQuery &&
+    !isContinueToExam &&
+    !rawLower.includes('continue to exam') &&
+    !rawLower.includes('return to exam') &&
+    !rawLower.includes('back to exam') &&
     (
-      normalized.includes('back') ||
-      normalized.includes('return') ||
+      (normalized.includes('back') && !rawLower.includes('back to exam') && !rawLower.includes('back to test')) ||
+      (normalized.includes('return') && !rawLower.includes('return to exam') && !rawLower.includes('return to test')) ||
       rawLower.includes('mock test page') ||
       rawLower.includes('mocktest page') ||
       rawLower.includes('mock test') ||
@@ -517,9 +720,21 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     // One message, carrying the option's own words: "Option 3 selected
     // successfully" alone leaves a candidate working without sight unable to
     // tell which answer actually went on the record.
-    const { questions, currentIndex } = useExamStore.getState();
+    const { questions, currentIndex, selectedOptions } = useExamStore.getState();
+    const total = questions.length;
+    const answeredCount = Object.keys(selectedOptions).length;
+    const isLastQuestion = currentIndex >= total - 1;
+    const allAnswered = answeredCount >= total;
+
     const selection = describeOptionSelection(questions[currentIndex], optNum);
-    const reply = `${selection} Say "Next question" to continue or "Read question" to review.`;
+    let guidance = ' Say "Next question" to continue or "Read question" to review.';
+    if (allAnswered) {
+      guidance = ` All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Read question" to review.`;
+    } else if (isLastQuestion) {
+      guidance = ` This is the last question (${total} of ${total}). Say "Submit exam" to finish and submit your test, or "Previous question" or "Read question" to review.`;
+    }
+
+    const reply = `${selection}${guidance}`;
     return makeReply('SELECT_OPTION', reply, `Selected Option ${optNum}`);
   }
 
@@ -550,11 +765,24 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   // ==========================================
   if (normalized.includes('next')) {
     if (context.activeView === 'exam') {
+      const { questions, currentIndex, selectedOptions } = useExamStore.getState();
+      const total = questions.length;
+      const isAtLast = currentIndex >= total - 1;
+      const answeredCount = Object.keys(selectedOptions).length;
+
+      if (isAtLast) {
+        soundEffects.playTimerAlert();
+        const reply = answeredCount >= total
+          ? `You have reached the end of the test. All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Previous question" to review.`
+          : `You are on the last question (${total} of ${total}). ${total - answeredCount} questions remain unattempted. Say "Submit exam" to submit your test, or "Previous question" to review.`;
+        return makeReply('NEXT_QUESTION', reply, 'At Last Question - Ready to Submit');
+      }
+
       examStore.nextQuestion();
       const nextCtx = getAssistantContext();
       const q = nextCtx.currentQuestion;
       if (!q) {
-        const reply = 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
+        const reply = 'You have reached the end of the test. Say "Submit exam" when you are ready to finish.';
         return makeReply('NEXT_QUESTION', reply, 'At Last Question');
       }
       const reply = buildFullQuestionSpeech(q);
@@ -647,6 +875,29 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   }
 
   // ==========================================
+  // 10.5 EXAM TIMER & REMAINING TIME
+  // ==========================================
+  if (
+    normalized.includes('timer') ||
+    normalized.includes('time') ||
+    rawLower.includes('samay') ||
+    rawLower.includes('kitna time') ||
+    rawLower.includes('kitna samay') ||
+    rawLower.includes('time remaining') ||
+    rawLower.includes('time left') ||
+    rawLower.includes('time batao') ||
+    rawLower.includes('samay batao')
+  ) {
+    if (context.activeView === 'exam' && !examStore.isSubmitted) {
+      soundEffects.playSelect();
+      const minutes = Math.floor(examStore.timeRemaining / 60);
+      const seconds = examStore.timeRemaining % 60;
+      const reply = `Time remaining: ${minutes} minutes and ${seconds} seconds. Timer display: ${examStore.formattedTime}.`;
+      return makeReply('CHECK_TIMER', reply, 'Announced Remaining Time');
+    }
+  }
+
+  // ==========================================
   // 11. STUDENT PERFORMANCE & ANALYTICS
   // ==========================================
   if (
@@ -706,21 +957,41 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   }
 
   // ==========================================
-  // 13. REPORT SCREEN SPECIFIC ACTIONS (Summary, Retake)
+  // 13. REPORT SCREEN SPECIFIC ACTIONS (Summary, Retake, Explain Result)
   // ==========================================
-  if (context.activeView === 'report') {
+  if (context.activeView === 'report' || examStore.isSubmitted) {
     if (
       rawLower.includes('summary') ||
       rawLower.includes('समरी') ||
       rawLower.includes('score') ||
       rawLower.includes('स्कोर') ||
       rawLower.includes('result') ||
-      rawLower.includes('रिजल्ट')
+      rawLower.includes('रिजल्ट') ||
+      rawLower.includes('analytics') ||
+      rawLower.includes('एनालिटिक्स') ||
+      rawLower.includes('report') ||
+      rawLower.includes('रिपोर्ट') ||
+      rawLower.includes('performance') ||
+      rawLower.includes('parinam') ||
+      rawLower.includes('marks') ||
+      rawLower.includes('kitne sahi') ||
+      rawLower.includes('kitne number') ||
+      rawLower.includes('kitna score') ||
+      rawLower.includes('explain result') ||
+      rawLower.includes('explain report') ||
+      rawLower.includes('explain analytics') ||
+      rawLower.includes('kaisa raha') ||
+      rawLower.includes('result batao') ||
+      rawLower.includes('score batao') ||
+      rawLower.includes('analytics batao')
     ) {
-      const rep = context.diagnosticReport;
-      const summaryText = rep?.verbalSummary?.join(' ') || `Your score was ${rep?.totalScore || 0} out of ${rep?.maxScore || 20}.`;
-      const reply = `Diagnostic Summary for "${rep?.examTitle || 'Exam'}": ${summaryText}`;
-      return makeReply('READ_REPORT_SUMMARY', reply, 'Read Diagnostic Summary');
+      soundEffects.playSelect();
+      const rep = context.diagnosticReport || examStore.getDiagnosticReport();
+      const summaryText =
+        rep?.verbalSummary?.join(' ') ||
+        `Overall Score: ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points (${rep?.scorePercentage || 0}%). Attempted: ${rep?.attemptedCount || 0} questions (${rep?.correctCount || 0} correct, ${rep?.incorrectCount || 0} incorrect). Unattempted: ${rep?.unattemptedCount || 0}.`;
+      const reply = `Performance Diagnostic and Analytics Report for "${rep?.examTitle || 'Exam'}": You scored ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points, which is ${rep?.scorePercentage || 0} percent. ${summaryText} You can say "Retake test" or "Choose another exam".`;
+      return makeReply('READ_REPORT_SUMMARY', reply, 'Explained Diagnostic & Analytics Report');
     }
 
     if (
@@ -757,12 +1028,20 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   }
 
   // ==========================================
-  // 15. SUBMIT EXAM
+  // 15. SUBMIT EXAM (OPEN CONFIRMATION WINDOW)
   // ==========================================
-  if (normalized.includes('submit') || rawLower.includes('jama')) {
+  if (
+    normalized.includes('submit') ||
+    rawLower.includes('jama') ||
+    rawLower.includes('finish exam') ||
+    rawLower.includes('end exam')
+  ) {
     if (context.activeView === 'exam' && !examStore.isSubmitted) {
       examStore.setSubmitModalOpen(true);
-      const reply = 'Exam submission confirmation window is now open. Confirm to submit your exam, or press Escape to return to the test.';
+      soundEffects.playTimerAlert();
+      const total = examStore.questions.length;
+      const answered = Object.keys(examStore.selectedOptions).length;
+      const reply = `Confirm exam submission window is open. You have answered ${answered} of ${total} questions. Say "Yes, Final Submit" or press Enter to submit, or say "Continue to Exam" or press Escape to resume your test.`;
       return makeReply('CONFIRM_SUBMIT', reply, 'Opened Submit Modal');
     }
   }
@@ -836,8 +1115,8 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     return makeReply('IDENTITY', reply);
   }
 
-  // If the query was purely a single token or ambient noise, do NOT blurt out a fallback
-  if (rawTranscript.trim().split(/\s+/).length <= 1 && isPhantomNoise(rawTranscript)) {
+  // If the query was detected as a phantom noise or hallucination, NEVER blurt out a fallback or speak!
+  if (isPhantomNoise(rawTranscript)) {
     return {
       success: false,
       intent: 'UNRECOGNIZED',
@@ -898,15 +1177,15 @@ export function processVoiceCommand(
 
   const finalResult = bestResult || executeCommand(candidates[0] || '', false);
 
-  // A recognised command speaks for itself here; both callers then find the
-  // engine already talking and stay quiet.
-  //
-  // An *unrecognised* transcript does not, because it is only a provisional
-  // guess — the caller still has a Gemini/Groq pass to try, and voicing a
-  // placeholder would both reach the candidate and, now that the engine reports
-  // honestly, crowd out the real answer that follows. Each caller has its own
-  // final fallback for the case where nothing at all is recognised.
-  if (finalResult.intent !== 'UNRECOGNIZED' && finalResult.assistantReply) {
+  // Only announce if a real valid command succeeded!
+  // 'FALLBACK' or 'UNRECOGNIZED' should NEVER be blurted out by the local runner,
+  // allowing the conversational LLM or the explicit fallback to handle it.
+  if (
+    finalResult.success &&
+    finalResult.intent !== 'FALLBACK' &&
+    finalResult.intent !== 'UNRECOGNIZED' &&
+    finalResult.assistantReply
+  ) {
     useAnnouncerStore.getState().announce(finalResult.assistantReply, 'assertive', true);
   }
   return finalResult;

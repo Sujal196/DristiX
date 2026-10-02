@@ -82,7 +82,12 @@ export function toPublicQuestion(
   if (question.diagramUrl) base.diagramUrl = question.diagramUrl;
   if (question.diagramType) base.diagramType = question.diagramType as any;
   if (question.diagramDescription) base.diagramDescription = question.diagramDescription;
-  if (question.diagramAiExplanation) {
+  if (
+    question.diagramAiExplanation &&
+    ((typeof question.diagramAiExplanation.audioNarration === 'string' && question.diagramAiExplanation.audioNarration.trim().length > 0) ||
+      (typeof question.diagramAiExplanation.educationalContext === 'string' && question.diagramAiExplanation.educationalContext.trim().length > 0) ||
+      (Array.isArray(question.diagramAiExplanation.visualBreakdown) && question.diagramAiExplanation.visualBreakdown.length > 0))
+  ) {
     base.diagramAiExplanation = {
       visualBreakdown: question.diagramAiExplanation.visualBreakdown ?? [],
       educationalContext: question.diagramAiExplanation.educationalContext ?? '',

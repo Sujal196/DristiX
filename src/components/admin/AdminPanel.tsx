@@ -6,7 +6,8 @@ import { soundEffects } from '../../utils/soundEffects';
 import { getDataSource } from '../../services/dataSource';
 import { verbalizeMath } from '../../utils/mathVerbalizer';
 import { renderGeometrySvg, verbalizeGeometryDiagram } from '../../utils/geometryGenerator';
-import { extractQuestionsFromFile } from '../../utils/docxImport';
+import { extractQuestionsFromFile, extractAndStripImageUrls } from '../../utils/docxImport';
+import { extractQuestionsFromPdf } from '../../utils/pdfImport';
 import { MathEquation } from '../common/MathEquation';
 import { AdminGraphBuilder } from './AdminGraphBuilder';
 import { InteractiveSonificationGraph } from '../sonification/InteractiveSonificationGraph';
@@ -236,6 +237,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
   const [previewingQuestionIdx, setPreviewingQuestionIdx] = useState<number | null>(null);
   /** Hidden Word picker, opened by the "Import from Word" button. */
   const wordFileRef = useRef<HTMLInputElement | null>(null);
+  /** Hidden PDF picker, opened by the "Import PDF" button. */
+  const pdfFileRef = useRef<HTMLInputElement | null>(null);
 
   const convertImageUrlToBase64 = async (url: string): Promise<string> => {
     if (!url || !url.trim() || url.startsWith('data:')) return url;
@@ -749,7 +752,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
       setDifficulty(fullExam.difficulty || 'Moderate');
 
       if (fullExam.questions && fullExam.questions.length > 0) {
-        setQuestions(fullExam.questions);
+        const cleanedQuestions = fullExam.questions.map((q) => {
+          const stripped = extractAndStripImageUrls(q.questionText);
+          if (stripped.imageUrl || (stripped.cleanText && stripped.cleanText !== q.questionText)) {
+            const cleanQuestionText = stripped.cleanText || q.questionText;
+            const diagramUrl = q.diagramUrl || stripped.imageUrl || '';
+            const isChart =
+              Boolean(diagramUrl) &&
+              /(?:bar|pie|line|histogram|scatter|graph|chart|तालिका|चित्र|आरेख|ग्राफ)\b/i.test(cleanQuestionText);
+            const diagramType = q.diagramType || (diagramUrl ? (isChart ? 'chart' : 'image') : undefined);
+            return {
+              ...q,
+              questionText: cleanQuestionText,
+              questionType: (diagramType === 'chart' ? 'DI' : q.questionType || 'MCQ') as 'MCQ' | 'DI',
+              diagramUrl,
+              diagramType,
+            };
+          }
+          return q;
+        });
+        setQuestions(cleanedQuestions);
       }
 
       setActiveAdminTab('create');
@@ -840,13 +862,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
       const stamp = Date.now();
       const imported: QuestionItem[] = result.questions.map((q, i) => {
-        const optionTexts = q.options.length > 0 ? q.options : ['', '', '', ''];
+        const minOptLen = Math.max(4, q.options.length, q.correctOption || 0);
+        const optionTexts = [...q.options];
+        while (optionTexts.length < minOptLen) optionTexts.push('');
+        const stripped = extractAndStripImageUrls(q.questionText);
+        const cleanQuestionText = stripped.cleanText || q.questionText.trim();
+        const diagramUrl = q.diagramUrl || stripped.imageUrl || '';
+        const isChart =
+          Boolean(diagramUrl) &&
+          /(?:bar|pie|line|histogram|scatter|graph|chart|तालिका|चित्र|आरेख|ग्राफ)\b/i.test(cleanQuestionText);
+        const diagramType = q.diagramType || (diagramUrl ? (isChart ? 'chart' : 'image') : undefined);
         return {
           id: `imported-q-${stamp}-${i}`,
           section: q.section || 'General',
           questionNumber: 0, // assigned by the merge below
-          questionText: q.questionText,
-          questionType: 'MCQ' as const,
+          questionText: cleanQuestionText,
+          questionType: (diagramType === 'chart' ? 'DI' : 'MCQ') as 'DI' | 'MCQ',
+          diagramUrl,
+          diagramType,
           options: optionTexts.map((text, oi) => ({
             id: `opt_${stamp}_${i}_${oi + 1}`,
             number: oi + 1,
@@ -861,24 +894,113 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
         };
       });
 
-      const replaceStarter =
-        !editingExamId && questions.length === 1 && questions[0].questionText === STARTER_QUESTION_TEXT;
-      const base = replaceStarter ? [] : questions;
-      const merged = [...base, ...imported].map((q, idx) => ({ ...q, questionNumber: idx + 1 }));
-      setQuestions(merged);
+      const finalQuestions = imported.map((q, idx) => ({ ...q, questionNumber: idx + 1 }));
+      setQuestions(finalQuestions);
+      setTotalMarks(Math.max(finalQuestions.length * 2, 20));
 
-      const missingAnswers = imported.filter((q) => !q.correctOption).length;
-      const shortOptions = imported.filter((q) => q.options.length < 4).length;
+      const missingAnswers = finalQuestions.filter((q) => !q.correctOption).length;
+      const shortOptions = finalQuestions.filter((q) => q.options.length < 4).length;
+      const imageCount = finalQuestions.filter((q) => Boolean(q.diagramUrl)).length;
 
       setFormSuccess(
-        `Imported ${imported.length} question${imported.length === 1 ? '' : 's'} from "${file.name}"` +
-        `${replaceStarter ? ' (starter question replaced)' : ''} — ${merged.length} in this paper now.` +
+        `Imported ${finalQuestions.length} question${finalQuestions.length === 1 ? '' : 's'}` +
+        (imageCount > 0 ? ` with ${imageCount} diagram/chart image${imageCount === 1 ? '' : 's'} attached` : '') +
+        ` from "${file.name}" — exactly ${finalQuestions.length} questions loaded into workbench.` +
         (missingAnswers
           ? ` ${missingAnswers} had no answer in the file: mark the correct option for those before publishing.`
           : '') +
         (shortOptions ? ` ${shortOptions} have fewer than 4 options.` : '')
       );
-      announce(`Imported ${imported.length} questions from ${file.name}.`, 'assertive', true);
+      announce(
+        `Imported ${finalQuestions.length} questions${imageCount > 0 ? ` with ${imageCount} attached images` : ''} from ${file.name}.`,
+        'assertive',
+        true
+      );
+      soundEffects.playSuccess();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : `Could not read "${file.name}".`);
+    }
+  };
+
+  /**
+   * Bulk-authoring: read a PDF (.pdf) question paper and drop every recognised
+   * question into the form — statement, options, correct answer, section,
+   * diagram/chart image, solution and hint — so an examiner reviews instead of retyping.
+   */
+  const handleImportPdfFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so re-picking the same file still fires a change event.
+    e.target.value = '';
+    if (!file) return;
+
+    setFormError('');
+    setFormSuccess('');
+
+    try {
+      const result = await extractQuestionsFromPdf(file);
+
+      if (result.questions.length === 0) {
+        setFormError(
+          `No questions were recognised in PDF "${file.name}". Each question needs a number such as ` +
+          '"1." or "Q1.", options such as "(a)" or "A)", and ideally an answer line like "Ans: b".'
+        );
+        return;
+      }
+
+      const stamp = Date.now();
+      const imported: QuestionItem[] = result.questions.map((q, i) => {
+        const minOptLen = Math.max(4, q.options.length, q.correctOption || 0);
+        const optionTexts = [...q.options];
+        while (optionTexts.length < minOptLen) optionTexts.push('');
+        const stripped = extractAndStripImageUrls(q.questionText);
+        const cleanQuestionText = stripped.cleanText || q.questionText.trim();
+        const diagramUrl = q.diagramUrl || stripped.imageUrl || '';
+        const isChart =
+          Boolean(diagramUrl) &&
+          /(?:bar|pie|line|histogram|scatter|graph|chart|तालिका|चित्र|आरेख|ग्राफ)\b/i.test(cleanQuestionText);
+        const diagramType = q.diagramType || (diagramUrl ? (isChart ? 'chart' : 'image') : undefined);
+        return {
+          id: `imported-pdf-q-${stamp}-${i}`,
+          section: q.section || 'General',
+          questionNumber: 0,
+          questionText: cleanQuestionText,
+          questionType: (diagramType === 'chart' ? 'DI' : 'MCQ') as 'DI' | 'MCQ',
+          diagramUrl,
+          diagramType,
+          options: optionTexts.map((text, oi) => ({
+            id: `opt_pdf_${stamp}_${i}_${oi + 1}`,
+            number: oi + 1,
+            text,
+          })),
+          correctOption:
+            q.correctOption >= 1 && q.correctOption <= optionTexts.length ? q.correctOption : 0,
+          explanation: q.explanation,
+          hint: q.hint,
+        };
+      });
+
+      const finalQuestions = imported.map((q, idx) => ({ ...q, questionNumber: idx + 1 }));
+      setQuestions(finalQuestions);
+      setTotalMarks(Math.max(finalQuestions.length * 2, 20));
+
+      const missingAnswers = finalQuestions.filter((q) => !q.correctOption).length;
+      const shortOptions = finalQuestions.filter((q) => q.options.length < 4).length;
+      const imageCount = finalQuestions.filter((q) => Boolean(q.diagramUrl)).length;
+
+      setFormSuccess(
+        `Imported ${finalQuestions.length} question${finalQuestions.length === 1 ? '' : 's'}` +
+        (imageCount > 0 ? ` with ${imageCount} diagram/chart image${imageCount === 1 ? '' : 's'} attached` : '') +
+        ` from PDF "${file.name}" — exactly ${finalQuestions.length} questions loaded into workbench.` +
+        (missingAnswers
+          ? ` ${missingAnswers} had no answer in the file: mark the correct option for those before publishing.`
+          : '') +
+        (shortOptions ? ` ${shortOptions} have fewer than 4 options.` : '')
+      );
+      announce(
+        `Imported ${finalQuestions.length} questions${imageCount > 0 ? ` with ${imageCount} attached images` : ''} from ${file.name}.`,
+        'assertive',
+        true
+      );
       soundEffects.playSuccess();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : `Could not read "${file.name}".`);
@@ -3450,6 +3572,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
 
                   <button
                     type="button"
+                    onClick={() => pdfFileRef.current?.click()}
+                    className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                    title="Import questions from .pdf file"
+                  >
+                    <FileText className="w-4 h-4" aria-hidden="true" />
+                    <span>Import PDF (.pdf)</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={handleAddQuestion}
                     className="px-3.5 py-2 rounded-xl bg-[#008f7a] hover:bg-[#007a68] text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
                   >
@@ -3464,6 +3596,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                     onChange={handleImportWordFile}
                     className="hidden"
                     aria-label="Choose a Word document to import questions from"
+                  />
+
+                  <input
+                    ref={pdfFileRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={handleImportPdfFile}
+                    className="hidden"
+                    aria-label="Choose a PDF document to import questions from"
                   />
                 </div>
               </div>
@@ -3908,6 +4049,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                             <textarea
                               value={q.questionText}
                               onChange={(e) => handleUpdateQuestion(qIdx, 'questionText', e.target.value)}
+                              onBlur={(e) => {
+                                const stripped = extractAndStripImageUrls(e.target.value);
+                                if (stripped.imageUrl && stripped.cleanText !== e.target.value) {
+                                  handleUpdateQuestion(qIdx, 'questionText', stripped.cleanText || e.target.value);
+                                  if (!q.diagramUrl) {
+                                    handleUpdateQuestion(qIdx, 'diagramUrl', stripped.imageUrl);
+                                    if (!q.diagramType) {
+                                      handleUpdateQuestion(qIdx, 'diagramType', 'chart');
+                                    }
+                                  }
+                                }
+                              }}
                               rows={2}
                               placeholder="Enter the complete question statement..."
                               required
@@ -4442,6 +4595,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToStudent }) => 
                           setActiveAdminTab('create');
                           setIsCommandPaletteOpen(false);
                           wordFileRef.current?.click();
+                        },
+                      },
+                      {
+                        label: 'Import Questions from PDF (.pdf)',
+                        icon: FileText,
+                        action: () => {
+                          setActiveAdminTab('create');
+                          setIsCommandPaletteOpen(false);
+                          pdfFileRef.current?.click();
                         },
                       },
                     ]

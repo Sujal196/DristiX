@@ -14,7 +14,7 @@ let messageCounter = 0;
 const messageId = (prefix: string) => `${prefix}-${Date.now()}-${++messageCounter}`;
 import type { VoiceState } from '../../utils/voiceRecognition';
 import { speechEngine } from '../../utils/speechEngine';
-import { processVoiceCommand, isPhantomNoise } from '../../utils/voiceCommandProcessor';
+import { processVoiceCommand, isPhantomNoise, isIntentionalVoiceCommand } from '../../utils/voiceCommandProcessor';
 import type { CommandProcessResult } from '../../utils/voiceCommandProcessor';
 import { geminiVoiceService } from '../../utils/geminiVoiceService';
 import { GeminiLiveVoiceSession } from '../../utils/geminiLiveVoiceSession';
@@ -128,8 +128,16 @@ export const VoiceAssistantOrb: React.FC = () => {
       return;
     }
 
+    const isCommand =
+      isIntentionalVoiceCommand(cleanQuery) ||
+      (alternatives && alternatives.some((alt) => isIntentionalVoiceCommand(alt)));
+
+    if (isCommand && speechEngine.isSpeaking()) {
+      speechEngine.stop();
+    }
+
     // Acoustic Echo Guard: Prevent assistant from hearing its own speakers in a loop
-    if (speechEngine.isTextEcho(cleanQuery)) {
+    if (!isCommand && speechEngine.isTextEcho(cleanQuery)) {
       console.log('🔇 Suppressed acoustic speaker echo query:', cleanQuery);
       return;
     }
@@ -158,7 +166,12 @@ export const VoiceAssistantOrb: React.FC = () => {
 
     // 2. High-Precision Instant Local NLP (0ms execution for exam navigation, options, timer, submit, etc.)
     const localResult = processVoiceCommand(candidates);
-    if (localResult && localResult.intent !== 'UNRECOGNIZED') {
+    if (
+      localResult &&
+      localResult.success &&
+      localResult.intent !== 'FALLBACK' &&
+      localResult.intent !== 'UNRECOGNIZED'
+    ) {
       result = localResult;
     }
 
@@ -173,23 +186,28 @@ export const VoiceAssistantOrb: React.FC = () => {
 
     // 4. Ultimate fallback to local engine
     if (!result) {
-      result = localResult || processVoiceCommand(candidates);
+      const fallbackResult = localResult || processVoiceCommand(candidates);
+      if (fallbackResult.intent !== 'UNRECOGNIZED') {
+        result = fallbackResult;
+      }
     }
 
-    // 4. Append assistant reply
-    const assistantMsg: ChatMessage = {
-      id: messageId('assistant'),
-      sender: 'assistant',
-      text: result.assistantReply,
-      action: result.actionExecuted,
-      timestamp: Date.now(),
-    };
+    if (result && result.assistantReply) {
+      // 4. Append assistant reply
+      const assistantMsg: ChatMessage = {
+        id: messageId('assistant'),
+        sender: 'assistant',
+        text: result.assistantReply,
+        action: result.actionExecuted,
+        timestamp: Date.now(),
+      };
 
-    setMessages((prev) => [...prev, assistantMsg]);
+      setMessages((prev) => [...prev, assistantMsg]);
 
-    // Ensure speech announcement is made if speechEngine is not already actively speaking (e.g. for fallback NLP or typed query)
-    if (result.assistantReply && !speechEngine.isSpeaking()) {
-      useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
+      // Ensure speech announcement is made if speechEngine is not already actively speaking (e.g. for fallback NLP or typed query)
+      if (!speechEngine.isSpeaking()) {
+        useAnnouncerStore.getState().announce(result.assistantReply, 'assertive', true);
+      }
     }
   };
 

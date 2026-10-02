@@ -39,7 +39,6 @@ export const App: React.FC = () => {
     setTimer,
     submitExam,
     returnToCatalog,
-    timeRemaining,
     attemptId,
   } = useExamStore();
   const { currentStudent, isAdminAuthenticated } = useAuthStore();
@@ -144,9 +143,43 @@ export const App: React.FC = () => {
   // Off-Thread Timer Web Worker Management
   useEffect(() => {
     let worker: Worker | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+    const startFallback = () => {
+      if (fallbackInterval) return;
+      fallbackInterval = setInterval(() => {
+        const state = useExamStore.getState();
+        if (state.activeView === 'exam' && state.timeRemaining > 0 && !state.isSubmitted) {
+          const nextSec = Math.max(0, state.timeRemaining - 1);
+          const h = Math.floor(nextSec / 3600).toString().padStart(2, '0');
+          const m = Math.floor((nextSec % 3600) / 60).toString().padStart(2, '0');
+          const s = (nextSec % 60).toString().padStart(2, '0');
+          state.setTimer(nextSec, `${h}:${m}:${s}`);
+
+          if (nextSec === 0) {
+            dispatchAccessibilityEvent(
+              'TIMER_CRITICAL',
+              {
+                remainingSeconds: 0,
+                formattedTime: '00:00:00',
+                message: 'Exam time has expired! Automatically submitting your responses now.',
+              },
+              'CRITICAL'
+            );
+            void submitExam();
+          }
+        }
+      }, 1000);
+    };
+
     try {
       worker = createTimerWorker();
       workerRef.current = worker;
+
+      worker.onerror = (err) => {
+        console.warn('[DristiX] Timer worker error, starting in-memory fallback timer:', err);
+        startFallback();
+      };
 
       worker.onmessage = (e) => {
         const { type, remainingSeconds, formattedTime, milestone } = e.data;
@@ -184,24 +217,18 @@ export const App: React.FC = () => {
           void submitExam();
         }
       };
-    } catch {
-      // Fallback timer if Worker constructor is restricted
-      const interval = setInterval(() => {
-        const state = useExamStore.getState();
-        if (state.activeView === 'exam' && state.timeRemaining > 0 && !state.isSubmitted) {
-          const nextSec = state.timeRemaining - 1;
-          const h = Math.floor(nextSec / 3600).toString().padStart(2, '0');
-          const m = Math.floor((nextSec % 3600) / 60).toString().padStart(2, '0');
-          const s = (nextSec % 60).toString().padStart(2, '0');
-          state.setTimer(nextSec, `${h}:${m}:${s}`);
-        }
-      }, 1000);
-      return () => clearInterval(interval);
+    } catch (err) {
+      console.warn('[DristiX] Timer worker unavailable, using fallback interval:', err);
+      startFallback();
     }
 
     return () => {
       if (worker) {
         worker.terminate();
+        workerRef.current = null;
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
       }
     };
   }, [setTimer, submitExam]);
@@ -218,19 +245,23 @@ export const App: React.FC = () => {
     ) {
       workerRef.current.postMessage({ action: 'PAUSE' });
     } else if (activeView === 'exam' && !isSubmitted) {
-      // In api mode `timeRemaining` was set by the server when the attempt
-      // started, so the worker is seeded from the authoritative deadline rather
-      // than recomputing durationMinutes from the local clock.
-      const examSeconds = timeRemaining > 0 ? timeRemaining : currentExam.durationMinutes * 60;
-      workerRef.current.postMessage({ action: 'RESET', payload: { seconds: examSeconds } });
-      workerRef.current.postMessage({ action: 'START', payload: { seconds: examSeconds } });
+      // Seed worker with duration and authoritative deadline when exam is active
+      const state = useExamStore.getState();
+      const examSeconds = state.timeRemaining > 0 ? state.timeRemaining : (currentExam.durationMinutes || 60) * 60;
+      workerRef.current.postMessage({
+        action: 'START',
+        payload: {
+          seconds: examSeconds,
+          expiresAtMs: state.expiresAtMs,
+        },
+      });
     }
   }, [
     currentRoute,
     activeView,
     currentExam.id,
     currentExam.durationMinutes,
-    timeRemaining,
+    attemptId,
     isSubmitted,
     currentStudent,
   ]);
@@ -266,11 +297,16 @@ export const App: React.FC = () => {
 
         store.setTimer(clock.remainingSeconds, formatDuration(clock.remainingSeconds));
 
-        // Nudge the worker to the authoritative value.
+        // Nudge the worker to the authoritative value smoothly without pausing
         const worker = workerRef.current;
         if (worker) {
-          worker.postMessage({ action: 'RESET', payload: { seconds: clock.remainingSeconds } });
-          worker.postMessage({ action: 'START', payload: { seconds: clock.remainingSeconds } });
+          worker.postMessage({
+            action: 'SYNC',
+            payload: {
+              seconds: clock.remainingSeconds,
+              expiresAtMs: new Date(clock.expiresAt).getTime(),
+            },
+          });
         }
       } catch {
         // A dropped heartbeat is not fatal. The next one is 60s later, and the

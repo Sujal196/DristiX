@@ -38,6 +38,8 @@ export interface GeminiParsedCommand {
     | 'READ_QUESTION'
     | 'CHECK_TIMER'
     | 'SUBMIT_EXAM'
+    | 'FINAL_SUBMIT'
+    | 'CONTINUE_EXAM'
     | 'START_EXAM'
     | 'HINT'
     | 'EXPLANATION'
@@ -429,6 +431,7 @@ class GeminiVoiceService {
 Current System State:
 - Active Screen: "${context.activeView}"
 - Is Exam Submitted: ${context.isSubmitted ? 'YES (Exam is completed and submitted! Candidate is viewing Diagnostic Report)' : 'NO'}
+- Is Submit Confirmation Modal Open: ${context.isSubmitModalOpen ? 'YES (Submit confirmation dialog is currently open! The candidate can say "Yes, Final Submit" to finish or "Continue to Exam" to resume)' : 'NO'}
 - Portal Tab: "${context.portalTab === 'practice' ? 'Practice Arena (Hints & Solutions)' : 'Mock Examinations (Timed Tests)'}"
 - Screen Details: ${
   context.activeView === 'report'
@@ -491,7 +494,9 @@ CRITICAL SYSTEM RULES (STRICT COMPLIANCE REQUIRED):
 - "MARK_REVIEW": Mark for review
 - "READ_QUESTION": Read current question and options
 - "CHECK_TIMER": Read remaining time
-- "SUBMIT_EXAM": Open submit modal
+- "SUBMIT_EXAM": Open submit modal during live exam
+- "FINAL_SUBMIT": Finalize and confirm exam submission (e.g. "yes final submit", "final submit", "confirm submit", "submit final", "yes submit")
+- "CONTINUE_EXAM": Resume active exam and close submit confirmation window (e.g. "continue to exam", "resume exam", "cancel submit", "return to exam")
 - "ANALYTICS": View analytics
 - "LIST_EXAMS": List available exams or tests on this page (e.g. "which tests are available", "is page par kon kon se test available hai", "kaun kaun se test hai", "available exams", "list tests", "tests ke naam batao", "kon se test hai", "is page par kya test hai")
 - "EXAM_INTEGRITY_REFUSAL": Triggered when user asks to solve or reveal answers in test
@@ -768,6 +773,38 @@ Return ONLY a valid JSON object matching this schema:
     // STRICT EXAM INTEGRITY INTERCEPTOR:
     // If the candidate is on the live exam screen, NEVER solve or reveal answers!
     // =========================================================================
+    // EXAM INTEGRITY GUARD WITH DIAGRAM ACCESSIBILITY EXEMPTION
+    // =========================================================================
+    const isDiagramQuery =
+      /(?:diagram|chart|graph|figure|visual|image|चित्र|आरेख|ग्राफ)\b/i.test(rawQuery) &&
+      (/(?:explain|describe|read|what|tell|batao|samjhao|dekho|khol|open|show|dikhao|detail|breakdown|guide)\b/i.test(rawQuery) ||
+        /^(?:explain\s+diagram|describe\s+diagram|read\s+diagram|diagram\s+explain|diagram\s+samjhao|chart\s+samjhao|diagram|chart|figure)$/i.test(rawQuery.trim()));
+
+    if (context.activeView === 'exam' && isDiagramQuery) {
+      window.dispatchEvent(new CustomEvent('dristix:open-diagram-explainer'));
+      const q = context.currentQuestion;
+      let reply = 'Opening AI Diagram Explainer.';
+      if (q) {
+        if (q.diagramAiExplanation?.audioNarration) {
+          reply = q.diagramAiExplanation.audioNarration;
+        } else if (q.diagramDescription) {
+          reply = `Question ${q.questionNumber} diagram: ${q.diagramDescription}. Opening AI Diagram Explainer.`;
+        } else if (q.diagramUrl) {
+          reply = `Opening AI Diagram Explainer for Question ${q.questionNumber}. Analyzing visual elements now.`;
+        } else {
+          reply = `Question ${q.questionNumber} does not have an attached diagram or visual chart.`;
+        }
+      }
+      useAnnouncerStore.getState().announce(reply, 'assertive', true);
+      return {
+        success: true,
+        intent: 'EXPLAIN_DIAGRAM',
+        userQuery: rawQuery,
+        assistantReply: reply,
+        actionExecuted: 'Explained Visual Diagram',
+      };
+    }
+
     const isSolveOrAnswerIntent =
       actionUpper === 'EXAM_INTEGRITY_REFUSAL' ||
       actionUpper === 'EXPLANATION' ||
@@ -785,7 +822,7 @@ Return ONLY a valid JSON object matching this schema:
       queryLower.includes('sawal samjhao') ||
       queryLower.includes('answer kya hai');
 
-    if (context.activeView === 'exam' && isSolveOrAnswerIntent) {
+    if (context.activeView === 'exam' && !isDiagramQuery && isSolveOrAnswerIntent) {
       soundEffects.playTimerAlert();
       const safeReply = 'Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select your chosen option, or check the time.';
 
@@ -866,11 +903,135 @@ Return ONLY a valid JSON object matching this schema:
       };
     }
 
+    // Continue Exam / Resume Exam / Cancel Submit Interceptor
+    const isContinueExamIntent =
+      actionUpper === 'CONTINUE_EXAM' ||
+      actionUpper === 'RESUME_EXAM' ||
+      actionUpper === 'CANCEL_SUBMIT' ||
+      queryLower.includes('continue to exam') ||
+      queryLower.includes('continue exam') ||
+      queryLower.includes('resume exam') ||
+      queryLower.includes('return to exam') ||
+      queryLower.includes('back to exam') ||
+      queryLower.includes('cancel submit') ||
+      queryLower.includes('cancel submission') ||
+      (examStore.isSubmitModalOpen && (
+        queryLower.includes('continue') ||
+        queryLower.includes('resume') ||
+        queryLower.includes('cancel') ||
+        queryLower === 'no' ||
+        queryLower === 'nahi' ||
+        queryLower === 'wapas'
+      ));
+
+    if (isContinueExamIntent && context.activeView === 'exam') {
+      const wasModalOpen = examStore.isSubmitModalOpen;
+      examStore.setSubmitModalOpen(false);
+      soundEffects.playSelect();
+      const q = context.currentQuestion;
+      const qNum = q?.number || (examStore.currentIndex + 1);
+      const reply = wasModalOpen
+        ? `Submission cancelled. Resuming exam at Question ${qNum}. You can say "Read question", "Next question", or select an option.`
+        : `You are continuing your active exam on Question ${qNum}. Say "Read question" to hear the question.`;
+      useAnnouncerStore.getState().announce(reply, 'assertive', true);
+      return {
+        success: true,
+        intent: 'RESUME_EXAM',
+        userQuery: rawQuery,
+        assistantReply: reply,
+        actionExecuted: 'Resumed Exam (Cancelled Submission)',
+      };
+    }
+
+    // Final Submit / Confirm Submit Interceptor
+    const isFinalSubmitIntent =
+      actionUpper === 'FINAL_SUBMIT' ||
+      actionUpper === 'CONFIRM_SUBMIT' ||
+      queryLower.includes('yes, final submit') ||
+      queryLower.includes('yes final submit') ||
+      queryLower.includes('final submit') ||
+      queryLower.includes('confirm submit') ||
+      queryLower.includes('submit final') ||
+      (examStore.isSubmitModalOpen && (
+        queryLower.includes('yes submit') ||
+        queryLower.includes('submit exam') ||
+        queryLower === 'yes' ||
+        queryLower === 'submit' ||
+        queryLower === 'confirm' ||
+        queryLower === 'haan'
+      ));
+
+    if (isFinalSubmitIntent && context.activeView === 'exam' && !examStore.isSubmitted) {
+      examStore.setSubmitModalOpen(false);
+      soundEffects.playSuccess();
+      void examStore.submitExam();
+      const reply = 'Final submission confirmed. Submitting your examination now...';
+      useAnnouncerStore.getState().announce(reply, 'assertive', true);
+      return {
+        success: true,
+        intent: 'FINAL_SUBMIT',
+        userQuery: rawQuery,
+        assistantReply: reply,
+        actionExecuted: 'Final Submitted Exam',
+      };
+    }
+
+    // Diagnostic & Analytics Report Summary Interceptor (Active when exam is submitted or in report view)
+    const isReportSummaryIntent =
+      (context.activeView === 'report' || examStore.isSubmitted) &&
+      !isContinueExamIntent &&
+      !isFinalSubmitIntent &&
+      (
+        actionUpper === 'READ_REPORT_SUMMARY' ||
+        actionUpper === 'SUMMARY' ||
+        actionUpper === 'REPORT' ||
+        actionUpper === 'ANALYTICS' ||
+        actionUpper === 'RESULT' ||
+        queryLower.includes('summary') ||
+        queryLower.includes('समरी') ||
+        queryLower.includes('analytics') ||
+        queryLower.includes('एनालिटिक्स') ||
+        queryLower.includes('report') ||
+        queryLower.includes('रिपोर्ट') ||
+        queryLower.includes('result') ||
+        queryLower.includes('रिजल्ट') ||
+        queryLower.includes('score') ||
+        queryLower.includes('स्कोर') ||
+        queryLower.includes('performance') ||
+        queryLower.includes('parinam') ||
+        queryLower.includes('kitne sahi') ||
+        queryLower.includes('kitne number') ||
+        queryLower.includes('explain result') ||
+        queryLower.includes('explain report') ||
+        queryLower.includes('explain analytics')
+      );
+
+    if (isReportSummaryIntent) {
+      soundEffects.playSelect();
+      const rep = context.diagnosticReport || examStore.getDiagnosticReport();
+      const summaryText =
+        rep?.verbalSummary?.join(' ') ||
+        `Overall Score: ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points (${rep?.scorePercentage || 0}%). Attempted: ${rep?.attemptedCount || 0} questions (${rep?.correctCount || 0} correct, ${rep?.incorrectCount || 0} incorrect). Unattempted: ${rep?.unattemptedCount || 0}.`;
+      const reply = `Performance Diagnostic and Analytics Report for "${rep?.examTitle || 'Exam'}": You scored ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points, which is ${rep?.scorePercentage || 0} percent. ${summaryText} You can say "Retake test" or "Choose another exam".`;
+      useAnnouncerStore.getState().announce(reply, 'assertive', true);
+      return {
+        success: true,
+        intent: 'READ_REPORT_SUMMARY',
+        userQuery: rawQuery,
+        assistantReply: reply,
+        actionExecuted: 'Explained Diagnostic & Analytics Report',
+      };
+    }
+
     // Return to Catalog / Mock Test Page / Choose Another Exam Interceptor
     // MUST BE EVALUATED BEFORE isStartExamIntent so phrases like "open mock test page" or "go on mocktest page" navigate to catalog!
     // BUT if the user explicitly requested a specific exam (e.g. "open UPSC mock test"), matchedRequestedExam will be defined and we should NOT intercept as catalog navigation!
     const isReturnCatalogIntent =
       !matchedRequestedExam &&
+      !isContinueExamIntent &&
+      !isFinalSubmitIntent &&
+      !queryLower.includes('to exam') &&
+      !queryLower.includes('to test') &&
       (
         actionUpper === 'RETURN_CATALOG' ||
         actionUpper === 'RETURN' ||
@@ -1103,11 +1264,20 @@ Return ONLY a valid JSON object matching this schema:
           // the first before the candidate heard which option was taken.
           examStore.selectOption(opt, { announce: false });
           soundEffects.playSelect();
-          actionExecuted = `Selected Option ${opt}`;
-          spokenReply = `${describeOptionSelection(
-            examStore.questions[examStore.currentIndex],
-            opt
-          )} Say "Next question" to continue, or "Read question" to review.`;
+          const { questions, currentIndex, selectedOptions } = useExamStore.getState();
+          const total = questions.length;
+          const isLastQuestion = currentIndex >= total - 1;
+          const allAnswered = Object.keys(selectedOptions).length >= total;
+          const selection = describeOptionSelection(questions[currentIndex], opt);
+
+          let guidance = ' Say "Next question" to continue, or "Read question" to review.';
+          if (allAnswered) {
+            guidance = ` All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Read question" to review.`;
+          } else if (isLastQuestion) {
+            guidance = ` This is the last question (${total} of ${total}). Say "Submit exam" to finish and submit your test, or "Previous question" or "Read question" to review.`;
+          }
+
+          spokenReply = `${selection}${guidance}`;
         }
         break;
       }
@@ -1128,14 +1298,27 @@ Return ONLY a valid JSON object matching this schema:
       case 'NEXT_QUESTION':
       case 'NEXT': {
         if (context.activeView === 'exam') {
-          examStore.nextQuestion();
-          actionExecuted = 'Moved to Next Question';
-          const nextCtx = getAssistantContext();
-          const q = nextCtx.currentQuestion;
-          if (q) {
-            spokenReply = buildFullQuestionSpeech(q);
+          const { questions, currentIndex, selectedOptions } = useExamStore.getState();
+          const total = questions.length;
+          const isAtLast = currentIndex >= total - 1;
+          const answeredCount = Object.keys(selectedOptions).length;
+
+          if (isAtLast) {
+            soundEffects.playTimerAlert();
+            actionExecuted = 'At Last Question - Ready to Submit';
+            spokenReply = answeredCount >= total
+              ? `You have reached the end of the test. All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Previous question" to review.`
+              : `You are on the last question (${total} of ${total}). ${total - answeredCount} questions remain unattempted. Say "Submit exam" to submit your test, or "Previous question" to review.`;
           } else {
-            spokenReply = 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
+            examStore.nextQuestion();
+            actionExecuted = 'Moved to Next Question';
+            const nextCtx = getAssistantContext();
+            const q = nextCtx.currentQuestion;
+            if (q) {
+              spokenReply = buildFullQuestionSpeech(q);
+            } else {
+              spokenReply = 'You have reached the end of the test. Say "Submit exam" when you are ready to finish.';
+            }
           }
         }
         break;
@@ -1197,12 +1380,70 @@ Return ONLY a valid JSON object matching this schema:
         }
         break;
       }
+      case 'EXPLAIN_DIAGRAM':
+      case 'DIAGRAM': {
+        if (context.activeView === 'exam') {
+          window.dispatchEvent(new CustomEvent('dristix:open-diagram-explainer'));
+          actionExecuted = 'Opened AI Diagram Explainer';
+          const q = examStore.questions[examStore.currentIndex];
+          if (q) {
+            if (q.diagramAiExplanation?.audioNarration) {
+              spokenReply = q.diagramAiExplanation.audioNarration;
+            } else if (q.diagramDescription) {
+              spokenReply = `Question ${q.questionNumber} diagram: ${q.diagramDescription}. Opening AI Diagram Explainer.`;
+            } else if (q.diagramUrl) {
+              spokenReply = `Opening AI Diagram Explainer for Question ${q.questionNumber}. Analyzing visual elements now.`;
+            } else {
+              spokenReply = `Question ${q.questionNumber} does not have an attached diagram or visual chart.`;
+            }
+          }
+        }
+        break;
+      }
       case 'SUBMIT_EXAM':
       case 'SUBMIT': {
         if (context.activeView === 'exam' && !examStore.isSubmitted) {
-          examStore.setSubmitModalOpen(true);
-          soundEffects.playTimerAlert();
-          actionExecuted = 'Opened Submit Confirmation';
+          if (examStore.isSubmitModalOpen) {
+            examStore.setSubmitModalOpen(false);
+            soundEffects.playSuccess();
+            void examStore.submitExam();
+            actionExecuted = 'Final Submitted Exam';
+            spokenReply = 'Final submission confirmed. Submitting your examination now...';
+          } else {
+            examStore.setSubmitModalOpen(true);
+            soundEffects.playTimerAlert();
+            actionExecuted = 'Opened Submit Confirmation';
+            const total = examStore.questions.length;
+            const answered = Object.keys(examStore.selectedOptions).length;
+            spokenReply = `Confirm exam submission window is open. You have answered ${answered} of ${total} questions. Say "Yes, Final Submit" or press Enter to submit, or say "Continue to Exam" or press Escape to resume your test.`;
+          }
+        }
+        break;
+      }
+      case 'FINAL_SUBMIT':
+      case 'CONFIRM_SUBMIT': {
+        if (context.activeView === 'exam' && !examStore.isSubmitted) {
+          examStore.setSubmitModalOpen(false);
+          soundEffects.playSuccess();
+          void examStore.submitExam();
+          actionExecuted = 'Final Submitted Exam';
+          spokenReply = 'Final submission confirmed. Submitting your examination now...';
+        }
+        break;
+      }
+      case 'CONTINUE_EXAM':
+      case 'RESUME_EXAM':
+      case 'CANCEL_SUBMIT': {
+        if (context.activeView === 'exam') {
+          const wasModalOpen = examStore.isSubmitModalOpen;
+          examStore.setSubmitModalOpen(false);
+          soundEffects.playSelect();
+          actionExecuted = 'Resumed Exam (Cancelled Submission)';
+          const q = context.currentQuestion;
+          const qNum = q?.number || (examStore.currentIndex + 1);
+          spokenReply = wasModalOpen
+            ? `Submission cancelled. Resuming exam at Question ${qNum}. You can say "Read question", "Next question", or select an option.`
+            : `You are continuing your active exam on Question ${qNum}. Say "Read question" to hear the question.`;
         }
         break;
       }

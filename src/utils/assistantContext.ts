@@ -5,6 +5,7 @@ import type { QuestionItem } from '../../shared/types';
 export interface PageContextSnapshot {
   activeView: 'catalog' | 'exam' | 'analytics' | 'report';
   isSubmitted: boolean;
+  isSubmitModalOpen: boolean;
   portalTab: 'exams' | 'practice';
   studentName: string;
   studentRoll: string;
@@ -61,6 +62,7 @@ export interface PageContextSnapshot {
   };
   currentQuestion?: {
     number: number;
+    questionNumber: number;
     text: string;
     section: string;
     equationLatex?: string;
@@ -70,6 +72,10 @@ export interface PageContextSnapshot {
     hint?: string;
     explanation?: string;
     graph?: import('../../shared/types').QuestionGraph;
+    diagramUrl?: string;
+    diagramType?: 'image' | 'chart' | 'geometry' | 'svg';
+    diagramDescription?: string;
+    diagramAiExplanation?: import('../../shared/types').AiDiagramExplanation;
   };
 }
 
@@ -152,6 +158,7 @@ export function getAssistantContext(): PageContextSnapshot {
   const snapshot: PageContextSnapshot = {
     activeView: activeView,
     isSubmitted: examStore.isSubmitted,
+    isSubmitModalOpen: examStore.isSubmitModalOpen,
     portalTab: portalTab,
     studentName: student.name,
     studentRoll: student.rollNumber,
@@ -204,6 +211,7 @@ export function getAssistantContext(): PageContextSnapshot {
     if (curQ) {
       snapshot.currentQuestion = {
         number: curQ.questionNumber,
+        questionNumber: curQ.questionNumber,
         text: curQ.questionText,
         section: curQ.section,
         equationLatex: curQ.mathLatex,
@@ -217,6 +225,10 @@ export function getAssistantContext(): PageContextSnapshot {
         hint: curQ.hint,
         explanation: curQ.explanation,
         graph: curQ.graph,
+        diagramUrl: curQ.diagramUrl,
+        diagramType: curQ.diagramType,
+        diagramDescription: curQ.diagramDescription,
+        diagramAiExplanation: curQ.diagramAiExplanation,
       };
     }
   }

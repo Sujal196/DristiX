@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Exam, QuestionItem } from '../../shared/types';
+import { type Exam, type QuestionItem, hasValidAiExplanation } from '../../shared/types';
 import { soundEffects } from '../utils/soundEffects';
 import { useAnnouncerStore } from './useAnnouncerStore';
 import { verbalizeMath, verbalizeForSpeech } from '../utils/mathVerbalizer';
@@ -54,6 +54,7 @@ interface ExamState {
   isSettingsOpen: boolean;
   isShortcutsOpen: boolean;
   isSubmitModalOpen: boolean;
+  isSubmitting: boolean;
   activeSectionFilter: string;
 
   /**
@@ -138,6 +139,7 @@ interface ExamState {
   getDiagnosticReport: () => DiagnosticReportData;
   announceCurrentQuestion: (speakTTS?: boolean, includeOptions?: boolean) => void;
   readCurrentQuestion: () => void;
+  explainCurrentDiagram: (autoSpeak?: boolean) => Promise<void>;
   readTimer: () => void;
 }
 
@@ -182,6 +184,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
   isSettingsOpen: false,
   isShortcutsOpen: false,
   isSubmitModalOpen: false,
+  isSubmitting: false,
   activeSectionFilter: 'All',
   isCatalogLoading: true,
   catalogError: null,
@@ -216,11 +219,16 @@ export const useExamStore = create<ExamState>((set, get) => ({
         previousQuestionIndex: currentIndex,
       });
     } else {
+      const total = questions.length;
+      const answered = Object.keys(get().selectedOptions).length;
+      const msg = answered >= total
+        ? `You have reached the end of the test. All ${total} questions are answered. Say "Submit exam" to finish and submit your test.`
+        : `You are at the last question (${total} of ${total}). Say "Submit exam" to finish your test, or "Previous question" to review.`;
       dispatchAccessibilityEvent('NAVIGATION_ERROR', {
         reason: 'LAST_QUESTION',
-        message: 'You are at the last question.',
+        message: msg,
       });
-      useAnnouncerStore.getState().announce('You are at the last question.', 'polite', true);
+      useAnnouncerStore.getState().announce(msg, 'assertive', true);
     }
   },
 
@@ -306,9 +314,18 @@ export const useExamStore = create<ExamState>((set, get) => ({
     });
 
     if (options?.announce !== false) {
+      const total = questions.length;
+      const answered = Object.keys(updated).length;
+      const isLast = currentIndex >= total - 1;
+      let suffix = '';
+      if (answered >= total) {
+        suffix = ` All ${total} questions have been answered. Say "Submit exam" to finish and submit your test.`;
+      } else if (isLast) {
+        suffix = ` This is the last question (${total} of ${total}). Say "Submit exam" to finish your test, or "Previous question" to review.`;
+      }
       useAnnouncerStore
         .getState()
-        .announce(describeOptionSelection(currentQ, optionNumber), 'assertive', true, true);
+        .announce(`${describeOptionSelection(currentQ, optionNumber)}${suffix}`, 'assertive', true, true);
     }
   },
 
@@ -628,14 +645,18 @@ export const useExamStore = create<ExamState>((set, get) => ({
   },
 
   submitExam: async () => {
-    const { currentExam, examMode, attemptId } = get();
+    const { currentExam, examMode, attemptId, isSubmitting } = get();
+    if (isSubmitting) return;
 
     if (autosaveTimer !== null) {
       clearTimeout(autosaveTimer);
       autosaveTimer = null;
     }
 
+    set({ isSubmitting: true });
+
     let report: GradeResult | null = null;
+    try {
 
     if (attemptId) {
       try {
@@ -703,11 +724,21 @@ export const useExamStore = create<ExamState>((set, get) => ({
       serverReport: report,
     });
 
+    const verbalDetails =
+      report.verbalSummary && report.verbalSummary.length > 0
+        ? report.verbalSummary.join(' ')
+        : `Overall Score: ${report.totalScore} out of ${report.maxScore} points (${report.scorePercentage}% correct). Attempted: ${report.attemptedCount} of ${report.totalQuestions} questions (${report.correctCount} correct, ${report.incorrectCount} incorrect). Unattempted: ${report.unattemptedCount} questions.`;
+
+    const fullResultAnnouncement = `Exam successfully submitted! Here is your performance diagnostic and analytics report for ${report.examTitle}: You scored ${report.totalScore} out of ${report.maxScore} maximum points, which is ${report.scorePercentage} percent. ${verbalDetails} You can say "Read summary" to hear this again, "Retake test", or "Choose another exam".`;
+
     useAnnouncerStore.getState().announce(
-      `Exam successfully submitted. You scored ${report.totalScore} out of ${report.maxScore}, which is ${report.scorePercentage} percent correct. Showing your diagnostic and performance analytics report.`,
+      fullResultAnnouncement,
       'assertive',
       true
     );
+    } finally {
+      set({ isSubmitting: false });
+    }
   },
 
   addNewExam: async (newExam: Exam, mode: 'exam' | 'practice') => {
@@ -842,8 +873,14 @@ export const useExamStore = create<ExamState>((set, get) => ({
     if (currentQ.mathLatex) {
       msg += `Equation: ${verbalizeMath(currentQ.mathLatex)}. `;
     }
-    if (currentQ.diagramAiExplanation?.audioNarration || currentQ.diagramDescription) {
-      msg += `Diagram details: ${currentQ.diagramAiExplanation?.audioNarration || currentQ.diagramDescription}. `;
+    const hasValidExpl = hasValidAiExplanation(currentQ.diagramAiExplanation);
+    if (hasValidExpl && currentQ.diagramAiExplanation?.audioNarration) {
+      msg += `Visual Diagram Breakdown: ${currentQ.diagramAiExplanation.audioNarration}. `;
+    } else if (currentQ.diagramDescription) {
+      msg += `Visual Diagram: ${currentQ.diagramDescription}. `;
+    } else if (currentQ.diagramUrl) {
+      msg += `This question includes an attached visual diagram or chart. AI Diagram Breakdown and Voice Guide are available. Say "Explain diagram" to hear the full visual breakdown. `;
+      void get().explainCurrentDiagram(false);
     }
     if (currentQ.graph && currentQ.graph.enabled && currentQ.graph.data?.length) {
       const g = currentQ.graph;
@@ -887,6 +924,81 @@ export const useExamStore = create<ExamState>((set, get) => ({
       return;
     }
     get().announceCurrentQuestion(true, true);
+  },
+
+  /**
+   * Explains the visual diagram or chart for the currently active question using multimodal AI Vision.
+   * Narrates step-by-step points, shapes, axes, labels, and educational context for visually impaired students.
+   */
+  explainCurrentDiagram: async (autoSpeak = true) => {
+    const { currentIndex, questions } = get();
+    const currentQ = questions[currentIndex];
+    if (!currentQ) return;
+
+    if (!currentQ.diagramUrl && !currentQ.diagramDescription) {
+      if (autoSpeak) {
+        useAnnouncerStore
+          .getState()
+          .announce(
+            `Question ${currentQ.questionNumber} does not have an attached visual diagram or chart.`,
+            'assertive',
+            true
+          );
+      }
+      return;
+    }
+
+    if (hasValidAiExplanation(currentQ.diagramAiExplanation)) {
+      if (autoSpeak) {
+        const expl = currentQ.diagramAiExplanation!;
+        const speech = `AI Diagram Breakdown for Question ${currentQ.questionNumber}. ${
+          expl.audioNarration || expl.educationalContext
+        }. ${expl.visualBreakdown?.length ? `Visual elements: ${expl.visualBreakdown.join('. ')}.` : ''}`;
+        useAnnouncerStore.getState().announce(speech, 'assertive', true);
+      }
+      return;
+    }
+
+    if (autoSpeak) {
+      useAnnouncerStore
+        .getState()
+        .announce(
+          `AI Multimodal Vision is analyzing the visual diagram for Question ${currentQ.questionNumber}...`,
+          'assertive',
+          true
+        );
+    }
+
+    try {
+      const res = await getDataSource().ai.explainDiagram({
+        questionText: currentQ.questionText,
+        mathLatex: currentQ.mathLatex,
+        diagramUrl: currentQ.diagramUrl,
+        diagramType: currentQ.diagramType || 'image',
+        diagramDescription: currentQ.diagramDescription,
+      });
+
+      if (res && hasValidAiExplanation(res)) {
+        const updated = [...get().questions];
+        updated[currentIndex] = { ...updated[currentIndex], diagramAiExplanation: res };
+        set({ questions: updated });
+
+        if (autoSpeak && get().currentIndex === currentIndex) {
+          const speech = `AI Diagram Breakdown for Question ${currentQ.questionNumber}. ${
+            res.audioNarration || res.educationalContext
+          }. ${res.visualBreakdown?.length ? `Visual elements: ${res.visualBreakdown.join('. ')}.` : ''}`;
+          useAnnouncerStore.getState().announce(speech, 'assertive', true);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[dristix] explainCurrentDiagram error:', err);
+      if (autoSpeak && get().currentIndex === currentIndex) {
+        const fallback = currentQ.diagramDescription
+          ? `Visual Diagram for Question ${currentQ.questionNumber}: ${currentQ.diagramDescription}.`
+          : `Visual diagram is attached for Question ${currentQ.questionNumber}.`;
+        useAnnouncerStore.getState().announce(fallback, 'assertive', true);
+      }
+    }
   },
 
   /**

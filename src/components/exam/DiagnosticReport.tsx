@@ -35,9 +35,27 @@ export const DiagnosticReport: React.FC = () => {
 
   const handleReadSummary = () => {
     soundEffects.unlock();
-    const fullSummary = report.verbalSummary.join(' ');
-    useAnnouncerStore.getState().announce(`Performance Diagnostic Summary for ${report.examTitle}: ${fullSummary}`, 'assertive', true);
+    const fullSummary = report.verbalSummary?.join(' ') || `Score: ${report.totalScore} out of ${report.maxScore} points.`;
+    useAnnouncerStore.getState().announce(
+      `Performance Diagnostic and Analytics Report for ${report.examTitle}: ${fullSummary} You can say "Retake test" or "Choose another exam".`,
+      'assertive',
+      true
+    );
   };
+
+  React.useEffect(() => {
+    const { submissionTime } = useExamStore.getState();
+    const timeSinceSubmission = Date.now() - (submissionTime || 0);
+    // Announce if navigating back to report screen or if not already freshly spoken by submitExam
+    if (timeSinceSubmission > 5000) {
+      const fullSummary = report.verbalSummary?.join(' ') || `Score: ${report.totalScore} out of ${report.maxScore} points.`;
+      useAnnouncerStore.getState().announce(
+        `Viewing Performance Diagnostic Report for ${report.examTitle}. ${fullSummary} You can say "Read summary", "Retake test", or "Choose another exam".`,
+        'polite',
+        false
+      );
+    }
+  }, [report.examTitle, report.totalScore, report.maxScore, report.verbalSummary]);
 
   const toggleExpand = (qId: string) => {
     setExpandedQuestions((prev) => ({ ...prev, [qId]: !prev[qId] }));

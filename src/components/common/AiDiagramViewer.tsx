@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ZoomIn, ZoomOut, RefreshCw, Sparkles, Contrast, Eye, Volume2 } from 'lucide-react';
 import { AiDiagramExplainerModal } from './AiDiagramExplainerModal';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
-import type { PublicQuestion, GradedQuestion, QuestionItem } from '../../../shared/types';
+import { getDataSource } from '../../services/dataSource';
+import { type PublicQuestion, type GradedQuestion, type QuestionItem, type AiDiagramExplanation, hasValidAiExplanation } from '../../../shared/types';
 
 interface AiDiagramViewerProps {
   question: PublicQuestion | GradedQuestion | QuestionItem;
@@ -13,12 +14,74 @@ export const AiDiagramViewer: React.FC<AiDiagramViewerProps> = ({ question, clas
   const [zoomLevel, setZoomLevel] = useState(1);
   const [highContrast, setHighContrast] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { announce } = useAnnouncerStore();
 
   const diagramUrl = question.diagramUrl;
   const diagramDescription = question.diagramDescription;
   const diagramType = question.diagramType || 'image';
-  const aiExplanation = question.diagramAiExplanation;
+  const [cachedExplanation, setCachedExplanation] = useState<AiDiagramExplanation | undefined>(
+    hasValidAiExplanation(question.diagramAiExplanation) ? question.diagramAiExplanation : undefined
+  );
+  const aiExplanation = cachedExplanation || (hasValidAiExplanation(question.diagramAiExplanation) ? question.diagramAiExplanation : undefined);
+
+  // Sync cached explanation whenever the active question changes
+  useEffect(() => {
+    if (hasValidAiExplanation(question.diagramAiExplanation)) {
+      setCachedExplanation(question.diagramAiExplanation);
+    } else {
+      setCachedExplanation(undefined);
+    }
+  }, [question.id, question.questionNumber, question.diagramAiExplanation]);
+
+  // Background pre-fetch diagram explanation so it is instantly available for student voice / visual guide
+  useEffect(() => {
+    const needsFetch =
+      (diagramUrl || diagramDescription) &&
+      !hasValidAiExplanation(question.diagramAiExplanation) &&
+      !hasValidAiExplanation(cachedExplanation);
+
+    if (needsFetch) {
+      let active = true;
+      getDataSource()
+        .ai.explainDiagram({
+          questionText: question.questionText,
+          mathLatex: question.mathLatex,
+          diagramUrl,
+          diagramType,
+          diagramDescription,
+        })
+        .then((res) => {
+          if (active && res && hasValidAiExplanation(res)) {
+            setCachedExplanation(res);
+            question.diagramAiExplanation = res;
+          }
+        })
+        .catch((err) => {
+          console.warn('[dristix] Background diagram pre-fetch error:', err);
+        });
+      return () => {
+        active = false;
+      };
+    }
+  }, [diagramUrl, diagramDescription, question.id, question.questionText, question.mathLatex, diagramType, cachedExplanation, question]);
+
+  // Listen for voice assistant event to open the diagram explainer
+  useEffect(() => {
+    const handleOpenDiagram = () => {
+      if (diagramUrl || diagramDescription) {
+        setIsModalOpen(true);
+      }
+    };
+    window.addEventListener('dristix:open-diagram-explainer', handleOpenDiagram);
+    return () => window.removeEventListener('dristix:open-diagram-explainer', handleOpenDiagram);
+  }, [diagramUrl, diagramDescription]);
+
+  const handleExplanationGenerated = useCallback(
+    (newExpl: AiDiagramExplanation) => {
+      setCachedExplanation(newExpl);
+      question.diagramAiExplanation = newExpl;
+    },
+    [question]
+  );
 
   if (!diagramUrl && !diagramDescription) return null;
 
@@ -36,10 +99,10 @@ export const AiDiagramViewer: React.FC<AiDiagramViewerProps> = ({ question, clas
 
   const handleOpenExplainer = () => {
     setIsModalOpen(true);
-    announce(
+    useAnnouncerStore.getState().announce(
       `Opening AI Diagram Explainer for Question ${question.questionNumber}.`,
-      'assertive',
-      true
+      'polite',
+      false
     );
   };
 
@@ -161,9 +224,12 @@ export const AiDiagramViewer: React.FC<AiDiagramViewerProps> = ({ question, clas
         onClose={() => setIsModalOpen(false)}
         questionNumber={question.questionNumber}
         questionText={question.questionText}
+        mathLatex={question.mathLatex}
         diagramUrl={diagramUrl}
         diagramDescription={diagramDescription}
+        diagramType={diagramType}
         aiExplanation={aiExplanation}
+        onExplanationGenerated={handleExplanationGenerated}
       />
     </div>
   );

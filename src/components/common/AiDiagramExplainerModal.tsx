@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
-import { Volume2, VolumeX, X, Sparkles, Eye, CheckCircle2, Lightbulb, Play, Pause } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Volume2, VolumeX, X, Sparkles, Eye, CheckCircle2, Lightbulb, Play, Pause, Loader2, RefreshCw } from 'lucide-react';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { speechEngine } from '../../utils/speechEngine';
-import type { AiDiagramExplanation } from '../../../shared/types';
+import { getDataSource } from '../../services/dataSource';
+import { type AiDiagramExplanation, hasValidAiExplanation } from '../../../shared/types';
 
 interface AiDiagramExplainerModalProps {
   isOpen: boolean;
   onClose: () => void;
   questionNumber?: number;
   questionText: string;
+  mathLatex?: string;
   diagramUrl?: string;
   diagramDescription?: string;
+  diagramType?: 'image' | 'chart' | 'geometry' | 'svg';
   aiExplanation?: AiDiagramExplanation;
+  onExplanationGenerated?: (explanation: AiDiagramExplanation) => void;
 }
 
 export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = ({
@@ -19,14 +23,119 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
   onClose,
   questionNumber,
   questionText,
+  mathLatex,
   diagramUrl,
   diagramDescription,
+  diagramType,
   aiExplanation,
+  onExplanationGenerated,
 }) => {
-  const { announce } = useAnnouncerStore();
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [explanation, setExplanation] = useState<AiDiagramExplanation | undefined>(
+    hasValidAiExplanation(aiExplanation) ? aiExplanation : undefined
+  );
+  const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  const hasNarratedRef = useRef(false);
+  const hasFetchedRef = useRef(false);
+  const onExplanationGeneratedRef = useRef(onExplanationGenerated);
+  onExplanationGeneratedRef.current = onExplanationGenerated;
+
+  // Reset session flags when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      hasNarratedRef.current = false;
+      hasFetchedRef.current = false;
+      setIsPlayingAudio(false);
+      setFetchError(null);
+      speechEngine.stop();
+    }
+  }, [isOpen]);
+
+  // Sync state if valid explanation prop arrives
+  useEffect(() => {
+    if (hasValidAiExplanation(aiExplanation)) {
+      setExplanation(aiExplanation);
+    }
+  }, [aiExplanation]);
+
+  // Auto-narrate and fetch explanation dynamically when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // 1. If we already have a valid explanation, narrate it once per open session
+    if (hasValidAiExplanation(explanation)) {
+      if (!hasNarratedRef.current) {
+        hasNarratedRef.current = true;
+        setIsPlayingAudio(true);
+        const speech = `AI Diagram Breakdown for Question ${questionNumber || ''}. ${
+          explanation!.audioNarration || explanation!.educationalContext
+        }. ${explanation!.visualBreakdown?.length ? `Visual elements: ${explanation!.visualBreakdown.join('. ')}.` : ''}`;
+        useAnnouncerStore.getState().announce(speech, 'assertive', true);
+        const unsub = speechEngine.onSpeechEnd(() => setIsPlayingAudio(false));
+        return () => {
+          if (unsub) unsub();
+        };
+      }
+      return;
+    }
+
+    // 2. Otherwise fetch from AI Multimodal Vision (at most once per open session)
+    if (!hasValidAiExplanation(explanation) && !hasFetchedRef.current && !isLoading && !fetchError) {
+      hasFetchedRef.current = true;
+      let cancelled = false;
+
+      const fetchAiExpl = async () => {
+        setIsLoading(true);
+        setFetchError(null);
+        useAnnouncerStore
+          .getState()
+          .announce(`AI Multimodal Vision is analyzing visual diagram for Question ${questionNumber || ''}...`, 'assertive', true);
+
+        try {
+          const res = await getDataSource().ai.explainDiagram({
+            questionText,
+            mathLatex,
+            diagramUrl,
+            diagramType,
+            diagramDescription,
+          });
+
+          if (!cancelled && res && hasValidAiExplanation(res)) {
+            setExplanation(res);
+            onExplanationGeneratedRef.current?.(res);
+            if (!hasNarratedRef.current) {
+              hasNarratedRef.current = true;
+              setIsPlayingAudio(true);
+              const speech = `AI Diagram Breakdown for Question ${questionNumber || ''}. ${
+                res.audioNarration || res.educationalContext
+              }. ${res.visualBreakdown?.length ? `Visual elements: ${res.visualBreakdown.join('. ')}.` : ''}`;
+              useAnnouncerStore.getState().announce(speech, 'assertive', true);
+              speechEngine.onSpeechEnd(() => setIsPlayingAudio(false));
+            }
+          }
+        } catch (err: any) {
+          if (!cancelled) {
+            console.error('[dristix] failed to fetch diagram explanation:', err);
+            setFetchError(err?.message || 'Could not connect to AI Vision Engine.');
+            useAnnouncerStore
+              .getState()
+              .announce(`Could not load AI diagram breakdown: ${err?.message || 'AI Vision service is unavailable.'}`, 'assertive', true);
+          }
+        } finally {
+          if (!cancelled) setIsLoading(false);
+        }
+      };
+
+      void fetchAiExpl();
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [isOpen, explanation, isLoading, fetchError, questionText, mathLatex, diagramUrl, diagramType, diagramDescription, questionNumber]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -41,25 +150,20 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
 
   if (!isOpen) return null;
 
-  const audioText =
-    aiExplanation?.audioNarration ||
-    `Diagram analysis for Question ${questionNumber || ''}: ${diagramDescription || questionText}. ${
-      aiExplanation?.educationalContext || ''
-    }`;
-
   const handleToggleVoice = () => {
     if (isPlayingAudio || speechEngine.isSpeaking()) {
       speechEngine.stop();
       setIsPlayingAudio(false);
-      announce('Diagram audio narration stopped.', 'polite', true);
+      useAnnouncerStore.getState().announce('Diagram audio narration paused.', 'polite', true);
     } else {
       setIsPlayingAudio(true);
-      announce(
-        `Starting AI Diagram Audio Narration. ${audioText}`,
-        'assertive',
-        true
-      );
-      // Listen for speech end
+      const textToSpeak =
+        explanation?.audioNarration ||
+        `${explanation?.educationalContext || diagramDescription || questionText}. ${
+          explanation?.visualBreakdown?.length ? `Visual elements: ${explanation.visualBreakdown.join('. ')}.` : ''
+        }`;
+      const speech = `AI Diagram Breakdown for Question ${questionNumber || ''}. ${textToSpeak}`;
+      useAnnouncerStore.getState().announce(speech, 'assertive', true);
       speechEngine.onSpeechEnd(() => setIsPlayingAudio(false));
     }
   };
@@ -109,6 +213,38 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
 
         {/* Scrollable Content */}
         <div className="p-6 overflow-y-auto space-y-6 text-theme-text font-sans">
+          {isLoading && (
+            <div className="p-8 rounded-2xl bg-indigo-500/10 border-2 border-indigo-500/30 flex flex-col items-center justify-center text-center space-y-4 animate-pulse">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500 flex items-center justify-center text-indigo-400">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-theme-text">Analyzing Visual Diagram Elements</h3>
+                <p className="text-xs text-theme-text/70 max-w-md">
+                  DristiX Multimodal AI is inspecting visual geometry, chart slices, coordinates, and spatial labels to construct your auditory scene description...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {fetchError && !isLoading && !explanation && (
+            <div className="p-5 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-between gap-4">
+              <div className="text-xs text-red-500 font-semibold">
+                <span>{fetchError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFetchError(null);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 shrink-0"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry</span>
+              </button>
+            </div>
+          )}
+
           {/* Audio Narration Bar */}
           <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-500/15 via-purple-500/10 to-pink-500/15 border-2 border-indigo-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
             <div className="flex items-center gap-3">
@@ -127,10 +263,11 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
               <button
                 type="button"
                 onClick={handleToggleVoice}
+                disabled={isLoading}
                 className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition shadow-md ${
                   isPlayingAudio
                     ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50'
                 }`}
               >
                 {isPlayingAudio ? (
@@ -185,8 +322,8 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
               <span>1. Visual Elements & Spatial Structure</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {(aiExplanation?.visualBreakdown?.length
-                ? aiExplanation.visualBreakdown
+              {(explanation?.visualBreakdown?.length
+                ? explanation.visualBreakdown
                 : [
                     diagramDescription || 'Diagram represents geometry/data elements.',
                     'Key parameters labeled on shapes/axes.',
@@ -212,7 +349,7 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
               <span>2. How to Read & Solve from Diagram</span>
             </div>
             <p className="text-sm leading-relaxed text-theme-text font-medium">
-              {aiExplanation?.educationalContext ||
+              {explanation?.educationalContext ||
                 `The diagram depicts visual variables related to the problem statement "${questionText}". Analyze the labeled positions and apply the corresponding mathematical or logical steps to resolve the options.`}
             </p>
           </div>
@@ -224,8 +361,8 @@ export const AiDiagramExplainerModal: React.FC<AiDiagramExplainerModalProps> = (
               <span>3. Key Diagnostic Findings</span>
             </div>
             <ul className="space-y-2">
-              {(aiExplanation?.keyPoints?.length
-                ? aiExplanation.keyPoints
+              {(explanation?.keyPoints?.length
+                ? explanation.keyPoints
                 : ['Verify labels on the diagram.', 'Apply correct formulas.', 'Cross-check options.']
               ).map((kp, idx) => (
                 <li

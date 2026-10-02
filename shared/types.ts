@@ -30,6 +30,15 @@ export interface AiDiagramExplanation {
   audioNarration: string;
 }
 
+export function hasValidAiExplanation(expl?: AiDiagramExplanation | null): boolean {
+  if (!expl) return false;
+  return Boolean(
+    (typeof expl.audioNarration === 'string' && expl.audioNarration.trim().length > 0) ||
+    (typeof expl.educationalContext === 'string' && expl.educationalContext.trim().length > 0) ||
+    (Array.isArray(expl.visualBreakdown) && expl.visualBreakdown.length > 0 && expl.visualBreakdown.some((b) => b && b.trim().length > 0))
+  );
+}
+
 export type DiagramType = 'image' | 'svg' | 'chart' | 'geometry';
 
 export type QuestionType = 'MCQ' | 'DI';

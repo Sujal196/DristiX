@@ -451,12 +451,12 @@ class SpeechEngine {
   }
 
   /**
-   * Returns true if assistant is actively speaking OR finished speaking less than 900ms ago.
+   * Returns true if assistant is actively speaking OR finished speaking less than 850ms ago.
    * Prevents microphone from picking up acoustic reflections/room echo from laptop speakers.
    */
   public isEchoGuardActive(): boolean {
     if (this.isSpeaking()) return true;
-    return Date.now() - this.lastSpeechEndTime < 450;
+    return Date.now() - this.lastSpeechEndTime < 850;
   }
 
   /**
@@ -469,14 +469,26 @@ class SpeechEngine {
     if (!normCand || !normSpoken) return false;
 
     // Direct match or substring
-    if (normSpoken.includes(normCand) && normCand.length > 6) return true;
-    if (normCand.includes(normSpoken) && normSpoken.length > 6) return true;
+    // Never classify intentional commands as echoes, even if the assistant recently mentioned them in instructions
+    if (
+      /^(?:yes[, ]+final\s+submit|yes\s+final\s+submit|final\s+submit|yes\s+submit|confirm\s+submit|submit\s+final|confirm\s+submission|final\s+submission|yes\s+submit\s+exam|yes\s+final|yes|haan|ha|confirm|submit|submit\s+exam|submit\s+test|finish|finish\s+exam|jama\s*karo|enter)$/i.test(normCand) ||
+      /^(?:continue\s+to\s+exam|continue\s+the\s+exam|continue\s+exam|continue\s+test|continue|resume\s+exam|resume\s+the\s+exam|resume\s+test|resume|return\s+to\s+exam|back\s+to\s+exam|cancel\s+submit|cancel|no|nahi|nahin|wapas|escape)$/i.test(normCand) ||
+      /^(?:next|next\s+question|agla\s+sawal|aage|previous|prev|previous\s+question|pichhla\s+sawal|read\s+question|repeat\s+question|sawal\s+padho|clear\s+option|unselect|check\s+timer|time\s+remaining|time\s+left|samay\s+batao|kitna\s+time|stop|ruko|pause|chup)$/i.test(normCand) ||
+      /^(?:option|select\s+option|vikalp)\s+[1-4a-d]$/i.test(normCand)
+    ) {
+      return false;
+    }
 
-    // Word overlap (if >60% of words in candidate were spoken by assistant recently)
+    if (normSpoken.includes(normCand) && normCand.length > 5) return true;
+    if (normCand.includes(normSpoken) && normSpoken.length > 5) return true;
+
+    // Word overlap: if within 2.5s of assistant finishing speaking, check if candidate words were in spoken reply
+    const timeSinceSpoken = Date.now() - this.lastSpeechEndTime;
     const candWords = normCand.split(/\s+/).filter((w) => w.length > 2);
     if (candWords.length >= 2) {
       const matchWords = candWords.filter((w) => normSpoken.includes(w));
-      if (matchWords.length / candWords.length >= 0.6) return true;
+      const overlapThreshold = timeSinceSpoken < 2500 ? 0.35 : 0.6;
+      if (matchWords.length / candWords.length >= overlapThreshold) return true;
     }
 
     return false;
