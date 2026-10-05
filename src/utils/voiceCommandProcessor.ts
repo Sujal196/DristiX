@@ -44,7 +44,6 @@ export const PHANTOM_NOISE_TOKENS = new Set([
   'हूँ',
   'हाँ',
   'हूं',
-<<<<<<< HEAD
   'ok',
   'okay',
   'huh',
@@ -61,6 +60,24 @@ export const PHANTOM_NOISE_TOKENS = new Set([
   'bye',
   'goodbye',
   'bye bye',
+  'the',
+  'a',
+  'पूल',
+  'पुल',
+  'pool',
+  'चीज',
+  'चीजे',
+  'चीजें',
+  'मास्टर',
+  'चलाते',
+  'yes',
+  'no',
+  'hlo',
+  'hello',
+  'tu',
+  'tum',
+  'main',
+  'mai',
 ]);
 
 /**
@@ -118,35 +135,7 @@ export function isIntentionalVoiceCommand(text: string): boolean {
 }
 
 /**
- * Checks whether an incoming transcript is a phantom noise hallucination or meaningless ambient sound.
-=======
-  'the',
-  'a',
-  'पूल',
-  'पुल',
-  'pool',
-  'चीज',
-  'चीजे',
-  'चीजें',
-  'मास्टर',
-  'चलाते',
-  'yes',
-  'no',
-  'hlo',
-  'hello',
-  'shh',
-  'bye',
-  'ok',
-  'okay',
-  'tu',
-  'tum',
-  'main',
-  'mai',
-]);
-
-/**
  * Checks whether an incoming transcript is a phantom noise hallucination, acoustic artifact, or meaningless ambient sound.
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
  */
 export function isPhantomNoise(text: string): boolean {
   if (!text) return true;
@@ -171,7 +160,12 @@ export function isPhantomNoise(text: string): boolean {
   if (cleaned.length <= 1) return true;
   if (PHANTOM_NOISE_TOKENS.has(cleaned)) return true;
 
-<<<<<<< HEAD
+  // Filter foreign script hallucinations (Korean, Chinese, Japanese, Cyrillic, Thai, etc.)
+  // Produced by Whisper model when capturing low-level ambient room noise or mic hiss.
+  if (/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u4e00-\u9fff\u3040-\u30ff\u0400-\u04ff\u0e00-\u0e7f]/.test(cleaned)) {
+    return true;
+  }
+
   // Common Whisper video outro / channel / subscription hallucination patterns
   if (
     /^(thank you|thanks)(\s+(for watching|so much|very much|a lot|everyone))?[.!]?$/i.test(cleaned) ||
@@ -183,30 +177,17 @@ export function isPhantomNoise(text: string): boolean {
     return true;
   }
 
-  // Repeating single/pair word hallucination loops (e.g. "you you you", "thank you thank you")
-  const words = cleaned.split(/\s+/);
-  if (words.length >= 3) {
-    const allSame = words.every((w) => w === words[0]);
-    if (allSame) return true;
-    if (words.length >= 4 && words.length % 2 === 0) {
-      const pair = `${words[0]} ${words[1]}`;
-      const isRepeatedPair = words.every((w, i) => w === words[i % 2]);
-      if (isRepeatedPair && pair.length <= 12) return true;
-    }
-=======
-  // Filter foreign script hallucinations (Korean, Chinese, Japanese, Cyrillic, Thai, etc.)
-  // Produced by Whisper model when capturing low-level ambient room noise or mic hiss.
-  if (/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u4e00-\u9fff\u3040-\u30ff\u0400-\u04ff\u0e00-\u0e7f]/.test(cleaned)) {
-    return true;
-  }
-
-  // Repetitive hallucination loop detection (e.g. "सारी सारी", "पूल पूल पूल", "sau sau")
+  // Repeating single/pair word hallucination loops (e.g. "you you you", "thank you thank you", "सारी सारी")
   const words = cleaned.split(/\s+/).filter(Boolean);
   if (words.length >= 2) {
     const unique = new Set(words);
     if (unique.size === 1) return true;
     if (words.length >= 4 && unique.size <= 2) return true;
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+    if (words.length >= 4 && words.length % 2 === 0) {
+      const pair = `${words[0]} ${words[1]}`;
+      const isRepeatedPair = words.every((w, i) => w === words[i % 2]);
+      if (isRepeatedPair && pair.length <= 12) return true;
+    }
   }
 
   return false;
@@ -282,12 +263,8 @@ export function buildFullQuestionSpeech(
     : (isHindi ? ' अभी तक कोई विकल्प नहीं चुना गया है।' : ' No option has been selected yet.');
 
   const leading = prefix ? `${prefix} ` : '';
-<<<<<<< HEAD
-  return `${leading}Question ${q.number}: ${verbalizeForSpeech(q.text)}.${formulaText}${diagramText}${graphText}${optionsText}${statusText}`;
-=======
   const qLabel = isHindi ? 'प्रश्न' : 'Question';
-  return `${leading}${qLabel} ${q.number}: ${verbalizeForSpeech(q.text)}.${formulaText}${graphText}${optionsText}${statusText}`;
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+  return `${leading}${qLabel} ${q.number}: ${verbalizeForSpeech(q.text)}.${formulaText}${diagramText}${graphText}${optionsText}${statusText}`;
 }
 
 /**
@@ -523,7 +500,6 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   }
 
   // ==========================================
-<<<<<<< HEAD
   // EXAM SUBMIT CONFIRMATION & RESUME MODAL ACCESSIBILITY:
   // "Continue to Exam" (resumes test) & "Yes, Final Submit" (submits test)
   // Accessible via voice during the confirmation modal and throughout the exam
@@ -577,10 +553,6 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
 
   // ==========================================
   // 1. QUERY AVAILABLE EXAMS & TESTS
-=======
-  // SUBMIT CONFIRMATION MODAL INTERCEPTOR
-  // Active when "Confirm Exam Submission" dialog is displayed on screen
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
   // ==========================================
   if (context.activeView === 'exam' && examStore.isSubmitModalOpen) {
     const isCancelSubmit =
@@ -699,20 +671,12 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     !rawLower.includes('return to exam') &&
     !rawLower.includes('back to exam') &&
     (
-<<<<<<< HEAD
       (normalized.includes('back') && !rawLower.includes('back to exam') && !rawLower.includes('back to test')) ||
       (normalized.includes('return') && !rawLower.includes('return to exam') && !rawLower.includes('return to test')) ||
-=======
-      normalized.includes('back') ||
-      normalized.includes('return') ||
-      rawLower.includes('back to') ||
-      rawLower.includes('return to') ||
-      rawLower.includes('go back') ||
       rawLower.includes('back to moak') ||
       rawLower.includes('moak examination') ||
       rawLower.includes('mock examination') ||
       rawLower.includes('examination page') ||
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
       rawLower.includes('mock test page') ||
       rawLower.includes('mocktest page') ||
       rawLower.includes('mock test') ||
@@ -1237,20 +1201,18 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
     const allAnswered = answeredCount >= total;
 
     const selection = describeOptionSelection(questions[currentIndex], optNum);
-<<<<<<< HEAD
-    let guidance = ' Say "Next question" to continue or "Read question" to review.';
-    if (allAnswered) {
-      guidance = ` All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Read question" to review.`;
-    } else if (isLastQuestion) {
-      guidance = ` This is the last question (${total} of ${total}). Say "Submit exam" to finish and submit your test, or "Previous question" or "Read question" to review.`;
+    let guidance = isHindi
+      ? ' आगे बढ़ने के लिए "अगला प्रश्न" बोलें, या फिर से सुनने के लिए "प्रश्न पढ़ो" कहें।'
+      : ' Say "Next question" to continue or "Read question" to review.';
+    if (!isHindi) {
+      if (allAnswered) {
+        guidance = ` All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Read question" to review.`;
+      } else if (isLastQuestion) {
+        guidance = ` This is the last question (${total} of ${total}). Say "Submit exam" to finish and submit your test, or "Previous question" or "Read question" to review.`;
+      }
     }
 
     const reply = `${selection}${guidance}`;
-=======
-    const reply = isHindi
-      ? `${selection} आगे बढ़ने के लिए "अगला प्रश्न" बोलें, या फिर से सुनने के लिए "प्रश्न पढ़ो" कहें।`
-      : `${selection} Say "Next question" to continue or "Read question" to review.`;
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     return makeReply('SELECT_OPTION', reply, `Selected Option ${optNum}`);
   }
 
@@ -1281,7 +1243,6 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   // ==========================================
   if (normalized.includes('next')) {
     if (context.activeView === 'exam') {
-<<<<<<< HEAD
       const { questions, currentIndex, selectedOptions } = useExamStore.getState();
       const total = questions.length;
       const isAtLast = currentIndex >= total - 1;
@@ -1289,27 +1250,22 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
 
       if (isAtLast) {
         soundEffects.playTimerAlert();
-        const reply = answeredCount >= total
-          ? `You have reached the end of the test. All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Previous question" to review.`
-          : `You are on the last question (${total} of ${total}). ${total - answeredCount} questions remain unattempted. Say "Submit exam" to submit your test, or "Previous question" to review.`;
+        const reply = isHindi
+          ? 'आप पहले से ही अंतिम प्रश्न पर हैं। परीक्षा समाप्त करने के लिए "सबमिट एग्जाम" बोलें।'
+          : (answeredCount >= total
+              ? `You have reached the end of the test. All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Previous question" to review.`
+              : `You are on the last question (${total} of ${total}). ${total - answeredCount} questions remain unattempted. Say "Submit exam" to submit your test, or "Previous question" to review.`);
         return makeReply('NEXT_QUESTION', reply, 'At Last Question - Ready to Submit');
       }
 
-      examStore.nextQuestion();
-      const nextCtx = getAssistantContext();
-      const q = nextCtx.currentQuestion;
-      if (!q) {
-        const reply = 'You have reached the end of the test. Say "Submit exam" when you are ready to finish.';
-=======
       examStore.nextQuestion({ announce: false });
       const nextCtx = getAssistantContext();
       const q = nextCtx.currentQuestion;
       if (!q) {
         const reply = isHindi
           ? 'आप पहले से ही अंतिम प्रश्न पर हैं। परीक्षा समाप्त करने के लिए "सबमिट एग्जाम" बोलें।'
-          : 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
-        return makeReply('NEXT_QUESTION', reply, 'At Last Question');
+          : 'You have reached the end of the test. Say "Submit exam" when you are ready to finish.';
+        return makeReply('NEXT_QUESTION', reply, 'End of Test');
       }
       const reply = buildFullQuestionSpeech(q);
       return makeReply('NEXT_QUESTION', reply, `Navigated to Question ${q.number}`);
@@ -1754,20 +1710,17 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
       rawLower.includes('score batao') ||
       rawLower.includes('analytics batao')
     ) {
-<<<<<<< HEAD
       soundEffects.playSelect();
       const rep = context.diagnosticReport || examStore.getDiagnosticReport();
       const summaryText =
         rep?.verbalSummary?.join(' ') ||
-        `Overall Score: ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points (${rep?.scorePercentage || 0}%). Attempted: ${rep?.attemptedCount || 0} questions (${rep?.correctCount || 0} correct, ${rep?.incorrectCount || 0} incorrect). Unattempted: ${rep?.unattemptedCount || 0}.`;
-      const reply = `Performance Diagnostic and Analytics Report for "${rep?.examTitle || 'Exam'}": You scored ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points, which is ${rep?.scorePercentage || 0} percent. ${summaryText} You can say "Retake test" or "Choose another exam".`;
+        (isHindi
+          ? `कुल स्कोर: ${rep?.maxScore || 0} में से ${rep?.totalScore || 0} अंक (${rep?.scorePercentage || 0}%)। प्रयास किए गए: ${rep?.attemptedCount || 0} प्रश्न (${rep?.correctCount || 0} सही, ${rep?.incorrectCount || 0} गलत)। शेष: ${rep?.unattemptedCount || 0}।`
+          : `Overall Score: ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points (${rep?.scorePercentage || 0}%). Attempted: ${rep?.attemptedCount || 0} questions (${rep?.correctCount || 0} correct, ${rep?.incorrectCount || 0} incorrect). Unattempted: ${rep?.unattemptedCount || 0}.`);
+      const reply = isHindi
+        ? `"${rep?.examTitle || 'परीक्षा'}" का प्रदर्शन डायग्नोस्टिक और एनालिटिक्स रिपोर्ट: आपने ${rep?.maxScore || 0} में से ${rep?.totalScore || 0} अंक प्राप्त किए, जो कि ${rep?.scorePercentage || 0} प्रतिशत है। ${summaryText} आप "दोबारा टेस्ट दें" या "दूसरा एग्जाम चुनें" कह सकते हैं।`
+        : `Performance Diagnostic and Analytics Report for "${rep?.examTitle || 'Exam'}": You scored ${rep?.totalScore || 0} out of ${rep?.maxScore || 0} points, which is ${rep?.scorePercentage || 0} percent. ${summaryText} You can say "Retake test" or "Choose another exam".`;
       return makeReply('READ_REPORT_SUMMARY', reply, 'Explained Diagnostic & Analytics Report');
-=======
-      const rep = context.diagnosticReport;
-      const summaryText = rep?.verbalSummary?.join(' ') || (isHindi ? `आपका स्कोर 20 में से ${rep?.totalScore || 0} रहा।` : `Your score was ${rep?.totalScore || 0} out of ${rep?.maxScore || 20}.`);
-      const reply = isHindi ? `"${rep?.examTitle || 'परीक्षा'}" का डायग्नोस्टिक सारांश: ${summaryText}` : `Diagnostic Summary for "${rep?.examTitle || 'Exam'}": ${summaryText}`;
-      return makeReply('READ_REPORT_SUMMARY', reply, 'Read Diagnostic Summary');
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     }
 
     if (
@@ -1908,16 +1861,12 @@ function executeCommand(rawTranscript: string, shouldAnnounce = true): CommandPr
   ) {
     if (context.activeView === 'exam' && !examStore.isSubmitted) {
       examStore.setSubmitModalOpen(true);
-<<<<<<< HEAD
       soundEffects.playTimerAlert();
       const total = examStore.questions.length;
       const answered = Object.keys(examStore.selectedOptions).length;
-      const reply = `Confirm exam submission window is open. You have answered ${answered} of ${total} questions. Say "Yes, Final Submit" or press Enter to submit, or say "Continue to Exam" or press Escape to resume your test.`;
-=======
       const reply = isHindi
         ? 'परीक्षा सबमिट करने की पुष्टि विंडो खुल गई है। समाप्त करने के लिए कन्फर्म करें, या वापस जाने के लिए Escape दबाएँ।'
-        : 'Exam submission confirmation window is now open. Confirm to submit your exam, or press Escape to return to the test.';
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+        : `Confirm exam submission window is open. You have answered ${answered} of ${total} questions. Say "Yes, Final Submit" or press Enter to submit, or say "Continue to Exam" or press Escape to resume your test.`;
       return makeReply('CONFIRM_SUBMIT', reply, 'Opened Submit Modal');
     }
   }
@@ -2135,7 +2084,6 @@ export function processVoiceCommand(
 
   const finalResult = bestResult || executeCommand(candidates[0] || initialCandidates[0] || '', false);
 
-<<<<<<< HEAD
   // Only announce if a real valid command succeeded!
   // 'FALLBACK' or 'UNRECOGNIZED' should NEVER be blurted out by the local runner,
   // allowing the conversational LLM or the explicit fallback to handle it.
@@ -2145,9 +2093,6 @@ export function processVoiceCommand(
     finalResult.intent !== 'UNRECOGNIZED' &&
     finalResult.assistantReply
   ) {
-=======
-  if (finalResult.intent !== 'UNRECOGNIZED' && finalResult.assistantReply) {
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     useAnnouncerStore.getState().announce(finalResult.assistantReply, 'assertive', true);
   }
   return finalResult;

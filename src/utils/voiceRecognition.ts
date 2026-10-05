@@ -53,12 +53,6 @@ class VoiceRecognitionService {
     });
 
     speechEngine.onSpeechEnd(() => {
-<<<<<<< HEAD
-      // When TTS finishes, immediately resume listening state without sluggish artificial delays
-      if (this.isListeningActive) {
-        this.setState('listening');
-        this.scheduleRestart(50);
-=======
       // When TTS finishes, quickly restore listening state without keeping mic muted
       if (this.isListeningActive) {
         setTimeout(() => {
@@ -67,7 +61,6 @@ class VoiceRecognitionService {
             this.scheduleRestart(80);
           }
         }, 150);
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
       }
     });
   }
@@ -361,6 +354,8 @@ class VoiceRecognitionService {
   public getLanguage(): 'hi-IN' | 'en-IN' | 'en-US' {
     return this.currentLanguage;
   }
+
+  public getConsecutiveSilentRestarts(): number { return this.consecutiveSilentRestarts; }
 
   public getLanguageMode(): VoiceLangMode {
     return this.languageMode;

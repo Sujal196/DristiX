@@ -199,17 +199,6 @@ export const VoiceAssistantOrb: React.FC = () => {
       }
     }
 
-<<<<<<< HEAD
-    if (result && result.assistantReply) {
-      // 4. Append assistant reply
-      const assistantMsg: ChatMessage = {
-        id: messageId('assistant'),
-        sender: 'assistant',
-        text: result.assistantReply,
-        action: result.actionExecuted,
-        timestamp: Date.now(),
-      };
-=======
     // 1. Append user message (prefer clean recognized query over noisy run-on transcript)
     const displayText = (result && result.intent !== 'UNRECOGNIZED' && result.userQuery)
       ? result.userQuery
@@ -225,15 +214,15 @@ export const VoiceAssistantOrb: React.FC = () => {
     setMessages((prev) => [...prev, userMsg]);
     setIsExpanded(true);
 
-    // 4. Append assistant reply
-    const assistantMsg: ChatMessage = {
-      id: messageId('assistant'),
-      sender: 'assistant',
-      text: result.assistantReply,
-      action: result.actionExecuted,
-      timestamp: Date.now(),
-    };
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+    if (result && result.assistantReply) {
+      // 4. Append assistant reply
+      const assistantMsg: ChatMessage = {
+        id: messageId('assistant'),
+        sender: 'assistant',
+        text: result.assistantReply,
+        action: result.actionExecuted,
+        timestamp: Date.now(),
+      };
 
       setMessages((prev) => [...prev, assistantMsg]);
 

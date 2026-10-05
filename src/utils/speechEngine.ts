@@ -481,7 +481,11 @@ class SpeechEngine {
     const normSpoken = this.lastSpokenText.replace(/[^\w\s\u0900-\u097F]/gi, '').trim();
     if (!normCand || !normSpoken) return false;
 
-<<<<<<< HEAD
+    // Never suppress if candidate text mentions specific identification or passwords
+    if (/\b(?:dx|roll|password|student)\b/i.test(normCand) || /रोल|पासवर्ड/i.test(normCand)) {
+      return false;
+    }
+
     // Direct match or substring
     // Never classify intentional commands as echoes, even if the assistant recently mentioned them in instructions
     if (
@@ -493,32 +497,17 @@ class SpeechEngine {
       return false;
     }
 
+    if (normSpoken === normCand) return true;
     if (normSpoken.includes(normCand) && normCand.length > 5) return true;
     if (normCand.includes(normSpoken) && normSpoken.length > 5) return true;
 
     // Word overlap: if within 2.5s of assistant finishing speaking, check if candidate words were in spoken reply
     const timeSinceSpoken = Date.now() - this.lastSpeechEndTime;
-=======
-    // Never suppress if candidate text mentions specific identification or passwords
-    if (/\b(?:dx|roll|password|student)\b/i.test(normCand) || /रोल|पासवर्ड/i.test(normCand)) {
-      return false;
-    }
-
-    // Direct match (candidate text is almost identical to what was spoken)
-    if (normSpoken === normCand) return true;
-    if (normSpoken.includes(normCand) && normCand.length > 15) return true;
-
-    // Word overlap: only if nearly identical (>85%) AND at least 3 significant words
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     const candWords = normCand.split(/\s+/).filter((w) => w.length > 2);
     if (candWords.length >= 3) {
       const matchWords = candWords.filter((w) => normSpoken.includes(w));
-<<<<<<< HEAD
       const overlapThreshold = timeSinceSpoken < 2500 ? 0.35 : 0.6;
       if (matchWords.length / candWords.length >= overlapThreshold) return true;
-=======
-      if (matchWords.length / candWords.length >= 0.85) return true;
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     }
 
     return false;

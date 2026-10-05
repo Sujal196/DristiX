@@ -42,8 +42,6 @@ export class GeminiLiveVoiceSession {
   private animFrameId: number | null = null;
   private silenceTimer: any = null;
   private finalCommitTimer: any = null;
-  /** Adaptive ambient noise baseline to prevent room hum/fans from falsely triggering speech activity. */
-  private ambientNoiseBaseline: number = 15;
   /**
    * Hard cap on one recording segment.
    *
@@ -376,7 +374,6 @@ export class GeminiLiveVoiceSession {
 
       // Voice Activity Detection (VAD)
       if (this.state === 'listening' || this.state === 'user_speaking') {
-<<<<<<< HEAD
         // Speech threshold adapts dynamically to room noise floor with a sensible baseline
         const SPEECH_THRESHOLD = Math.max(24, Math.round(this.ambientNoiseFloor + 14));
 
@@ -406,37 +403,6 @@ export class GeminiLiveVoiceSession {
                 }
               }, 1500);
             }
-=======
-        // Adaptively calibrate background room noise baseline during quiet periods
-        if (!this.hasSpokenInCurrentChunk) {
-          this.ambientNoiseBaseline = this.ambientNoiseBaseline * 0.95 + normalizedVolume * 0.05;
-        }
-
-        // Dynamic threshold: at least 24, or 12 units above room baseline (capped at 50)
-        const activeSpeechThreshold = Math.max(24, Math.min(50, Math.round(this.ambientNoiseBaseline + 12)));
-
-        if (normalizedVolume > activeSpeechThreshold) {
-          // User is speaking
-          this.hasSpokenInCurrentChunk = true;
-          if (this.state !== 'user_speaking') {
-            this.setState('user_speaking');
-          }
-
-          // Reset silence timer only if finalCommitTimer is not active
-          if (this.silenceTimer && !this.finalCommitTimer) {
-            clearTimeout(this.silenceTimer);
-            this.silenceTimer = null;
-          }
-        } else if (this.hasSpokenInCurrentChunk) {
-          // User was speaking and is now silent: commit after 950ms pause (natural endpointing)
-          if (!this.silenceTimer && !this.finalCommitTimer) {
-            this.silenceTimer = setTimeout(() => {
-              this.silenceTimer = null;
-              if (this.hasSpokenInCurrentChunk && this.isRunning) {
-                this.commitCurrentUtterance();
-              }
-            }, 950);
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
           }
         }
       }
@@ -553,11 +519,7 @@ export class GeminiLiveVoiceSession {
 
     // If completely silent/noise with no transcript, resume listening smoothly
     if (!capturedTranscript) {
-<<<<<<< HEAD
       console.log('[Live Voice] No speech recognized in audio, resuming listening.');
-=======
-      console.log('[Live Voice] Acoustic activity detected without words, resuming listening.');
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
       this.setState('listening');
       this.startSegmentRecording();
       return;

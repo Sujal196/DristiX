@@ -42,12 +42,9 @@ export interface GeminiParsedCommand {
     | 'CHECK_TIMER'
     | 'QUESTION_PALETTE'
     | 'SUBMIT_EXAM'
-<<<<<<< HEAD
     | 'FINAL_SUBMIT'
     | 'CONTINUE_EXAM'
-=======
     | 'CANCEL_SUBMIT'
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     | 'START_EXAM'
     | 'HINT'
     | 'EXPLANATION'
@@ -534,15 +531,11 @@ ${languageRule}
 - "MARK_REVIEW": Mark for review
 - "READ_QUESTION": Read current question and options
 - "CHECK_TIMER": Read remaining time
-<<<<<<< HEAD
+- "QUESTION_PALETTE": User asks for question palette, how many questions answered/unanswered/marked/left, or progress status (e.g. "question status", "palette batao", "kitne question bache hain", "palette kholo", "open question palette", "kitne sawal ho gaye")
 - "SUBMIT_EXAM": Open submit modal during live exam
 - "FINAL_SUBMIT": Finalize and confirm exam submission (e.g. "yes final submit", "final submit", "confirm submit", "submit final", "yes submit")
 - "CONTINUE_EXAM": Resume active exam and close submit confirmation window (e.g. "continue to exam", "resume exam", "cancel submit", "return to exam")
-=======
-- "QUESTION_PALETTE": User asks for question palette, how many questions answered/unanswered/marked/left, or progress status (e.g. "question status", "palette batao", "kitne question bache hain", "palette kholo", "open question palette", "kitne sawal ho gaye")
-- "SUBMIT_EXAM": Open submit modal, or if modal is already open, CONFIRM and submit the test when user says "yes", "final submit", "submit", "confirm", or "haan".
 - "CANCEL_SUBMIT": Cancel submission and return to the exam when user says "cancel", "return to exam", "back", "wapas", or "no".
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
 - "ANALYTICS": View analytics
 - "LIST_EXAMS": List available exams or tests on this page (e.g. "which tests are available", "is page par kon kon se test available hai", "kaun kaun se test hai", "available exams", "list tests", "tests ke naam batao", "kon se test hai", "is page par kya test hai")
 - "LIST_THEMES": Candidate asks which themes are available or asks to list/tell the names of all themes (e.g. "which themes are available", "themes kaun kaun se hain", "list themes", "theme ke naam batao", "sare theme ka name batao", "konsi themes hain").
@@ -938,7 +931,6 @@ Return ONLY a valid JSON object matching this schema:
     const all = [...examStore.availableExams, ...examStore.availablePracticeDrills];
     const matchedRequestedExam = matchExamFromQuery(rawQuery, parsed.param, all);
 
-<<<<<<< HEAD
     // List Available Exams / Tests Interceptor
     // MUST BE EVALUATED BEFORE isReturnCatalogIntent so "list mock tests" or "which tests are available" or "is page par kon kon se test available hai" lists test details instead of silently returning to catalog!
     const isListExamsIntent =
@@ -1123,8 +1115,6 @@ Return ONLY a valid JSON object matching this schema:
       };
     }
 
-=======
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     // Return to Catalog / Mock Test Page / Choose Another Exam Interceptor
     // MUST BE EVALUATED BEFORE isListExamsIntent & isStartExamIntent so phrases like "back to mock examination page",
     // "open mock test page" or "go on mocktest page" navigate to catalog!
@@ -1239,79 +1229,6 @@ Return ONLY a valid JSON object matching this schema:
       };
     }
 
-    // List Available Exams / Tests Interceptor
-    const isListExamsIntent =
-      !matchedRequestedExam &&
-      (
-        actionUpper === 'LIST_EXAMS' ||
-        actionUpper === 'LIST_TESTS' ||
-        actionUpper === 'AVAILABLE_EXAMS' ||
-        actionUpper === 'AVAILABLE_TESTS' ||
-        queryLower.includes('list exam') ||
-        queryLower.includes('list test') ||
-        queryLower.includes('list mock') ||
-        queryLower.includes('available exam') ||
-        queryLower.includes('available test') ||
-        queryLower.includes('avalable') ||
-        queryLower.includes('exams ke naam') ||
-        queryLower.includes('test ke naam') ||
-        queryLower.includes('tests ke naam') ||
-        queryLower.includes('kaun kaun') ||
-        queryLower.includes('kon kon') ||
-        queryLower.includes('kaun se') ||
-        queryLower.includes('kon se') ||
-        queryLower.includes('konsa') ||
-        queryLower.includes('kaun sa') ||
-        queryLower.includes('kya kya') ||
-        queryLower.includes('uplabdh') ||
-        queryLower.includes('which test') ||
-        queryLower.includes('what test') ||
-        queryLower.includes('which exam') ||
-        queryLower.includes('what exam') ||
-        queryLower.includes('show mock tests') ||
-        queryLower.includes('list mock tests') ||
-        ((queryLower.includes('page') || queryLower.includes('yahan') || queryLower.includes('yaha')) &&
-          (queryLower.includes('test') || queryLower.includes('exam') || queryLower.includes('mock')))
-      );
-
-    if (isListExamsIntent) {
-      if (context.activeView !== 'catalog') {
-        examStore.returnToCatalog();
-        examStore.setPortalTab('exams');
-      }
-
-      if (context.portalTab === 'practice' && !queryLower.includes('mock')) {
-        const drills = context.availableDrills;
-        const names = drills.map((d, idx) => `${idx + 1}. ${d.title}`).join('; ');
-        const reply = isHindi
-          ? `इस प्रैक्टिस पेज पर कुल ${drills.length} अभ्यास उपलब्ध हैं: ${names}। शुरू करने के लिए अभ्यास का नाम बोलें।`
-          : `On this practice page, there are ${drills.length} Practice Drills available: ${names}. Say "Start Practice Drill" to begin.`;
-        useAnnouncerStore.getState().announce(reply, 'assertive', true);
-        return {
-          success: true,
-          intent: 'LIST_PRACTICE_DRILLS',
-          userQuery: rawQuery,
-          assistantReply: reply,
-          actionExecuted: 'Listed Available Practice Drills',
-        };
-      }
-
-      const exams = context.availableExams;
-      const names = exams
-        .map((e, idx) => `${idx + 1}. ${e.title} (${e.durationMinutes} ${isHindi ? 'मिनट' : 'mins'}, ${e.questionCount} ${isHindi ? 'प्रश्न' : 'questions'})`)
-        .join('; ');
-      const reply = isHindi
-        ? `इस पेज पर कुल ${exams.length} मॉक टेस्ट उपलब्ध हैं: ${names}। शुरू करने के लिए टेस्ट का नाम बोलें।`
-        : `On this page, there are ${exams.length} Mock Examinations available: ${names}. Say "Start SSC CGL" or "Start Exam 1" to begin.`;
-      useAnnouncerStore.getState().announce(reply, 'assertive', true);
-      return {
-        success: true,
-        intent: 'LIST_EXAMS',
-        userQuery: rawQuery,
-        assistantReply: reply,
-        actionExecuted: 'Listed Available Mock Exams',
-      };
-    }
 
     // Practice Tab navigation interceptor
     // MUST BE EVALUATED BEFORE isStartExamIntent: matchExamFromQuery() resolves the bare
@@ -1803,33 +1720,24 @@ Return ONLY a valid JSON object matching this schema:
           // the first before the candidate heard which option was taken.
           examStore.selectOption(opt, { announce: false });
           soundEffects.playSelect();
-<<<<<<< HEAD
           const { questions, currentIndex, selectedOptions } = useExamStore.getState();
           const total = questions.length;
           const isLastQuestion = currentIndex >= total - 1;
           const allAnswered = Object.keys(selectedOptions).length >= total;
           const selection = describeOptionSelection(questions[currentIndex], opt);
 
-          let guidance = ' Say "Next question" to continue, or "Read question" to review.';
-          if (allAnswered) {
-            guidance = ` All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Read question" to review.`;
-          } else if (isLastQuestion) {
-            guidance = ` This is the last question (${total} of ${total}). Say "Submit exam" to finish and submit your test, or "Previous question" or "Read question" to review.`;
+          let guidance = isHindi
+            ? ' आगे बढ़ने के लिए "अगला प्रश्न" बोलें, या फिर से सुनने के लिए "प्रश्न पढ़ो" कहें।'
+            : ' Say "Next question" to continue, or "Read question" to review.';
+          if (!isHindi) {
+            if (allAnswered) {
+              guidance = ` All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Read question" to review.`;
+            } else if (isLastQuestion) {
+              guidance = ` This is the last question (${total} of ${total}). Say "Submit exam" to finish and submit your test, or "Previous question" or "Read question" to review.`;
+            }
           }
 
           spokenReply = `${selection}${guidance}`;
-=======
-          actionExecuted = `Selected Option ${opt}`;
-          spokenReply = isHindi
-            ? `${describeOptionSelection(
-                examStore.questions[examStore.currentIndex],
-                opt
-              )} आगे बढ़ने के लिए "अगला प्रश्न" बोलें, या फिर से सुनने के लिए "प्रश्न पढ़ो" कहें।`
-            : `${describeOptionSelection(
-                examStore.questions[examStore.currentIndex],
-                opt
-              )} Say "Next question" to continue, or "Read question" to review.`;
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
         }
         break;
       }
@@ -1850,7 +1758,6 @@ Return ONLY a valid JSON object matching this schema:
       case 'NEXT_QUESTION':
       case 'NEXT': {
         if (context.activeView === 'exam') {
-<<<<<<< HEAD
           const { questions, currentIndex, selectedOptions } = useExamStore.getState();
           const total = questions.length;
           const isAtLast = currentIndex >= total - 1;
@@ -1859,31 +1766,23 @@ Return ONLY a valid JSON object matching this schema:
           if (isAtLast) {
             soundEffects.playTimerAlert();
             actionExecuted = 'At Last Question - Ready to Submit';
-            spokenReply = answeredCount >= total
-              ? `You have reached the end of the test. All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Previous question" to review.`
-              : `You are on the last question (${total} of ${total}). ${total - answeredCount} questions remain unattempted. Say "Submit exam" to submit your test, or "Previous question" to review.`;
+            spokenReply = isHindi
+              ? 'आप पहले से ही अंतिम प्रश्न पर हैं। परीक्षा समाप्त करने के लिए "सबमिट एग्जाम" बोलें।'
+              : (answeredCount >= total
+                  ? `You have reached the end of the test. All ${total} questions have been answered. Say "Submit exam" to finish and submit your test, or "Previous question" to review.`
+                  : `You are on the last question (${total} of ${total}). ${total - answeredCount} questions remain unattempted. Say "Submit exam" to submit your test, or "Previous question" to review.`);
           } else {
-            examStore.nextQuestion();
+            examStore.nextQuestion({ announce: false });
             actionExecuted = 'Moved to Next Question';
             const nextCtx = getAssistantContext();
             const q = nextCtx.currentQuestion;
             if (q) {
               spokenReply = buildFullQuestionSpeech(q);
             } else {
-              spokenReply = 'You have reached the end of the test. Say "Submit exam" when you are ready to finish.';
+              spokenReply = isHindi
+                ? 'आप पहले से ही अंतिम प्रश्न पर हैं। परीक्षा समाप्त करने के लिए "सबमिट एग्जाम" बोलें।'
+                : 'You have reached the end of the test. Say "Submit exam" when you are ready to finish.';
             }
-=======
-          examStore.nextQuestion({ announce: false });
-          actionExecuted = 'Moved to Next Question';
-          const nextCtx = getAssistantContext();
-          const q = nextCtx.currentQuestion;
-          if (q) {
-            spokenReply = buildFullQuestionSpeech(q);
-          } else {
-            spokenReply = isHindi
-              ? 'आप पहले से ही अंतिम प्रश्न पर हैं। परीक्षा समाप्त करने के लिए "सबमिट एग्जाम" बोलें।'
-              : 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
           }
         }
         break;
@@ -1947,7 +1846,6 @@ Return ONLY a valid JSON object matching this schema:
         }
         break;
       }
-<<<<<<< HEAD
       case 'EXPLAIN_DIAGRAM':
       case 'DIAGRAM': {
         if (context.activeView === 'exam') {
@@ -1965,7 +1863,9 @@ Return ONLY a valid JSON object matching this schema:
               spokenReply = `Question ${q.questionNumber} does not have an attached diagram or visual chart.`;
             }
           }
-=======
+        }
+        break;
+      }
       case 'QUESTION_PALETTE':
       case 'PALETTE':
       case 'PALETTE_STATUS':
@@ -1992,7 +1892,6 @@ Return ONLY a valid JSON object matching this schema:
             ? `प्रश्न पैलेट सारांश: कुल ${total} प्रश्न हैं। ${answeredCount} के उत्तर दिए, ${markedCount} समीक्षा के लिए चिह्नित हैं, ${leftCount} शेष हैं। आप अभी प्रश्न ${currentIndex + 1} पर हैं।`
             : `Question Palette summary: Total ${total} questions. ${answeredCount} answered, ${markedCount} marked for review, ${leftCount} left. You are currently on Question ${currentIndex + 1}.`;
           actionExecuted = shouldOpenModal ? 'Opened Question Palette' : 'Announced Question Palette Summary';
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
         }
         break;
       }
@@ -2001,37 +1900,26 @@ Return ONLY a valid JSON object matching this schema:
       case 'SUBMIT': {
         if (context.activeView === 'exam' && !examStore.isSubmitted) {
           if (examStore.isSubmitModalOpen) {
-<<<<<<< HEAD
             examStore.setSubmitModalOpen(false);
             soundEffects.playSuccess();
             void examStore.submitExam();
             actionExecuted = 'Final Submitted Exam';
-            spokenReply = 'Final submission confirmed. Submitting your examination now...';
-=======
-            examStore.submitExam();
-            actionExecuted = 'Final Submitted Exam';
             spokenReply = isHindi
               ? 'परीक्षा सफलतापूर्वक सबमिट हो गई है! आपका प्रदर्शन रिपोर्ट लोड हो रहा है।'
-              : 'Final submission confirmed! Your exam session has been submitted. Loading your performance Diagnostic Report.';
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+              : 'Final submission confirmed! Submitting your examination now...';
           } else {
             examStore.setSubmitModalOpen(true);
             soundEffects.playTimerAlert();
             actionExecuted = 'Opened Submit Confirmation';
-<<<<<<< HEAD
             const total = examStore.questions.length;
             const answered = Object.keys(examStore.selectedOptions).length;
-            spokenReply = `Confirm exam submission window is open. You have answered ${answered} of ${total} questions. Say "Yes, Final Submit" or press Enter to submit, or say "Continue to Exam" or press Escape to resume your test.`;
-=======
             spokenReply = isHindi
               ? 'परीक्षा सबमिट करने की पुष्टि विंडो खुल गई है। टेस्ट पूरा करने के लिए "हाँ, सबमिट करो" बोलें, या वापस जाने के लिए "कैंसल" बोलें।'
-              : 'Exam submission confirmation window is now open. Say "Yes, final submit" to complete your test, or "Cancel" to return to the exam.';
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+              : `Confirm exam submission window is open. You have answered ${answered} of ${total} questions. Say "Yes, Final Submit" or press Enter to submit, or say "Continue to Exam" or press Escape to resume your test.`;
           }
         }
         break;
       }
-<<<<<<< HEAD
       case 'FINAL_SUBMIT':
       case 'CONFIRM_SUBMIT': {
         if (context.activeView === 'exam' && !examStore.isSubmitted) {
@@ -2039,13 +1927,16 @@ Return ONLY a valid JSON object matching this schema:
           soundEffects.playSuccess();
           void examStore.submitExam();
           actionExecuted = 'Final Submitted Exam';
-          spokenReply = 'Final submission confirmed. Submitting your examination now...';
+          spokenReply = isHindi
+            ? 'परीक्षा सफलतापूर्वक सबमिट हो गई है! आपका प्रदर्शन रिपोर्ट लोड हो रहा है।'
+            : 'Final submission confirmed. Submitting your examination now...';
         }
         break;
       }
       case 'CONTINUE_EXAM':
       case 'RESUME_EXAM':
-      case 'CANCEL_SUBMIT': {
+      case 'CANCEL_SUBMIT':
+      case 'CANCEL': {
         if (context.activeView === 'exam') {
           const wasModalOpen = examStore.isSubmitModalOpen;
           examStore.setSubmitModalOpen(false);
@@ -2053,19 +1944,11 @@ Return ONLY a valid JSON object matching this schema:
           actionExecuted = 'Resumed Exam (Cancelled Submission)';
           const q = context.currentQuestion;
           const qNum = q?.number || (examStore.currentIndex + 1);
-          spokenReply = wasModalOpen
-            ? `Submission cancelled. Resuming exam at Question ${qNum}. You can say "Read question", "Next question", or select an option.`
-            : `You are continuing your active exam on Question ${qNum}. Say "Read question" to hear the question.`;
-=======
-      case 'CANCEL_SUBMIT':
-      case 'CANCEL': {
-        if (examStore.isSubmitModalOpen) {
-          examStore.setSubmitModalOpen(false);
-          actionExecuted = 'Cancelled Exam Submission';
           spokenReply = isHindi
-            ? `सबमिशन रद्द कर दिया गया। प्रश्न ${examStore.currentIndex + 1} पर वापस आ गए हैं। अब आप आगे के उत्तर दे सकते हैं।`
-            : `Submission cancelled. Returning to Question ${examStore.currentIndex + 1}. You can now continue answering questions.`;
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+            ? `सबमिशन रद्द कर दिया गया। प्रश्न ${qNum} पर वापस आ गए हैं। अब आप आगे के उत्तर दे सकते हैं।`
+            : (wasModalOpen
+                ? `Submission cancelled. Resuming exam at Question ${qNum}. You can say "Read question", "Next question", or select an option.`
+                : `You are continuing your active exam on Question ${qNum}. Say "Read question" to hear the question.`);
         }
         break;
       }

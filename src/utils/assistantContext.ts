@@ -7,12 +7,8 @@ import type { QuestionItem } from '../../shared/types';
 export interface PageContextSnapshot {
   activeView: 'catalog' | 'exam' | 'analytics' | 'report';
   isSubmitted: boolean;
-<<<<<<< HEAD
-  isSubmitModalOpen: boolean;
-=======
   isSubmitModalOpen?: boolean;
   isPaletteOpen?: boolean;
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
   portalTab: 'exams' | 'practice';
   voiceLanguageMode: 'auto' | 'hi-IN' | 'en-IN' | 'en-US';
   isHindiMode: boolean;
@@ -248,10 +244,7 @@ export function getAssistantContext(): PageContextSnapshot {
     activeView: activeView,
     isSubmitted: examStore.isSubmitted,
     isSubmitModalOpen: examStore.isSubmitModalOpen,
-<<<<<<< HEAD
-=======
     isPaletteOpen: examStore.isPaletteOpen,
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     portalTab: portalTab,
     voiceLanguageMode: voiceRecognition.getLanguageMode(),
     isHindiMode: voiceRecognition.isHindiMode(),

@@ -294,13 +294,9 @@ export const useExamStore = create<ExamState>((set, get) => ({
         reason: 'LAST_QUESTION',
         message: msg,
       });
-<<<<<<< HEAD
-      useAnnouncerStore.getState().announce(msg, 'assertive', true);
-=======
       if (options?.announce !== false) {
-        useAnnouncerStore.getState().announce('You are at the last question.', 'polite', true);
+        useAnnouncerStore.getState().announce(msg, 'assertive', true);
       }
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     }
   },
 
@@ -1132,12 +1128,6 @@ export const useExamStore = create<ExamState>((set, get) => ({
       'assertive',
       true
     );
-<<<<<<< HEAD
-    } finally {
-      set({ isSubmitting: false });
-    }
-=======
-
     // Prompt for candidate feedback after the diagnostic report announcement
     setTimeout(() => {
       const s = get();
@@ -1145,7 +1135,9 @@ export const useExamStore = create<ExamState>((set, get) => ({
         s.openFeedbackModal();
       }
     }, 6000);
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
+    } finally {
+      set({ isSubmitting: false });
+    }
   },
 
   addNewExam: async (newExam: Exam, mode: 'exam' | 'practice') => {

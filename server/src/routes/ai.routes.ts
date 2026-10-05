@@ -163,14 +163,6 @@ aiRouter.post(
     form.append('model', model);
     form.append('response_format', 'json');
     form.append('temperature', '0');
-<<<<<<< HEAD
-    form.append(
-      'prompt',
-      'DristiX accessible online examination system. Voice commands: next question, previous question, select option 1, option 2, option 3, option 4, read question, clear option, check timer, submit exam.'
-    );
-=======
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
-
     // Dynamic prompt injection & language conditioning
     const reqBody = (req.body || {}) as Record<string, unknown>;
     const clientPrompt = typeof reqBody.prompt === 'string' ? reqBody.prompt.trim() : '';
@@ -240,34 +232,23 @@ aiRouter.post(
     }
 
     const data = (await upstream.json()) as { text?: string };
-<<<<<<< HEAD
-    const rawText = (data.text ?? '').trim();
-    const cleanText = isWhisperHallucination(rawText) ? '' : rawText;
-
-    if (rawText && !cleanText) {
-      console.log('[dristix] Filtered Whisper hallucination on server:', rawText);
-    }
-
-    res.json({
-      text: cleanText,
-=======
     let rawText = (data.text ?? '').trim();
 
     // Guard against Whisper hallucinations on ambient noise/silence:
     // Whisper often hallucinates Korean, Chinese, Japanese, or Cyrillic on near-silent mic audio.
-    // DristiX only accepts Hindi (Devanagari / Hinglish) and English.
     const hasForbiddenForeignScript =
       /[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u4e00-\u9fff\u3040-\u30ff\u0400-\u04ff\u0e00-\u0e7f]/.test(
         rawText
       );
-    if (hasForbiddenForeignScript) {
-      console.warn('[dristix] Discarded Whisper foreign language hallucination on ambient noise:', rawText);
+    if (hasForbiddenForeignScript || isWhisperHallucination(rawText)) {
+      if (rawText) {
+        console.log('[dristix] Filtered Whisper hallucination on server:', rawText);
+      }
       rawText = '';
     }
 
     res.json({
       text: rawText,
->>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
       provider: 'groq',
       model,
     } satisfies TranscribeResult);
