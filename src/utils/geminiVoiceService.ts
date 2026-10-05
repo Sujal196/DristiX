@@ -1,6 +1,8 @@
 import { getAssistantContext } from './assistantContext';
 import { useExamStore } from '../store/useExamStore';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
+import { usePreferencesStore } from '../store/usePreferencesStore';
+import type { TextScale } from '../store/usePreferencesStore';
 import { soundEffects } from './soundEffects';
 import { buildFullQuestionSpeech } from './voiceCommandProcessor';
 import type { CommandProcessResult } from './voiceCommandProcessor';
@@ -8,6 +10,7 @@ import { describeOptionSelection, describeClearSelection } from './optionSpeech'
 import { matchExamFromQuery } from './examMatcher';
 import { isPracticeTabNavigation } from './practiceTabNavigation';
 import { getDataSource } from '../services/dataSource';
+import { isHindiPreferred, voiceRecognition } from './voiceRecognition';
 
 const API_KEY_STORAGE = 'dristix_gemini_api_key';
 const GROQ_API_KEY_STORAGE = 'dristix_groq_api_key';
@@ -37,9 +40,14 @@ export interface GeminiParsedCommand {
     | 'MARK_REVIEW'
     | 'READ_QUESTION'
     | 'CHECK_TIMER'
+    | 'QUESTION_PALETTE'
     | 'SUBMIT_EXAM'
+<<<<<<< HEAD
     | 'FINAL_SUBMIT'
     | 'CONTINUE_EXAM'
+=======
+    | 'CANCEL_SUBMIT'
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     | 'START_EXAM'
     | 'HINT'
     | 'EXPLANATION'
@@ -427,6 +435,34 @@ class GeminiVoiceService {
    * Universal Structured System Prompt enforcing Language Matching and Strict Exam Integrity
    */
   private buildSystemPrompt(context: any, rawText: string): string {
+    const userSpeaksHindi =
+      context.voiceLanguageMode === 'hi-IN' ||
+      context.isHindiMode ||
+      voiceRecognition.isHindiMode() ||
+      /[\u0900-\u097F]/.test(rawText) ||
+      (context.voiceLanguageMode !== 'en-US' && isHindiPreferred(rawText));
+
+    const languageRule = userSpeaksHindi
+      ? `1. MANDATORY HINDI FOR ALL SPOKEN REPLIES AND ANNOUNCEMENTS (CRITICAL):
+- The candidate has switched the system language to HINDI (हिन्दी) or spoke in Hindi.
+- YOU MUST ALWAYS PRODUCE YOUR "reply" 100% IN NATURAL, ACCURATE, FLUENT, AND POLITE HINDI (DEVANAGARI SCRIPT, हिन्दी).
+- NEVER output English sentences in the "reply" field (except essential official exam acronyms like SSC CGL, RRB NTPC, UPSC CSAT).
+- Every confirmation, status explanation, question navigation announcement, and refusal must be entirely in Hindi!
+- Examples of replies in proper Hindi:
+  * "मॉक टेस्ट पेज पर वापस जा रहे हैं।"
+  * "दूसरा विकल्प चुन लिया गया है।"
+  * "अगले प्रश्न पर जा रहे हैं।"
+  * "आप अभी मॉक टेस्ट श्रृंखला पेज पर हैं।"
+  * "इस पेज पर कुल 4 मॉक टेस्ट उपलब्ध हैं।"
+  * "परीक्षा के दौरान उत्तर बताना या प्रश्न हल करना वर्जित है।"
+  * "परीक्षा सबमिट किए बिना आप बाहर नहीं जा सकते। मैंने सबमिट विंडो खोल दी है।"
+  * "आपका स्कोर 20 में से 18 रहा।"`
+      : `1. MANDATORY ENGLISH FOR ALL SPOKEN REPLIES AND ANNOUNCEMENTS:
+- Regardless of whether the user speaks or commands in English, Hindi, or Hinglish:
+  * Understand the user's command or intent fully (even if spoken in Hindi or Hinglish, e.g. "dusra option chuno", "sawal padho", "agla sawal", "test shuru karo", "wapas jao").
+  * ALWAYS produce your "reply" 100% IN NATURAL, ACCURATE, AND POLITE ENGLISH.
+  * NEVER output Hindi or Hinglish text in the "reply" field. All confirmations, questions, and announcements must be in clear English.`;
+
     return `You are DristiX AI Voice Assistant for visually impaired and competitive exam candidates in India.
 Current System State:
 - Active Screen: "${context.activeView}"
@@ -440,7 +476,15 @@ Current System State:
     ? `User is currently on the "${context.portalTab === 'practice' ? 'Interactive Practice Arena' : 'Examination & Mock Test Series'}" catalog dashboard. There are ${context.availableExams.length} Mock Examinations and ${context.availableDrills.length} Practice Drills available to attempt.`
     : context.activeView === 'exam'
     ? `User is currently taking live ${context.currentExam?.isPractice ? 'Practice Drill' : 'Mock Examination'} "${context.currentExam?.title || 'Mock Test'}" on Question ${context.currentQuestion?.number || 1} of ${context.currentExam?.totalQuestions || 10}.`
-    : `User is viewing the Student Analytics & Performance Diagnostic report.`
+    : `User is viewing their "My Performance & Score Analytics" dashboard. Real Live Metrics on Screen:
+  • Candidate: ${context.studentName} (${context.studentRoll})
+  • Tests Completed: ${context.analytics?.totalTests ?? context.totalSubmissions} total (${context.analytics?.timedExamsCount ?? 0} Timed Exams, ${context.analytics?.drillsCount ?? 0} Practice Drills)
+  • Best Score: ${context.analytics?.bestScorePercentage ?? context.bestScorePercentage}% (${context.analytics?.bestScoreMarks ?? ''} points) in "${context.analytics?.bestScoreTitle ?? context.bestScoreTitle}"
+  • Average Accuracy: ${context.analytics?.averageAccuracy ?? context.averageAccuracy}%
+  • Questions Solved: ${context.analytics?.questionsSolved ?? 0} total (${context.analytics?.correctCount ?? 0} Correct, ${context.analytics?.wrongCount ?? 0} Wrong)
+  • Recent Examination History:
+${context.analytics?.recentSubmissions?.map((s: any, idx: number) => `    ${idx + 1}. ${s.examTitle} (${s.examCode}) - ${s.examType === 'exam' ? 'Timed Exam' : 'Practice Drill'}, Date: ${s.date}, Score: ${s.score}/${s.maxScore} pts, Accuracy: ${s.percentage}%, Answers: ${s.correctCount} Correct, ${s.incorrectCount} Incorrect, ${s.unattemptedCount} Skipped`).join('\n') || '    None'}
+  If candidate asks about their score, summary, performance, questions solved, accuracy, or history, quote these exact real figures!`
 }
 - Current Exam: ${context.currentExam ? `"${context.currentExam.title}" (${context.currentExam.isPractice ? 'Practice Drill' : 'Live Mock Examination'})` : 'None (On Exam Catalog Screen)'}
 - Current Question: ${context.activeView === 'exam' && context.currentQuestion ? `Q${context.currentQuestion.number}: "${context.currentQuestion.text}"` : 'None (Not in live exam)'}
@@ -453,25 +497,21 @@ User Spoken Command: "${rawText}"
 
 CRITICAL SYSTEM RULES (STRICT COMPLIANCE REQUIRED):
 
-1. MANDATORY ENGLISH FOR ALL SPOKEN REPLIES AND ANNOUNCEMENTS:
-- Regardless of whether the user speaks or commands in English, Hindi, or Hinglish:
-  * Understand the user's command or intent fully (even if spoken in Hindi or Hinglish, e.g. "dusra option chuno", "sawal padho", "agla sawal", "test shuru karo", "wapas jao").
-  * ALWAYS produce your "reply" 100% IN NATURAL, ACCURATE, AND POLITE ENGLISH.
-  * NEVER output Hindi or Hinglish text in the "reply" field. All confirmations, questions, and announcements must be in clear English.
+${languageRule}
 
 2. STRICT EXAM INTEGRITY RULE (NO SOLVING, NO ANSWER DISCLOSURE):
 - When the candidate is taking an exam/mock test (Active Screen: "exam"):
   * If the user asks to SOLVE the question, REVEAL THE CORRECT ANSWER, EXPLAIN THE SOLUTION, GIVE HINTS, OR ASK WHICH OPTION IS RIGHT (e.g., "solve this question", "answer batao", "explain this question", "sahi option kaun sa hai", "what is the answer", "is question ko solve karo", "help me solve"):
     -> YOU MUST NEVER solve the question or reveal any answers or hints!
     -> Set "action": "EXAM_INTEGRITY_REFUSAL".
-    -> Always reply in English: "Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select an option, or check the time."
+    -> Reply: ${userSpeaksHindi ? '"परीक्षा के दौरान उत्तर बताना या सवाल हल करना वर्जित है। आप मुझसे प्रश्न पढ़ने, विकल्प चुनने, अगला सवाल देखने या शेष समय पूछने के लिए कह सकते हैं।"' : '"Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select an option, or check the time."'}
 
 3. STRICT NO-EXIT BEFORE SUBMIT RULE:
 - ONLY when taking an ACTIVE unsubmitted exam (Active Screen: "exam" AND Is Exam Submitted: "NO"):
   * If the candidate asks to go back, return to catalog, exit, close the exam, or start another exam before submitting:
     -> YOU MUST NOT exit the test or start another exam!
     -> Set "action": "SUBMIT_EXAM".
-    -> Reply in English: "You cannot leave the exam before submitting it. I have opened the submit confirmation window. Please submit your exam first."
+    -> Reply: ${userSpeaksHindi ? '"परीक्षा सबमिट किए बिना आप बाहर नहीं जा सकते। मैंने सबमिट पुष्टि विंडो खोल दी है। कृपया पहले अपनी परीक्षा सबमिट करें।"' : '"You cannot leave the exam before submitting it. I have opened the submit confirmation window. Please submit your exam first."'}
 - WHEN ON REPORT SCREEN (Active Screen: "report" OR Is Exam Submitted: "YES"):
   * If the candidate asks to go to mock test page, catalog, home, or choose another exam (e.g. "go on mock test page", "गो ऑन मॉक टेस्ट पेज", "mock test page par jao", "choose another exam", "wapas jao"):
     -> SET "action": "RETURN_CATALOG". They are completely allowed to return to the catalog!
@@ -494,11 +534,24 @@ CRITICAL SYSTEM RULES (STRICT COMPLIANCE REQUIRED):
 - "MARK_REVIEW": Mark for review
 - "READ_QUESTION": Read current question and options
 - "CHECK_TIMER": Read remaining time
+<<<<<<< HEAD
 - "SUBMIT_EXAM": Open submit modal during live exam
 - "FINAL_SUBMIT": Finalize and confirm exam submission (e.g. "yes final submit", "final submit", "confirm submit", "submit final", "yes submit")
 - "CONTINUE_EXAM": Resume active exam and close submit confirmation window (e.g. "continue to exam", "resume exam", "cancel submit", "return to exam")
+=======
+- "QUESTION_PALETTE": User asks for question palette, how many questions answered/unanswered/marked/left, or progress status (e.g. "question status", "palette batao", "kitne question bache hain", "palette kholo", "open question palette", "kitne sawal ho gaye")
+- "SUBMIT_EXAM": Open submit modal, or if modal is already open, CONFIRM and submit the test when user says "yes", "final submit", "submit", "confirm", or "haan".
+- "CANCEL_SUBMIT": Cancel submission and return to the exam when user says "cancel", "return to exam", "back", "wapas", or "no".
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
 - "ANALYTICS": View analytics
 - "LIST_EXAMS": List available exams or tests on this page (e.g. "which tests are available", "is page par kon kon se test available hai", "kaun kaun se test hai", "available exams", "list tests", "tests ke naam batao", "kon se test hai", "is page par kya test hai")
+- "LIST_THEMES": Candidate asks which themes are available or asks to list/tell the names of all themes (e.g. "which themes are available", "themes kaun kaun se hain", "list themes", "theme ke naam batao", "sare theme ka name batao", "konsi themes hain").
+- "SELECT_THEME": Candidate asks to select, switch, apply, or set a theme (e.g. "select high contrast theme", "high contrast theme", "dark theme lagao", "teal cream theme", "liquid glass theme"). In "param", provide: "high-contrast", "dark", "teal-cream", or "liquid-glass".
+- "SET_FONT_SIZE": Candidate asks to increase, decrease, or set font size/scaling (e.g. "font size badhao", "font 150%", "text bada karo", "font chhota karo"). In "param", provide: 100, 125, 150, 175, or 200.
+- "OPEN_SETTINGS": Open Accessibility Preferences and Settings dialog (e.g. "open accessibility preference", "open settings", "accessibility preferences", "settings", "सेटिंग्स खोलो", "एक्सेसिबिलिटी खोलो"). Use this whenever the candidate asks for accessibility settings or preferences. NEVER use START_EXAM for opening settings!
+- "CLOSE_SETTINGS": Close Accessibility Preferences modal (e.g. "close settings", "settings band karo", "close accessibility", "एक्सेसिबिलिटी बंद करो").
+- "OPEN_SHORTCUTS": Open Keyboard Shortcuts Reference Guide (e.g. "open shortcuts", "keyboard shortcuts", "help guide", "shortcuts guide", "कीबोर्ड शॉर्टकट", "मदद").
+- "CLOSE_SHORTCUTS": Close Keyboard Shortcuts Guide (e.g. "close shortcuts", "shortcuts band karo", "शॉर्टकट बंद करो").
 - "EXAM_INTEGRITY_REFUSAL": Triggered when user asks to solve or reveal answers in test
 - "GENERAL_QUERY": General conversation or help
 
@@ -659,8 +712,46 @@ Return ONLY a valid JSON object matching this schema:
 
     let parsed: GeminiParsedCommand | null = null;
 
-    // 1. Try Google Gemini API first
-    if (this.apiKey && this.apiKey.length > 10) {
+    // 1. Primary path: Secure Backend AI Proxy (Groq LLaMA / Gemini on server)
+    if (this.usesProxy) {
+      try {
+        const res = await getDataSource().ai.chat({
+          provider: 'groq',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Candidate Spoken Command: "${rawText}"` },
+          ],
+          temperature: 0.1,
+        });
+        const replyText = res && (res.reply || (res as any).content);
+        if (replyText) {
+          parsed = this.parseCommandJson(replyText);
+          if (parsed) console.log('🤖 Processed via Backend AI Proxy (Groq LLaMA)');
+        }
+      } catch (proxyErr) {
+        console.warn('[Gemini Voice] Proxy Groq chat attempt failed, trying Gemini proxy...', proxyErr);
+        try {
+          const res = await getDataSource().ai.chat({
+            provider: 'gemini',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Candidate Spoken Command: "${rawText}"` },
+            ],
+            temperature: 0.1,
+          });
+          const geminiReply = res && (res.reply || (res as any).content);
+          if (geminiReply) {
+            parsed = this.parseCommandJson(geminiReply);
+            if (parsed) console.log('🤖 Processed via Backend AI Proxy (Gemini)');
+          }
+        } catch (geminiProxyErr) {
+          console.warn('[Gemini Voice] Both backend proxy LLM calls failed:', geminiProxyErr);
+        }
+      }
+    }
+
+    // 2. Direct client BYO keys (Google Gemini) fallback
+    if (!parsed && this.apiKey && this.apiKey.length > 10) {
       try {
         const data = await this.executeGenerateContent({
           contents: [{ parts: [{ text: `${systemPrompt}\n\nUser Spoken Command: "${rawText}"` }] }],
@@ -673,16 +764,16 @@ Return ONLY a valid JSON object matching this schema:
         const contentText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (contentText) {
           parsed = this.parseCommandJson(contentText);
-          if (parsed) console.log('🤖 Processed via Google Gemini API');
+          if (parsed) console.log('🤖 Processed via Direct Google Gemini API');
         }
       } catch (err) {
         console.warn('[Gemini Voice] Gemini text attempt failed, shifting to Groq fallback...', err);
       }
     }
 
-    // 2. If Google Gemini failed, timed out, or returned null, immediately shift to Groq API
+    // 3. Direct client BYO keys (Groq API) fallback
     if (!parsed && this.groqApiKey) {
-      console.log('⚡ Shifting to Groq API fallback (Llama 3.3)...');
+      console.log('⚡ Shifting to Direct Groq API fallback (Llama 3.3)...');
       parsed = await this.executeGroqChatCompletion(systemPrompt, rawText);
     }
 
@@ -768,6 +859,12 @@ Return ONLY a valid JSON object matching this schema:
      * same action is suppressed so the two cannot interrupt each other.
      */
     let spokenReply = parsed.reply;
+    const isHindi =
+      context.voiceLanguageMode === 'hi-IN' ||
+      context.isHindiMode ||
+      voiceRecognition.isHindiMode() ||
+      /[\u0900-\u097F]/.test(rawQuery) ||
+      (context.voiceLanguageMode !== 'en-US' && isHindiPreferred(rawQuery));
 
     // =========================================================================
     // STRICT EXAM INTEGRITY INTERCEPTOR:
@@ -824,7 +921,9 @@ Return ONLY a valid JSON object matching this schema:
 
     if (context.activeView === 'exam' && !isDiagramQuery && isSolveOrAnswerIntent) {
       soundEffects.playTimerAlert();
-      const safeReply = 'Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select your chosen option, or check the time.';
+      const safeReply = isHindi
+        ? 'परीक्षा के दौरान उत्तर बताना या सवाल हल करना वर्जित है। आप मुझसे प्रश्न पढ़ने, विकल्प चुनने, अगला सवाल देखने या शेष समय पूछने के लिए कह सकते हैं।'
+        : 'Exam integrity mode is active. I cannot solve questions or provide answers during the live test. You can ask me to read the question, navigate, select your chosen option, or check the time.';
 
       useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
       return {
@@ -839,6 +938,7 @@ Return ONLY a valid JSON object matching this schema:
     const all = [...examStore.availableExams, ...examStore.availablePracticeDrills];
     const matchedRequestedExam = matchExamFromQuery(rawQuery, parsed.param, all);
 
+<<<<<<< HEAD
     // List Available Exams / Tests Interceptor
     // MUST BE EVALUATED BEFORE isReturnCatalogIntent so "list mock tests" or "which tests are available" or "is page par kon kon se test available hai" lists test details instead of silently returning to catalog!
     const isListExamsIntent =
@@ -1023,9 +1123,11 @@ Return ONLY a valid JSON object matching this schema:
       };
     }
 
+=======
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
     // Return to Catalog / Mock Test Page / Choose Another Exam Interceptor
-    // MUST BE EVALUATED BEFORE isStartExamIntent so phrases like "open mock test page" or "go on mocktest page" navigate to catalog!
-    // BUT if the user explicitly requested a specific exam (e.g. "open UPSC mock test"), matchedRequestedExam will be defined and we should NOT intercept as catalog navigation!
+    // MUST BE EVALUATED BEFORE isListExamsIntent & isStartExamIntent so phrases like "back to mock examination page",
+    // "open mock test page" or "go on mocktest page" navigate to catalog!
     const isReturnCatalogIntent =
       !matchedRequestedExam &&
       !isContinueExamIntent &&
@@ -1046,6 +1148,13 @@ Return ONLY a valid JSON object matching this schema:
         actionUpper === 'BACK' ||
         actionUpper === 'EXIT' ||
         actionUpper === 'HOME' ||
+        queryLower.includes('back to') ||
+        queryLower.includes('return to') ||
+        queryLower.includes('go back') ||
+        queryLower.includes('back to moak') ||
+        queryLower.includes('moak examination') ||
+        queryLower.includes('mock examination') ||
+        queryLower.includes('examination page') ||
         queryLower.includes('mock test page') ||
         queryLower.includes('mocktest page') ||
         queryLower.includes('go on mock') ||
@@ -1078,14 +1187,12 @@ Return ONLY a valid JSON object matching this schema:
         queryLower.includes('sare test') ||
         queryLower.includes('sare exam') ||
         queryLower.includes('sare mock') ||
-        queryLower.includes('show mock tests') ||
-        queryLower.includes('list mock tests') ||
         queryLower.includes('test series') ||
         queryLower.includes('home page') ||
         queryLower.includes('pehle page') ||
         queryLower.includes('main page') ||
-        // When on the report screen, any request to see tests, exams, catalog, or return goes to catalog!
-        (context.activeView === 'report' && (
+        // When on the report or analytics screen, any request to see tests, exams, catalog, or return goes to catalog!
+        ((context.activeView === 'report' || context.activeView === 'analytics') && (
           queryLower.includes('mock test') ||
           queryLower.includes('mocktest') ||
           queryLower.includes('test') ||
@@ -1103,7 +1210,9 @@ Return ONLY a valid JSON object matching this schema:
       if (context.activeView === 'exam' && !examStore.isSubmitted) {
         examStore.setSubmitModalOpen(true);
         soundEffects.playTimerAlert();
-        const safeReply = 'You cannot leave the exam before submitting it. The submit confirmation window is now open. Please submit your test first.';
+        const safeReply = isHindi
+          ? 'परीक्षा सबमिट किए बिना आप बाहर नहीं जा सकते। सबमिट पुष्टि विंडो खुल गई है। कृपया पहले अपनी परीक्षा सबमिट करें।'
+          : 'You cannot leave the exam before submitting it. The submit confirmation window is now open. Please submit your test first.';
         useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
         return {
           success: true,
@@ -1117,7 +1226,9 @@ Return ONLY a valid JSON object matching this schema:
       examStore.returnToCatalog();
       examStore.setPortalTab('exams');
       soundEffects.playSuccess();
-      const reply = 'Returned to the Examination Catalog. All available mock tests are displayed on your screen. Say "Start SSC CGL" or "Start Exam 1" to begin.';
+      const reply = isHindi
+        ? 'मॉक टेस्ट कैटलॉग पर वापस आ गए हैं। सभी उपलब्ध टेस्ट स्क्रीन पर प्रदर्शित हैं। शुरू करने के लिए किसी भी टेस्ट का नाम बोलें।'
+        : 'Returned to the Examination Catalog. All available mock tests are displayed on your screen. Say "Start SSC CGL" or "Start Exam 1" to begin.';
       useAnnouncerStore.getState().announce(reply, 'assertive', true);
       return {
         success: true,
@@ -1125,6 +1236,80 @@ Return ONLY a valid JSON object matching this schema:
         userQuery: rawQuery,
         assistantReply: reply,
         actionExecuted: 'Returned to Mock Test Catalog',
+      };
+    }
+
+    // List Available Exams / Tests Interceptor
+    const isListExamsIntent =
+      !matchedRequestedExam &&
+      (
+        actionUpper === 'LIST_EXAMS' ||
+        actionUpper === 'LIST_TESTS' ||
+        actionUpper === 'AVAILABLE_EXAMS' ||
+        actionUpper === 'AVAILABLE_TESTS' ||
+        queryLower.includes('list exam') ||
+        queryLower.includes('list test') ||
+        queryLower.includes('list mock') ||
+        queryLower.includes('available exam') ||
+        queryLower.includes('available test') ||
+        queryLower.includes('avalable') ||
+        queryLower.includes('exams ke naam') ||
+        queryLower.includes('test ke naam') ||
+        queryLower.includes('tests ke naam') ||
+        queryLower.includes('kaun kaun') ||
+        queryLower.includes('kon kon') ||
+        queryLower.includes('kaun se') ||
+        queryLower.includes('kon se') ||
+        queryLower.includes('konsa') ||
+        queryLower.includes('kaun sa') ||
+        queryLower.includes('kya kya') ||
+        queryLower.includes('uplabdh') ||
+        queryLower.includes('which test') ||
+        queryLower.includes('what test') ||
+        queryLower.includes('which exam') ||
+        queryLower.includes('what exam') ||
+        queryLower.includes('show mock tests') ||
+        queryLower.includes('list mock tests') ||
+        ((queryLower.includes('page') || queryLower.includes('yahan') || queryLower.includes('yaha')) &&
+          (queryLower.includes('test') || queryLower.includes('exam') || queryLower.includes('mock')))
+      );
+
+    if (isListExamsIntent) {
+      if (context.activeView !== 'catalog') {
+        examStore.returnToCatalog();
+        examStore.setPortalTab('exams');
+      }
+
+      if (context.portalTab === 'practice' && !queryLower.includes('mock')) {
+        const drills = context.availableDrills;
+        const names = drills.map((d, idx) => `${idx + 1}. ${d.title}`).join('; ');
+        const reply = isHindi
+          ? `इस प्रैक्टिस पेज पर कुल ${drills.length} अभ्यास उपलब्ध हैं: ${names}। शुरू करने के लिए अभ्यास का नाम बोलें।`
+          : `On this practice page, there are ${drills.length} Practice Drills available: ${names}. Say "Start Practice Drill" to begin.`;
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'LIST_PRACTICE_DRILLS',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: 'Listed Available Practice Drills',
+        };
+      }
+
+      const exams = context.availableExams;
+      const names = exams
+        .map((e, idx) => `${idx + 1}. ${e.title} (${e.durationMinutes} ${isHindi ? 'मिनट' : 'mins'}, ${e.questionCount} ${isHindi ? 'प्रश्न' : 'questions'})`)
+        .join('; ');
+      const reply = isHindi
+        ? `इस पेज पर कुल ${exams.length} मॉक टेस्ट उपलब्ध हैं: ${names}। शुरू करने के लिए टेस्ट का नाम बोलें।`
+        : `On this page, there are ${exams.length} Mock Examinations available: ${names}. Say "Start SSC CGL" or "Start Exam 1" to begin.`;
+      useAnnouncerStore.getState().announce(reply, 'assertive', true);
+      return {
+        success: true,
+        intent: 'LIST_EXAMS',
+        userQuery: rawQuery,
+        assistantReply: reply,
+        actionExecuted: 'Listed Available Mock Exams',
       };
     }
 
@@ -1146,7 +1331,9 @@ Return ONLY a valid JSON object matching this schema:
       if (context.activeView === 'exam' && !examStore.isSubmitted) {
         examStore.setSubmitModalOpen(true);
         soundEffects.playTimerAlert();
-        const safeReply = 'You cannot leave the exam before submitting it. The submit confirmation window is now open. Please submit your test first.';
+        const safeReply = isHindi
+          ? 'परीक्षा सबमिट किए बिना आप बाहर नहीं जा सकते। सबमिट पुष्टि विंडो खुल गई है। कृपया पहले अपनी परीक्षा सबमिट करें।'
+          : 'You cannot leave the exam before submitting it. The submit confirmation window is now open. Please submit your test first.';
         useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
         return {
           success: true,
@@ -1163,8 +1350,12 @@ Return ONLY a valid JSON object matching this schema:
       const drills = context.availableDrills;
       const names = drills.map((d, idx) => `${idx + 1}. ${d.title}`).join('; ');
       const reply = drills.length
-        ? `Switched to the Practice Arena tab. ${drills.length} practice drills are now listed on your screen: ${names}. Say "Start" followed by a drill name to open one.`
-        : 'Switched to the Practice Arena tab. No practice drills are available right now. Say "Go to mock test page" to see the mock examinations.';
+        ? (isHindi
+            ? `प्रैक्टिस एरिना टैब पर आ गए हैं। आपकी स्क्रीन पर कुल ${drills.length} अभ्यास उपलब्ध हैं: ${names}। शुरू करने के लिए किसी भी अभ्यास का नाम बोलें।`
+            : `Switched to the Practice Arena tab. ${drills.length} practice drills are now listed on your screen: ${names}. Say "Start" followed by a drill name to open one.`)
+        : (isHindi
+            ? 'प्रैक्टिस एरिना टैब पर आ गए हैं। अभी कोई अभ्यास उपलब्ध नहीं है।'
+            : 'Switched to the Practice Arena tab. No practice drills are available right now. Say "Go to mock test page" to see the mock examinations.');
 
       soundEffects.playSuccess();
       useAnnouncerStore.getState().announce(reply, 'assertive', true);
@@ -1177,9 +1368,353 @@ Return ONLY a valid JSON object matching this schema:
       };
     }
 
+    // Handle Accessibility Settings & Shortcuts with priority so they are never hijacked by exam starts
+    const isSettingsOrA11yIntent =
+      actionUpper === 'LIST_THEMES' ||
+      actionUpper === 'SELECT_THEME' ||
+      actionUpper === 'SET_FONT_SIZE' ||
+      actionUpper === 'OPEN_SETTINGS' ||
+      actionUpper === 'SETTINGS' ||
+      actionUpper === 'OPEN_ACCESSIBILITY' ||
+      actionUpper === 'ACCESSIBILITY' ||
+      actionUpper === 'CLOSE_SETTINGS' ||
+      actionUpper === 'OPEN_SHORTCUTS' ||
+      actionUpper === 'SHORTCUTS' ||
+      actionUpper === 'CLOSE_SHORTCUTS' ||
+      queryLower.includes('setting') ||
+      queryLower.includes('accessibility') ||
+      queryLower.includes('preference') ||
+      queryLower.includes('shortcut') ||
+      queryLower.includes('theme') ||
+      queryLower.includes('contrast') ||
+      queryLower.includes('font size') ||
+      queryLower.includes('font scale') ||
+      queryLower.includes('text scale') ||
+      queryLower.includes('सेटिंग') ||
+      queryLower.includes('एक्सेसिबिलिटी') ||
+      queryLower.includes('प्राथमिकता') ||
+      queryLower.includes('थीम') ||
+      queryLower.includes('कंट्रास्ट') ||
+      queryLower.includes('शॉर्टकट');
+
+    if (isSettingsOrA11yIntent) {
+      // 1. Theme Listing
+      const isListThemes =
+        actionUpper === 'LIST_THEMES' ||
+        ((queryLower.includes('theme') || queryLower.includes('थीम')) &&
+        (
+          queryLower.includes('kaun') ||
+          queryLower.includes('kon') ||
+          queryLower.includes('kya') ||
+          queryLower.includes('batao') ||
+          queryLower.includes('naam') ||
+          queryLower.includes('name') ||
+          queryLower.includes('konsi') ||
+          queryLower.includes('available') ||
+          queryLower.includes('list') ||
+          queryLower.includes('show') ||
+          queryLower.includes('sare') ||
+          queryLower.includes('saare') ||
+          queryLower.includes('all') ||
+          queryLower.includes('kitne') ||
+          queryLower.includes('what') ||
+          queryLower.includes('options')
+        ) &&
+        !queryLower.includes('high contrast') &&
+        !queryLower.includes('liquid glass') &&
+        !queryLower.includes('teal') &&
+        !queryLower.includes('cream'));
+
+      if (isListThemes) {
+        const reply = isHindi
+          ? 'सिस्टम में कुल 4 एक्सेसिबिलिटी थीम उपलब्ध हैं: 1. हाई कंट्रास्ट थीम (गहरा काला और इलेक्ट्रिक यलो, 21:1 अधिकतम कंट्रास्ट), 2. डार्क थीम (चारकोल ब्लैक और एमराल्ड ग्रीन), 3. टील एंड क्रीम थीम (वॉर्म आइवरी और गहरा टील), और 4. लिक्विड ग्लास थीम (फ़्रॉस्टेड क्रिस्टल पर्पल)। किसी भी थीम को लगाने के लिए बोलें: "हाई कंट्रास्ट थीम लगाओ" या "डार्क थीम चुनो"।'
+          : 'There are 4 accessibility themes available: 1. High Contrast theme (pure black and electric yellow, 21:1 maximum contrast), 2. Charcoal Dark theme (matte charcoal and emerald green), 3. Teal & Cream theme (warm ivory and deep teal), and 4. Liquid Glass theme (frosted light amethyst). Say "Select High Contrast theme" or "Select Dark theme" to apply any of them.';
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'LIST_THEMES',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: 'Listed Available Themes',
+        };
+      }
+
+      // 2. High Contrast Theme Selection
+      const isHighContrast =
+        (actionUpper === 'SELECT_THEME' && parsed.param === 'high-contrast') ||
+        queryLower.includes('high contrast') ||
+        queryLower.includes('हाई कंट्रास्ट') ||
+        (queryLower.includes('contrast') && (
+          queryLower.includes('high') ||
+          queryLower.includes('select') ||
+          queryLower.includes('apply') ||
+          queryLower.includes('set') ||
+          queryLower.includes('lagao') ||
+          queryLower.includes('karo') ||
+          queryLower.includes('chuno') ||
+          queryLower.includes('theme') ||
+          queryLower.includes('थीम')
+        ));
+
+      if (isHighContrast) {
+        usePreferencesStore.getState().setTheme('high-contrast');
+        soundEffects.playSelect();
+        const reply = isHindi
+          ? 'हाई कंट्रास्ट थीम लागू कर दी गई है। बैकग्राउंड गहरा काला और टेक्स्ट ब्राइट यलो हो गया है।'
+          : 'High Contrast theme has been applied with pure black background and electric yellow text.';
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'SELECT_THEME',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: 'Applied High Contrast Theme',
+        };
+      }
+
+      // 3. Dark Theme Selection
+      const isDarkTheme =
+        (actionUpper === 'SELECT_THEME' && parsed.param === 'dark') ||
+        (!isHighContrast &&
+        (queryLower.includes('dark') || queryLower.includes('डार्क') || queryLower.includes('night mode') || queryLower.includes('नाइट मोड') || queryLower.includes('काला थीम')) &&
+        (
+          queryLower.includes('theme') ||
+          queryLower.includes('थीम') ||
+          queryLower.includes('mode') ||
+          queryLower.includes('मोड') ||
+          queryLower.includes('select') ||
+          queryLower.includes('apply') ||
+          queryLower.includes('set') ||
+          queryLower.includes('lagao') ||
+          queryLower.includes('karo') ||
+          queryLower.includes('chuno')
+        ));
+
+      if (isDarkTheme) {
+        usePreferencesStore.getState().setTheme('dark');
+        soundEffects.playSelect();
+        const reply = isHindi
+          ? 'डार्क थीम लागू कर दी गई है। चारकोल बैकग्राउंड और एमराल्ड ग्रीन एक्सेंट सेट हो गए हैं।'
+          : 'Charcoal Dark theme has been applied with emerald green accents.';
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'SELECT_THEME',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: 'Applied Dark Theme',
+        };
+      }
+
+      // 4. Teal & Cream Theme Selection
+      const isTealCream =
+        (actionUpper === 'SELECT_THEME' && (parsed.param === 'teal-cream' || parsed.param === 'cream')) ||
+        ((queryLower.includes('teal') || queryLower.includes('cream') || queryLower.includes('ivory') || queryLower.includes('light') || queryLower.includes('लाइट') || queryLower.includes('क्रीम') || queryLower.includes('टील')) &&
+        (
+          queryLower.includes('theme') ||
+          queryLower.includes('थीम') ||
+          queryLower.includes('mode') ||
+          queryLower.includes('मोड') ||
+          queryLower.includes('select') ||
+          queryLower.includes('apply') ||
+          queryLower.includes('set') ||
+          queryLower.includes('lagao') ||
+          queryLower.includes('karo') ||
+          queryLower.includes('chuno')
+        ));
+
+      if (isTealCream) {
+        usePreferencesStore.getState().setTheme('teal-cream');
+        soundEffects.playSelect();
+        const reply = isHindi
+          ? 'टील एंड क्रीम थीम लागू कर दी गई है। वॉर्म आइवरी बैकग्राउंड और गहरा टील सेट हो गया है।'
+          : 'Teal & Cream theme has been applied with warm ivory background and deep teal accents.';
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'SELECT_THEME',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: 'Applied Teal & Cream Theme',
+        };
+      }
+
+      // 5. Liquid Glass Theme Selection
+      const isLiquidGlass =
+        (actionUpper === 'SELECT_THEME' && (parsed.param === 'liquid-glass' || parsed.param === 'glass')) ||
+        ((queryLower.includes('glass') || queryLower.includes('liquid') || queryLower.includes('purple') || queryLower.includes('frosted') || queryLower.includes('ग्लास') || queryLower.includes('लिक्विड')) &&
+        (
+          queryLower.includes('theme') ||
+          queryLower.includes('थीम') ||
+          queryLower.includes('mode') ||
+          queryLower.includes('मोड') ||
+          queryLower.includes('select') ||
+          queryLower.includes('apply') ||
+          queryLower.includes('set') ||
+          queryLower.includes('lagao') ||
+          queryLower.includes('karo') ||
+          queryLower.includes('chuno')
+        ));
+
+      if (isLiquidGlass) {
+        usePreferencesStore.getState().setTheme('liquid-glass');
+        soundEffects.playSelect();
+        const reply = isHindi
+          ? 'लिक्विड ग्लास थीम लागू कर दी गई है। फ्रॉस्टेड पर्पल क्रिस्टल सतह सेट हो गई है।'
+          : 'Liquid Glass theme has been applied with frosted amethyst crystal surfaces.';
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'SELECT_THEME',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: 'Applied Liquid Glass Theme',
+        };
+      }
+
+      // 6. Font Scaling
+      const isFontCommand =
+        actionUpper === 'SET_FONT_SIZE' ||
+        ((queryLower.includes('font') || queryLower.includes('फ़ॉन्ट') || queryLower.includes('फॉन्ट') || queryLower.includes('text size') || queryLower.includes('font size')) &&
+        (
+          queryLower.includes('badhao') ||
+          queryLower.includes('ghatao') ||
+          queryLower.includes('kam') ||
+          queryLower.includes('bada') ||
+          queryLower.includes('chhota') ||
+          queryLower.includes('increase') ||
+          queryLower.includes('decrease') ||
+          queryLower.includes('100') ||
+          queryLower.includes('125') ||
+          queryLower.includes('150') ||
+          queryLower.includes('175') ||
+          queryLower.includes('200') ||
+          queryLower.includes('reset') ||
+          queryLower.includes('normal')
+        ));
+
+      if (isFontCommand) {
+        const currentSize = usePreferencesStore.getState().fontSize;
+        const scales: TextScale[] = [100, 125, 150, 175, 200];
+        let targetSize = Number(parsed.param) as TextScale || currentSize;
+
+        if (queryLower.includes('200')) targetSize = 200;
+        else if (queryLower.includes('175')) targetSize = 175;
+        else if (queryLower.includes('150')) targetSize = 150;
+        else if (queryLower.includes('125')) targetSize = 125;
+        else if (queryLower.includes('100') || queryLower.includes('reset') || queryLower.includes('normal') || queryLower.includes('default')) targetSize = 100;
+        else if (queryLower.includes('increase') || queryLower.includes('badhao') || queryLower.includes('bada') || queryLower.includes('large') || queryLower.includes('plus')) {
+          const idx = scales.indexOf(currentSize);
+          targetSize = idx < scales.length - 1 ? scales[idx + 1] : scales[scales.length - 1];
+        } else if (queryLower.includes('decrease') || queryLower.includes('ghatao') || queryLower.includes('kam') || queryLower.includes('chhota') || queryLower.includes('small') || queryLower.includes('minus')) {
+          const idx = scales.indexOf(currentSize);
+          targetSize = idx > 0 ? scales[idx - 1] : scales[0];
+        }
+
+        usePreferencesStore.getState().setFontSize(targetSize);
+        soundEffects.playSelect();
+        const reply = isHindi
+          ? `फ़ॉन्ट का आकार ${targetSize}% पर सेट कर दिया गया है।`
+          : `Font scaling set to ${targetSize}%.`;
+        useAnnouncerStore.getState().announce(reply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'SET_FONT_SIZE',
+          userQuery: rawQuery,
+          assistantReply: reply,
+          actionExecuted: `Set Font Size to ${targetSize}%`,
+        };
+      }
+
+      const isClose =
+        actionUpper === 'CLOSE_SETTINGS' ||
+        actionUpper === 'CLOSE_SHORTCUTS' ||
+        queryLower.includes('close') ||
+        queryLower.includes('band') ||
+        queryLower.includes('hatao') ||
+        queryLower.includes('exit') ||
+        queryLower.includes('hide') ||
+        queryLower.includes('बंद') ||
+        queryLower.includes('रद्द');
+
+      const isShortcuts =
+        actionUpper === 'OPEN_SHORTCUTS' ||
+        actionUpper === 'CLOSE_SHORTCUTS' ||
+        actionUpper === 'SHORTCUTS' ||
+        queryLower.includes('shortcut') ||
+        queryLower.includes('शॉर्टकट') ||
+        queryLower.includes('guide') ||
+        queryLower.includes('गाइड') ||
+        (queryLower.includes('help') && !queryLower.includes('hint') && !queryLower.includes('solution')) ||
+        (queryLower.includes('मदद') && !queryLower.includes('हल'));
+
+      if (isShortcuts) {
+        if (isClose) {
+          examStore.setShortcutsOpen(false);
+          soundEffects.playSelect();
+          const closeReply = isHindi
+            ? 'कीबोर्ड शॉर्टकट गाइड बंद कर दी गई है।'
+            : 'Keyboard Shortcuts modal closed.';
+          useAnnouncerStore.getState().announce(closeReply, 'assertive', true);
+          return {
+            success: true,
+            intent: 'CLOSE_SHORTCUTS',
+            userQuery: rawQuery,
+            assistantReply: closeReply,
+            actionExecuted: 'Closed Keyboard Shortcuts Modal',
+          };
+        }
+
+        examStore.setShortcutsOpen(true);
+        soundEffects.playSelect();
+        const openReply = isHindi
+          ? 'कीबोर्ड शॉर्टकट गाइड खुल गई है। अगले प्रश्न के लिए N, पिछले के लिए P, विकल्पों के लिए 1 से 4, समय के लिए T, और सेटिंग्स के लिए A दबाएँ।'
+          : 'Keyboard Navigation Shortcuts Guide opened. Press N for Next Question, P for Previous, 1 to 4 for Options, T for Time, and A for Accessibility Preferences.';
+        useAnnouncerStore.getState().announce(openReply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'OPEN_SHORTCUTS',
+          userQuery: rawQuery,
+          assistantReply: openReply,
+          actionExecuted: 'Opened Keyboard Shortcuts Modal',
+        };
+      }
+
+      if (isClose) {
+        examStore.setSettingsOpen(false);
+        soundEffects.playSelect();
+        const closeReply = isHindi
+          ? 'एक्सेसिबिलिटी सेटिंग्स बंद कर दी गई हैं।'
+          : 'Accessibility Preferences modal closed.';
+        useAnnouncerStore.getState().announce(closeReply, 'assertive', true);
+        return {
+          success: true,
+          intent: 'CLOSE_SETTINGS',
+          userQuery: rawQuery,
+          assistantReply: closeReply,
+          actionExecuted: 'Closed Accessibility Preferences Modal',
+        };
+      }
+
+      examStore.setSettingsOpen(true);
+      soundEffects.playSelect();
+      const openReply = isHindi
+        ? 'एक्सेसिबिलिटी प्राथमिकताएँ और सेटिंग्स खोल दी गई हैं। यहाँ आप थीम, कंट्रास्ट, फ़ॉन्ट का आकार और आवाज़ की गति बदल सकते हैं। बंद करने के लिए Escape दबाएँ या "सेटिंग्स बंद करो" बोलें।'
+        : 'Accessibility Preferences opened. You can adjust theme contrast, font scaling, and voice settings here. Press Escape or say "Close settings" to return.';
+      useAnnouncerStore.getState().announce(openReply, 'assertive', true);
+      return {
+        success: true,
+        intent: 'OPEN_SETTINGS',
+        userQuery: rawQuery,
+        assistantReply: openReply,
+        actionExecuted: 'Opened Accessibility Preferences Modal',
+      };
+    }
+
     // Detect if this is an exam start request (either via explicit action, matched exam, or intent in reply/query)
     const isStartExamIntent =
       !isReturnCatalogIntent &&
+      !isSettingsOrA11yIntent &&
       (
         !!matchedRequestedExam ||
         actionUpper === 'START_EXAM' ||
@@ -1190,7 +1725,7 @@ Return ONLY a valid JSON object matching this schema:
         actionUpper === 'LAUNCH_EXAM' ||
         actionUpper === 'BEGIN_EXAM' ||
         (actionUpper === 'START' && !queryLower.includes('page') && !queryLower.includes('catalog')) ||
-        (actionUpper === 'OPEN' && !queryLower.includes('page') && !queryLower.includes('catalog')) ||
+        (actionUpper === 'OPEN' && !queryLower.includes('page') && !queryLower.includes('catalog') && (queryLower.includes('exam') || queryLower.includes('test') || queryLower.includes('mock') || queryLower.includes('drill'))) ||
         replyLower.includes('open kar') ||
         replyLower.includes('start kar') ||
         replyLower.includes('shuru kar') ||
@@ -1211,7 +1746,9 @@ Return ONLY a valid JSON object matching this schema:
       if (context.activeView === 'exam' && !examStore.isSubmitted) {
         examStore.setSubmitModalOpen(true);
         soundEffects.playTimerAlert();
-        const safeReply = 'An exam is already running. You cannot leave or start another test before submitting this one. Submit confirmation window opened.';
+        const safeReply = isHindi
+          ? 'एक परीक्षा पहले से चल रही है। सबमिट किए बिना आप इसे छोड़ नहीं सकते या दूसरा टेस्ट शुरू नहीं कर सकते।'
+          : 'An exam is already running. You cannot leave or start another test before submitting this one. Submit confirmation window opened.';
         useAnnouncerStore.getState().announce(safeReply, 'assertive', true);
         return {
           success: true,
@@ -1239,7 +1776,9 @@ Return ONLY a valid JSON object matching this schema:
       actionExecuted = `Started ${target.title}`;
 
       // Build a clear confirmation reply telling user exactly what opened + Q1 info
-      const confirmReply = `"${target.title}" has been opened successfully! Question 1 is now loaded on your screen. Say "Read question" to hear the full question and options.`;
+      const confirmReply = isHindi
+        ? `"${target.title}" सफलतापूर्वक शुरू हो गया है! प्रश्न 1 आपकी स्क्रीन पर लोड हो चुका है। पूरा प्रश्न और विकल्प सुनने के लिए "प्रश्न पढ़ो" बोलें।`
+        : `"${target.title}" has been opened successfully! Question 1 is now loaded on your screen. Say "Read question" to hear the full question and options.`;
 
       // Vocalize the confirmation reply
       useAnnouncerStore.getState().announce(confirmReply, 'assertive', true);
@@ -1264,6 +1803,7 @@ Return ONLY a valid JSON object matching this schema:
           // the first before the candidate heard which option was taken.
           examStore.selectOption(opt, { announce: false });
           soundEffects.playSelect();
+<<<<<<< HEAD
           const { questions, currentIndex, selectedOptions } = useExamStore.getState();
           const total = questions.length;
           const isLastQuestion = currentIndex >= total - 1;
@@ -1278,6 +1818,18 @@ Return ONLY a valid JSON object matching this schema:
           }
 
           spokenReply = `${selection}${guidance}`;
+=======
+          actionExecuted = `Selected Option ${opt}`;
+          spokenReply = isHindi
+            ? `${describeOptionSelection(
+                examStore.questions[examStore.currentIndex],
+                opt
+              )} आगे बढ़ने के लिए "अगला प्रश्न" बोलें, या फिर से सुनने के लिए "प्रश्न पढ़ो" कहें।`
+            : `${describeOptionSelection(
+                examStore.questions[examStore.currentIndex],
+                opt
+              )} Say "Next question" to continue, or "Read question" to review.`;
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
         }
         break;
       }
@@ -1298,6 +1850,7 @@ Return ONLY a valid JSON object matching this schema:
       case 'NEXT_QUESTION':
       case 'NEXT': {
         if (context.activeView === 'exam') {
+<<<<<<< HEAD
           const { questions, currentIndex, selectedOptions } = useExamStore.getState();
           const total = questions.length;
           const isAtLast = currentIndex >= total - 1;
@@ -1319,6 +1872,18 @@ Return ONLY a valid JSON object matching this schema:
             } else {
               spokenReply = 'You have reached the end of the test. Say "Submit exam" when you are ready to finish.';
             }
+=======
+          examStore.nextQuestion({ announce: false });
+          actionExecuted = 'Moved to Next Question';
+          const nextCtx = getAssistantContext();
+          const q = nextCtx.currentQuestion;
+          if (q) {
+            spokenReply = buildFullQuestionSpeech(q);
+          } else {
+            spokenReply = isHindi
+              ? 'आप पहले से ही अंतिम प्रश्न पर हैं। परीक्षा समाप्त करने के लिए "सबमिट एग्जाम" बोलें।'
+              : 'You are already on the last question. Say "Submit exam" when you are ready to finish.';
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
           }
         }
         break;
@@ -1327,14 +1892,16 @@ Return ONLY a valid JSON object matching this schema:
       case 'PREV':
       case 'PREVIOUS': {
         if (context.activeView === 'exam') {
-          examStore.previousQuestion();
+          examStore.previousQuestion({ announce: false });
           actionExecuted = 'Moved to Previous Question';
           const prevCtx = getAssistantContext();
           const q = prevCtx.currentQuestion;
           if (q) {
             spokenReply = buildFullQuestionSpeech(q);
           } else {
-            spokenReply = 'You are already on the first question.';
+            spokenReply = isHindi
+              ? 'आप पहले से ही पहले प्रश्न पर हैं।'
+              : 'You are already on the first question.';
           }
         }
         break;
@@ -1342,7 +1909,7 @@ Return ONLY a valid JSON object matching this schema:
       case 'JUMP_QUESTION': {
         const qNum = Number(parsed.param);
         if (context.activeView === 'exam' && qNum > 0 && qNum <= examStore.questions.length) {
-          examStore.jumpToQuestion(qNum - 1);
+          examStore.jumpToQuestion(qNum - 1, { announce: false });
           actionExecuted = `Jumped to Question ${qNum}`;
           const jumpCtx = getAssistantContext();
           const q = jumpCtx.currentQuestion;
@@ -1380,6 +1947,7 @@ Return ONLY a valid JSON object matching this schema:
         }
         break;
       }
+<<<<<<< HEAD
       case 'EXPLAIN_DIAGRAM':
       case 'DIAGRAM': {
         if (context.activeView === 'exam') {
@@ -1397,29 +1965,73 @@ Return ONLY a valid JSON object matching this schema:
               spokenReply = `Question ${q.questionNumber} does not have an attached diagram or visual chart.`;
             }
           }
+=======
+      case 'QUESTION_PALETTE':
+      case 'PALETTE':
+      case 'PALETTE_STATUS':
+      case 'QUESTION_STATUS': {
+        if (context.activeView === 'exam' && examStore.questions.length > 0) {
+          const { questions, selectedOptions, markedForReview, currentIndex } = examStore;
+          const total = questions.length;
+          const answeredCount = Object.keys(selectedOptions).length;
+          const markedCount = Object.keys(markedForReview).filter((id) => markedForReview[id]).length;
+          const leftCount = total - answeredCount;
+
+          const shouldOpenModal =
+            queryLower.includes('open') ||
+            queryLower.includes('kholo') ||
+            queryLower.includes('dikhao') ||
+            queryLower.includes('show') ||
+            queryLower.includes('full');
+
+          if (shouldOpenModal && !examStore.isPaletteOpen) {
+            examStore.setPaletteOpen(true);
+          }
+
+          spokenReply = isHindi
+            ? `प्रश्न पैलेट सारांश: कुल ${total} प्रश्न हैं। ${answeredCount} के उत्तर दिए, ${markedCount} समीक्षा के लिए चिह्नित हैं, ${leftCount} शेष हैं। आप अभी प्रश्न ${currentIndex + 1} पर हैं।`
+            : `Question Palette summary: Total ${total} questions. ${answeredCount} answered, ${markedCount} marked for review, ${leftCount} left. You are currently on Question ${currentIndex + 1}.`;
+          actionExecuted = shouldOpenModal ? 'Opened Question Palette' : 'Announced Question Palette Summary';
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
         }
         break;
       }
       case 'SUBMIT_EXAM':
+      case 'FINAL_SUBMIT':
       case 'SUBMIT': {
         if (context.activeView === 'exam' && !examStore.isSubmitted) {
           if (examStore.isSubmitModalOpen) {
+<<<<<<< HEAD
             examStore.setSubmitModalOpen(false);
             soundEffects.playSuccess();
             void examStore.submitExam();
             actionExecuted = 'Final Submitted Exam';
             spokenReply = 'Final submission confirmed. Submitting your examination now...';
+=======
+            examStore.submitExam();
+            actionExecuted = 'Final Submitted Exam';
+            spokenReply = isHindi
+              ? 'परीक्षा सफलतापूर्वक सबमिट हो गई है! आपका प्रदर्शन रिपोर्ट लोड हो रहा है।'
+              : 'Final submission confirmed! Your exam session has been submitted. Loading your performance Diagnostic Report.';
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
           } else {
             examStore.setSubmitModalOpen(true);
             soundEffects.playTimerAlert();
             actionExecuted = 'Opened Submit Confirmation';
+<<<<<<< HEAD
             const total = examStore.questions.length;
             const answered = Object.keys(examStore.selectedOptions).length;
             spokenReply = `Confirm exam submission window is open. You have answered ${answered} of ${total} questions. Say "Yes, Final Submit" or press Enter to submit, or say "Continue to Exam" or press Escape to resume your test.`;
+=======
+            spokenReply = isHindi
+              ? 'परीक्षा सबमिट करने की पुष्टि विंडो खुल गई है। टेस्ट पूरा करने के लिए "हाँ, सबमिट करो" बोलें, या वापस जाने के लिए "कैंसल" बोलें।'
+              : 'Exam submission confirmation window is now open. Say "Yes, final submit" to complete your test, or "Cancel" to return to the exam.';
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
           }
         }
         break;
       }
+<<<<<<< HEAD
       case 'FINAL_SUBMIT':
       case 'CONFIRM_SUBMIT': {
         if (context.activeView === 'exam' && !examStore.isSubmitted) {
@@ -1444,14 +2056,24 @@ Return ONLY a valid JSON object matching this schema:
           spokenReply = wasModalOpen
             ? `Submission cancelled. Resuming exam at Question ${qNum}. You can say "Read question", "Next question", or select an option.`
             : `You are continuing your active exam on Question ${qNum}. Say "Read question" to hear the question.`;
+=======
+      case 'CANCEL_SUBMIT':
+      case 'CANCEL': {
+        if (examStore.isSubmitModalOpen) {
+          examStore.setSubmitModalOpen(false);
+          actionExecuted = 'Cancelled Exam Submission';
+          spokenReply = isHindi
+            ? `सबमिशन रद्द कर दिया गया। प्रश्न ${examStore.currentIndex + 1} पर वापस आ गए हैं। अब आप आगे के उत्तर दे सकते हैं।`
+            : `Submission cancelled. Returning to Question ${examStore.currentIndex + 1}. You can now continue answering questions.`;
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
         }
         break;
       }
       case 'READ_REPORT_SUMMARY':
       case 'SUMMARY': {
         const rep = context.diagnosticReport;
-        const sum = rep?.verbalSummary?.join(' ') || `Your score was ${rep?.totalScore || 0} out of ${rep?.maxScore || 20}.`;
-        const reply = `Diagnostic Summary for ${rep?.examTitle || 'Exam'}: ${sum}`;
+        const sum = rep?.verbalSummary?.join(' ') || (isHindi ? `आपका स्कोर 20 में से ${rep?.totalScore || 0} रहा।` : `Your score was ${rep?.totalScore || 0} out of ${rep?.maxScore || 20}.`);
+        const reply = isHindi ? `"${rep?.examTitle || 'परीक्षा'}" का डायग्नोस्टिक सारांश: ${sum}` : `Diagnostic Summary for ${rep?.examTitle || 'Exam'}: ${sum}`;
         useAnnouncerStore.getState().announce(reply, 'assertive', true);
         return {
           success: true,
@@ -1464,7 +2086,9 @@ Return ONLY a valid JSON object matching this schema:
       case 'RETAKE_EXAM':
       case 'RETAKE': {
         examStore.resetExam();
-        const reply = 'Exam has been reset. Question 1 is now loaded on your screen. Say "Read question" to begin.';
+        const reply = isHindi
+          ? 'परीक्षा रीसेट हो गई है। प्रश्न 1 आपकी स्क्रीन पर लोड हो चुका है। शुरू करने के लिए "प्रश्न पढ़ो" बोलें।'
+          : 'Exam has been reset. Question 1 is now loaded on your screen. Say "Read question" to begin.';
         useAnnouncerStore.getState().announce(reply, 'assertive', true);
         return {
           success: true,
@@ -1476,8 +2100,30 @@ Return ONLY a valid JSON object matching this schema:
       }
       case 'ANALYTICS':
       case 'VIEW_ANALYTICS': {
-        examStore.openAnalytics();
-        actionExecuted = 'Opened Analytics';
+        if (context.activeView !== 'analytics') {
+          examStore.openAnalytics();
+          actionExecuted = 'Opened Analytics';
+        } else {
+          actionExecuted = 'Read Analytics Summary';
+        }
+        const a = context.analytics;
+        const total = a?.totalTests ?? context.totalSubmissions;
+        const timed = a?.timedExamsCount ?? 0;
+        const drills = a?.drillsCount ?? 0;
+        const bestPct = a?.bestScorePercentage ?? context.bestScorePercentage;
+        const bestTitle = a?.bestScoreTitle ?? context.bestScoreTitle;
+        const bestMarks = a?.bestScoreMarks ?? '';
+        const avgAcc = a?.averageAccuracy ?? context.averageAccuracy;
+        const qSolved = a?.questionsSolved ?? 0;
+        const corr = a?.correctCount ?? 0;
+        const wrong = a?.wrongCount ?? 0;
+        const latest = a?.recentSubmissions?.[0];
+        const latestDetails = latest
+          ? ` Latest test was "${latest.examTitle}" on ${latest.date}, scored ${latest.score} out of ${latest.maxScore} points with ${latest.percentage}% accuracy.`
+          : '';
+        spokenReply = isHindi
+          ? `${context.studentName} का परफॉर्मेंस सारांश: कुल ${total} टेस्ट दिए (${timed} समयबद्ध मॉक टेस्ट, ${drills} प्रैक्टिस ड्रिल)। सर्वश्रेष्ठ स्कोर: "${bestTitle}" में ${bestPct}% (${bestMarks} अंक)। औसत सटीकता: ${avgAcc}%। कुल हल किए गए प्रश्न: ${qSolved} (${corr} सही, ${wrong} गलत)।${latest ? ` हालिया टेस्ट "${latest.examTitle}" था जिसमें ${latest.score} अंक और ${latest.percentage}% सटीकता रही।` : ''}`
+          : `Performance summary for ${context.studentName}: Tests completed: ${total} total (${timed} timed exams, ${drills} practice drills). Best score: ${bestPct} percent (${bestMarks} points) in "${bestTitle}". Average accuracy: ${avgAcc} percent. Questions solved: ${qSolved} total (${corr} correct, ${wrong} wrong).${latestDetails}`;
         break;
       }
       case 'WHERE_AM_I':
@@ -1488,7 +2134,24 @@ Return ONLY a valid JSON object matching this schema:
         if (context.activeView === 'report') {
           const rep = context.diagnosticReport;
           const examTitle = rep?.examTitle || context.currentExam?.title || 'Mock Examination';
-          whereReply = `You have completed and submitted "${examTitle}". You are currently on the Performance Diagnostic Report and Score Analysis screen. Your score is ${rep?.totalScore || 0} out of ${rep?.maxScore || 20} (${rep?.scorePercentage || 0}%). You can say "Read summary", "Retake test", or "Go to mock test page".`;
+          whereReply = isHindi
+            ? `आपने "${examTitle}" सफलतापूर्वक पूरी करके सबमिट कर दी है। आप अभी परफॉर्मेंस रिपोर्ट और स्कोर विश्लेषण स्क्रीन पर हैं। आपका स्कोर ${rep?.totalScore || 0} / ${rep?.maxScore || 20} (${rep?.scorePercentage || 0}%) है। आप "समरी पढ़ो", "दोबारा टेस्ट दो", या "मॉक टेस्ट पेज पर जाओ" बोल सकते हैं।`
+            : `You have completed and submitted "${examTitle}". You are currently on the Performance Diagnostic Report and Score Analysis screen. Your score is ${rep?.totalScore || 0} out of ${rep?.maxScore || 20} (${rep?.scorePercentage || 0}%). You can say "Read summary", "Retake test", or "Go to mock test page".`;
+        } else if (context.activeView === 'analytics') {
+          const a = context.analytics;
+          const total = a?.totalTests ?? context.totalSubmissions;
+          const timed = a?.timedExamsCount ?? 0;
+          const drills = a?.drillsCount ?? 0;
+          const bestPct = a?.bestScorePercentage ?? context.bestScorePercentage;
+          const bestTitle = a?.bestScoreTitle ?? context.bestScoreTitle;
+          const bestMarks = a?.bestScoreMarks ?? '';
+          const avgAcc = a?.averageAccuracy ?? context.averageAccuracy;
+          const qSolved = a?.questionsSolved ?? 0;
+          const corr = a?.correctCount ?? 0;
+          const wrong = a?.wrongCount ?? 0;
+          whereReply = isHindi
+            ? `आप अपने परफॉर्मेंस और स्कोर एनालिटिक्स डैशबोर्ड पर हैं। कुल ${total} टेस्ट दिए हैं (${timed} समयबद्ध टेस्ट, ${drills} प्रैक्टिस ड्रिल)। सर्वश्रेष्ठ स्कोर: "${bestTitle}" में ${bestPct}% (${bestMarks} अंक)। औसत सटीकता: ${avgAcc}%। कुल हल प्रश्न: ${qSolved} (${corr} सही, ${wrong} गलत)। आप "समरी सुनो", "हिस्ट्री बताओ" या "टेस्ट पेज पर जाओ" बोल सकते हैं।`
+            : `You are on your Performance & Score Analytics Dashboard. Real data recorded: ${total} tests completed (${timed} timed exams, ${drills} practice drills). Best score: ${bestPct}% (${bestMarks} points) in "${bestTitle}". Average accuracy: ${avgAcc}%. Questions solved: ${qSolved} (${corr} correct, ${wrong} wrong). Say "Listen to summary", "History batao", or "Back to tests".`;
         }
         useAnnouncerStore.getState().announce(whereReply, 'assertive', true);
         return {

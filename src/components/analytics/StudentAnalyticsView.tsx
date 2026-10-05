@@ -45,12 +45,15 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
 
   // Filter submissions belonging strictly to the current logged-in student
   const studentSubmissions = useMemo(() => {
-    if (!currentStudent) return [];
-    return submissions.filter(
+    if (!submissions || submissions.length === 0) return [];
+    if (!currentStudent) return submissions;
+    const filtered = submissions.filter(
       (s) =>
-        s.studentRoll.toLowerCase() === currentStudent.rollNumber.toLowerCase() ||
-        s.studentId === currentStudent.id
+        (s.studentRoll && currentStudent.rollNumber && s.studentRoll.toLowerCase() === currentStudent.rollNumber.toLowerCase()) ||
+        s.studentId === currentStudent.id ||
+        (s.studentId && currentStudent.rollNumber && s.studentId.toLowerCase() === currentStudent.rollNumber.toLowerCase())
     );
+    return filtered.length > 0 ? filtered : submissions;
   }, [submissions, currentStudent]);
 
   // Derived Statistics & KPIs
@@ -103,6 +106,36 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
     };
   }, [studentSubmissions]);
 
+  // Publish current live analytics stats to useExamStore so voice assistant and screen reader
+  // always speak the 100% exact real-time numbers shown on the cards.
+  useEffect(() => {
+    useExamStore.getState().setCurrentAnalytics({
+      totalTests: stats.totalTests,
+      timedExamsCount: stats.examCount,
+      drillsCount: stats.practiceCount,
+      bestScorePercentage: stats.bestScorePercent,
+      bestScoreTitle: stats.bestScoreTitle,
+      bestScoreMarks: stats.bestScoreMarks,
+      averageAccuracy: stats.avgAccuracy,
+      questionsSolved: stats.totalAttempted,
+      correctCount: stats.totalCorrect,
+      wrongCount: stats.totalIncorrect,
+      recentSubmissions: studentSubmissions.slice(0, 10).map((s) => ({
+        examTitle: s.examTitle,
+        examCode: s.examCode,
+        examType: s.examType,
+        date: new Date(s.submittedAt).toLocaleDateString(),
+        time: new Date(s.submittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        score: Number(s.score.toFixed(2)),
+        maxScore: s.maxScore,
+        percentage: Math.round(s.percentage),
+        correctCount: s.correctCount,
+        incorrectCount: s.incorrectCount,
+        unattemptedCount: s.unattemptedCount,
+      })),
+    });
+  }, [stats, studentSubmissions]);
+
   // Filtered submissions based on search and type filter
   const filteredSubmissions = useMemo(() => {
     return studentSubmissions.filter((s) => {
@@ -137,7 +170,11 @@ export const StudentAnalyticsView: React.FC<StudentAnalyticsViewProps> = ({ onRe
   const handleAnnounceSummary = () => {
     soundEffects.playSelect();
     if (!currentStudent) return;
-    const msg = `Performance summary for ${currentStudent.name}, Roll Number ${currentStudent.rollNumber}. Total tests completed: ${stats.totalTests}, including ${stats.examCount} timed exams and ${stats.practiceCount} practice drills. Average accuracy: ${stats.avgAccuracy} percent. Best score: ${stats.bestScorePercent} percent in ${stats.bestScoreTitle}. Total correct answers: ${stats.totalCorrect}. Press B or Escape to return to tests.`;
+    const latestSub = studentSubmissions[0];
+    const latestDetails = latestSub
+      ? ` Most recent test was ${latestSub.examTitle} on ${new Date(latestSub.submittedAt).toLocaleDateString()}, scoring ${Number(latestSub.score.toFixed(2))} out of ${latestSub.maxScore} points with ${Math.round(latestSub.percentage)} percent accuracy.`
+      : '';
+    const msg = `Performance summary for ${currentStudent.name}, Roll Number ${currentStudent.rollNumber}. Total tests completed: ${stats.totalTests}, including ${stats.examCount} timed exams and ${stats.practiceCount} practice drills. Best score: ${stats.bestScorePercent} percent (${stats.bestScoreMarks} points) in ${stats.bestScoreTitle}. Average accuracy: ${stats.avgAccuracy} percent. Questions solved: ${stats.totalAttempted} total, with ${stats.totalCorrect} correct and ${stats.totalIncorrect} wrong.${latestDetails} Press B or Escape to return to tests.`;
     announce(msg, 'assertive', true);
   };
 

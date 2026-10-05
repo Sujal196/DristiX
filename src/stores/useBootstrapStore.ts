@@ -51,6 +51,9 @@ export const useBootstrapStore = create<BootstrapState>((set) => ({
       // localStorage — an old offline-mode session left in a browser must not
       // make the app look signed in when the server has no session for it.
       useAuthStore.getState().setSession(user);
+      if (user) {
+        void useAuthStore.getState().syncSubmissions();
+      }
 
       set({ status: 'ready', session: user, error: null });
     } catch (err) {

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useExamStore } from '../../store/useExamStore';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { soundEffects } from '../../utils/soundEffects';
+import { isHindiPreferred } from '../../utils/voiceRecognition';
 import { X, Keyboard } from 'lucide-react';
 
 export const ShortcutsHelpModal: React.FC = () => {
@@ -15,16 +16,38 @@ export const ShortcutsHelpModal: React.FC = () => {
         closeButtonRef.current?.focus();
       }, 50);
 
+      const inHindi = isHindiPreferred();
       useAnnouncerStore
         .getState()
         .announce(
-          'Keyboard Navigation Shortcuts Guide opened. Press A for Accessibility Preferences, H for Help, N for next question, P for previous, 1 to 4 to select options, and Escape to close.',
+          inHindi
+            ? 'कीबोर्ड शॉर्टकट गाइड खुल गई है। एक्सेसिबिलिटी प्राथमिकताओं के लिए A, मदद के लिए H, अगले प्रश्न के लिए N, पिछले के लिए P, विकल्पों के लिए 1 से 4, और बंद करने के लिए Escape दबाएँ।'
+            : 'Keyboard Navigation Shortcuts Guide opened. Press A for Accessibility Preferences, H for Help, N for next question, P for previous, 1 to 4 to select options, and Escape to close.',
           'assertive',
           true,
           true
         );
     }
   }, [isShortcutsOpen]);
+
+  // Global Escape key capture listener to guarantee modal closes regardless of which element has focus
+  useEffect(() => {
+    if (!isShortcutsOpen) return;
+
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setShortcutsOpen(false);
+        soundEffects.playSelect();
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown, { capture: true });
+    };
+  }, [isShortcutsOpen, setShortcutsOpen]);
 
   const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
@@ -81,6 +104,8 @@ export const ShortcutsHelpModal: React.FC = () => {
     { key: '+ or -', desc: 'Increase (+) or Decrease (-) UI & Text Magnification Scale globally' },
     { key: '1 to 5', desc: 'In Accessibility modal: jump directly to 100%, 125%, 150%, 175%, 200%' },
     { key: 'Alt + S', desc: 'Submit Examination Session' },
+    { key: 'F', desc: 'Open Exam Experience & Feedback modal on Diagnostic Report' },
+    { key: 'Ctrl + Enter', desc: 'Submit completed feedback form instantly' },
     { key: 'Escape', desc: 'Close any open dialog or stop voice reading' },
   ];
 

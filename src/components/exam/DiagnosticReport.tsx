@@ -16,10 +16,23 @@ import {
   Printer,
   ChevronDown,
   ChevronUp,
+  MessageSquare,
+  Sparkles,
+  Star,
 } from 'lucide-react';
 
 export const DiagnosticReport: React.FC = () => {
-  const { currentExam, questions, selectedOptions, markedForReview, getDiagnosticReport, resetExam, returnToCatalog } = useExamStore();
+  const {
+    currentExam,
+    questions,
+    selectedOptions,
+    markedForReview,
+    getDiagnosticReport,
+    resetExam,
+    returnToCatalog,
+    feedback,
+    openFeedbackModal,
+  } = useExamStore();
   const [filterType, setFilterType] = useState<'all' | 'correct' | 'incorrect' | 'marked'>('all');
   const [expandedQuestions, setExpandedQuestions] = useState<Record<string, boolean>>({});
 
@@ -119,6 +132,20 @@ export const DiagnosticReport: React.FC = () => {
 
             <button
               type="button"
+              onClick={() => openFeedbackModal(true)}
+              className={`px-4 py-2 font-bold rounded-lg border-2 border-theme-border flex items-center gap-1.5 transition text-sm ${
+                feedback.isSubmitted
+                  ? 'bg-amber-400/10 text-amber-500 border-amber-400/40'
+                  : 'bg-theme-bg hover:bg-theme-surface text-theme-text'
+              }`}
+              aria-label="Give exam feedback (Shortcut: F)"
+            >
+              <MessageSquare className="w-4 h-4 text-amber-400" aria-hidden="true" />
+              <span>{feedback.isSubmitted ? `Feedback (${feedback.rating}★)` : 'Exam Feedback'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => window.print()}
               className="px-4 py-2 font-bold rounded-lg border-2 border-theme-border bg-theme-bg hover:bg-theme-surface flex items-center gap-1.5 transition text-sm"
               aria-label="Print or save diagnostic report"
@@ -190,6 +217,63 @@ export const DiagnosticReport: React.FC = () => {
               </li>
             ))}
           </ul>
+        </section>
+
+        {/* Candidate Exam Feedback Card / Callout */}
+        <section aria-label="Examination Feedback" className="mt-6">
+          {feedback.isSubmitted ? (
+            <div className="p-4 sm:p-5 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/10 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-500 border border-emerald-500/30">
+                  <CheckCircle2 className="w-6 h-6" aria-hidden="true" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-base text-theme-text flex items-center gap-2">
+                    <span>Feedback Recorded</span>
+                    <span className="text-amber-400 font-black text-sm">
+                      {'★'.repeat(feedback.rating)}
+                      <span className="text-xs text-theme-text-secondary ml-1.5 font-bold">({feedback.rating}/5 Stars)</span>
+                    </span>
+                  </h4>
+                  <p className="text-xs sm:text-sm text-theme-text-secondary mt-0.5">
+                    Thank you! Your feedback helps us continuously improve accessibility for all students.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => openFeedbackModal(true)}
+                className="px-4 py-2 rounded-lg border-2 border-theme-border bg-theme-surface hover:bg-theme-bg text-xs font-bold transition flex items-center gap-1.5"
+              >
+                <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Edit Feedback</span>
+              </button>
+            </div>
+          ) : (
+            <div className="p-4 sm:p-5 rounded-xl border-2 border-theme-primary/30 bg-theme-primary/5 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-theme-primary/10 text-theme-primary border border-theme-primary/20">
+                  <Sparkles className="w-6 h-6" aria-hidden="true" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-base text-theme-text">
+                    How was your examination experience?
+                  </h4>
+                  <p className="text-xs sm:text-sm text-theme-text-secondary mt-0.5">
+                    Rate from 1 to 5 stars, select quick tags, or dictate thoughts using voice (Press F or say "Rating 5").
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => openFeedbackModal(true)}
+                className="px-5 py-2.5 rounded-xl bg-theme-primary text-white text-xs sm:text-sm font-bold hover:brightness-110 transition shadow-md flex items-center gap-2"
+              >
+                <Star className="w-4 h-4 fill-amber-300 stroke-amber-300" aria-hidden="true" />
+                <span>Rate & Share Feedback</span>
+              </button>
+            </div>
+          )}
         </section>
       </section>
 

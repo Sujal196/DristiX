@@ -94,6 +94,16 @@ export interface ExamDataSource {
    * shared cohort.
    */
   listAllSubmissions(): Promise<AttemptSummary[]>;
+  submitFeedback(payload: {
+    examId: string;
+    examTitle: string;
+    rating: number;
+    tags?: string[];
+    comment?: string;
+    inputMethod?: 'voice' | 'keyboard' | 'mixed';
+    studentRoll?: string;
+    studentName?: string;
+  }): Promise<{ ok: boolean; message: string }>;
 }
 
 export interface ExplainDiagramPayload {
@@ -106,7 +116,11 @@ export interface ExplainDiagramPayload {
 
 export interface AiDataSource {
   chat(request: AiChatRequest): Promise<AiChatResponse>;
-  transcribe(audio: Blob, filename?: string): Promise<TranscribeResult>;
+  transcribe(
+    audio: Blob,
+    filename?: string,
+    options?: { prompt?: string; language?: string }
+  ): Promise<TranscribeResult>;
   explainDiagram(payload: ExplainDiagramPayload): Promise<import('../../../shared/types').AiDiagramExplanation>;
   /** False when no provider key is configured anywhere, so the UI can say so. */
   isConfigured(): boolean;

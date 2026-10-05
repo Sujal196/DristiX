@@ -153,8 +153,13 @@ export function useGlobalShortcuts() {
         return;
       }
 
-      // On Diagnostic Report screen: 'r' to retake, 's' to read summary or stop speech
+      // On Diagnostic Report screen: 'r' to retake, 's' to read summary, 'f' to open feedback
       if (store.isSubmitted) {
+        if (e.key.toLowerCase() === 'f' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          store.openFeedbackModal(true);
+          return;
+        }
         if (e.key.toLowerCase() === 'r' && !e.altKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           store.resetExam();
@@ -175,7 +180,7 @@ export function useGlobalShortcuts() {
         }
       }
 
-      // Toggle AI Conversational Voice Assistant 'v' or 'V' (available everywhere outside text inputs)
+      // Toggle AI Conversational Voice Assistant 'v' or 'V'
       if (e.key.toLowerCase() === 'v' && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent('dristix-toggle-voice'));

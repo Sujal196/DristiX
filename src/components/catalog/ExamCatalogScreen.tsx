@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Keyboard,
   Sparkles,
+  WifiOff,
 } from 'lucide-react';
 
 export const ExamCatalogScreen: React.FC = () => {
@@ -296,7 +297,7 @@ export const ExamCatalogScreen: React.FC = () => {
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-black ${
                       portalTab === 'exams'
-                        ? 'bg-white/20 text-white'
+                        ? 'bg-slate-900 text-white shadow-xs'
                         : 'bg-theme-border/60 text-theme-text'
                     }`}
                   >
@@ -305,7 +306,7 @@ export const ExamCatalogScreen: React.FC = () => {
                 </div>
                 <p
                   className={`text-[11px] leading-snug font-medium ${
-                    portalTab === 'exams' ? 'text-white/90' : 'text-theme-text-secondary'
+                    portalTab === 'exams' ? 'text-white' : 'text-theme-text-secondary'
                   }`}
                 >
                   Timed Simulation Tests
@@ -337,7 +338,7 @@ export const ExamCatalogScreen: React.FC = () => {
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-black ${
                       portalTab === 'practice'
-                        ? 'bg-white/20 text-white'
+                        ? 'bg-slate-900 text-white shadow-xs'
                         : 'bg-theme-border/60 text-theme-text'
                     }`}
                   >
@@ -346,7 +347,7 @@ export const ExamCatalogScreen: React.FC = () => {
                 </div>
                 <p
                   className={`text-[11px] leading-snug font-medium ${
-                    portalTab === 'practice' ? 'text-white/90' : 'text-theme-text-secondary'
+                    portalTab === 'practice' ? 'text-white' : 'text-theme-text-secondary'
                   }`}
                 >
                   Hints &amp; Step-by-Step Solutions
@@ -466,13 +467,21 @@ export const ExamCatalogScreen: React.FC = () => {
             aria-labelledby="catalog-heading"
           >
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full text-xs font-black bg-theme-primary/10 text-theme-primary border border-theme-primary/30 mb-2">
-                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>
-                  {portalTab === 'practice'
-                    ? 'Interactive Practice Drills'
-                    : 'Full-Length Simulation Tests'}
-                </span>
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full text-xs font-black bg-theme-primary/10 text-theme-primary border border-theme-primary/30">
+                  <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>
+                    {portalTab === 'practice'
+                      ? 'Interactive Practice Drills'
+                      : 'Full-Length Simulation Tests'}
+                  </span>
+                </div>
+                {portalTab === 'practice' && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                    <WifiOff className="w-3 h-3" aria-hidden="true" />
+                    100% Offline Ready (IndexedDB Cached)
+                  </span>
+                )}
               </div>
               <h1
                 id="catalog-heading"
@@ -706,6 +715,15 @@ export const ExamCatalogScreen: React.FC = () => {
                         </div>
 
                         <div className="flex items-center gap-2">
+                          {isPractice && (
+                            <span
+                              className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1"
+                              title="100% available without active internet connection"
+                            >
+                              <WifiOff className="w-2.5 h-2.5" aria-hidden="true" />
+                              Offline Ready
+                            </span>
+                          )}
                           <span
                             className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${difficultyBadgeColor}`}
                           >

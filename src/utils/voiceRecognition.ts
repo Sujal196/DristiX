@@ -53,10 +53,21 @@ class VoiceRecognitionService {
     });
 
     speechEngine.onSpeechEnd(() => {
+<<<<<<< HEAD
       // When TTS finishes, immediately resume listening state without sluggish artificial delays
       if (this.isListeningActive) {
         this.setState('listening');
         this.scheduleRestart(50);
+=======
+      // When TTS finishes, quickly restore listening state without keeping mic muted
+      if (this.isListeningActive) {
+        setTimeout(() => {
+          if (this.isListeningActive && !speechEngine.isSpeaking()) {
+            this.setState('listening');
+            this.scheduleRestart(80);
+          }
+        }, 150);
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
       }
     });
   }
@@ -103,10 +114,6 @@ class VoiceRecognitionService {
     return this.currentLanguage === 'hi-IN' ? 'en-US' : 'hi-IN';
   }
 
-  private isMobile(): boolean {
-    if (typeof navigator === 'undefined') return false;
-    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  }
 
   private initRecognition() {
     if (typeof window === 'undefined') return;
@@ -139,9 +146,11 @@ class VoiceRecognitionService {
 
     try {
       const rec = new SpeechRecognitionAPI();
-      // Desktop handles continuous mode well. Mobile relies on the restart
-      // loop in scheduleRestart(), which fires from onend after each utterance.
-      rec.continuous = !this.isMobile();
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /android|iphone|ipad|ipod/i.test(navigator.userAgent || '');
+      // Continuous mode on desktop prevents constant onend/restart cycling
+      rec.continuous = !isMobile;
       rec.interimResults = true;
       rec.lang = this.effectiveLanguage;
       rec.maxAlternatives = 5;
@@ -152,8 +161,7 @@ class VoiceRecognitionService {
       };
 
       rec.onresult = (event: any) => {
-        // Any recognised text proves the mic is live, which resets the silent
-        // restart counter that guards against a dead microphone.
+        // Any recognised audio proves the mic is live
         this.lastTranscriptAt = Date.now();
         this.consecutiveSilentRestarts = 0;
 
@@ -248,40 +256,15 @@ class VoiceRecognitionService {
         return;
       }
 
-      // Restarting is only useful if recognition has worked at least once. A
-      // loop of restarts that never produces a word is indistinguishable from a
-      // frozen microphone, so try the other language first, then give up.
-      if (Date.now() - this.lastTranscriptAt > 12000) {
-        this.consecutiveSilentRestarts++;
-
-        // In auto mode, one retry in the other language is often enough: the
-        // speech service may simply not support the locale we guessed.
-        if (
-          this.languageMode === 'auto' &&
-          !this.hasTriedFallback &&
-          this.consecutiveSilentRestarts >= 2
-        ) {
-          this.currentLanguage = this.fallbackLanguage;
-          this.hasTriedFallback = true;
-          this.consecutiveSilentRestarts = 0;
-          this.initRecognition();
-          this.scheduleRestart(200);
-          return;
-        }
-
-        if (this.consecutiveSilentRestarts >= 4) {
-          this.shouldAutoRestart = false;
-          this.isListeningActive = false;
-          this.setState('error');
-          this.notifyError(
-            this.hasTriedFallback
-              ? `No speech detected in ${this.currentLanguage} or ${this.fallbackLanguage}. Check that nothing else is using the microphone, or type your command in the box below.`
-              : 'The microphone is not producing any speech. Check that nothing else is using it, or type your command in the box below.'
-          );
-          return;
-        }
-      } else {
-        this.consecutiveSilentRestarts = 0;
+      // Seamlessly switch between auto languages if prolonged silence
+      if (
+        this.languageMode === 'auto' &&
+        !this.hasTriedFallback &&
+        Date.now() - this.lastTranscriptAt > 20000
+      ) {
+        this.currentLanguage = this.fallbackLanguage;
+        this.hasTriedFallback = true;
+        this.initRecognition();
       }
 
       try {
@@ -383,6 +366,10 @@ class VoiceRecognitionService {
     return this.languageMode;
   }
 
+  public isHindiMode(): boolean {
+    return this.languageMode === 'hi-IN';
+  }
+
   /**
    * Selects the recognition language. Accepts 'auto', which follows the browser
    * locale and retries the other language if nothing is heard.
@@ -420,6 +407,9 @@ class VoiceRecognitionService {
   public start(): boolean {
     this.shouldAutoRestart = true;
     this.isListeningActive = true;
+    this.lastTranscriptAt = Date.now();
+    this.consecutiveSilentRestarts = 0;
+    this.hasTriedFallback = false;
 
     if (!this.recognition) {
       this.initRecognition();
@@ -559,3 +549,27 @@ class VoiceRecognitionService {
 }
 
 export const voiceRecognition = new VoiceRecognitionService();
+
+/**
+ * Determines if Hindi should be used for TTS / assistant responses.
+ * Returns true if:
+ * 1. User explicitly selected Hindi mode ('hi-IN')
+ * 2. User spoke in Devanagari script or common Hindi/Hinglish phrasing (in 'auto' mode)
+ */
+export function isHindiPreferred(query?: string): boolean {
+  const mode = voiceRecognition.getLanguageMode();
+  if (mode === 'hi-IN') return true;
+  if (mode === 'en-US') return false;
+  if (!query) return false;
+  // If Devanagari script is present
+  if (/[\u0900-\u097F]/.test(query)) return true;
+  // Common Roman Hindi / Hinglish tokens
+  const hindiTokens = [
+    'kya', 'kyun', 'kaise', 'batao', 'suno', 'sunao', 'padho', 'chuno', 'sawal',
+    'prashna', 'agla', 'pichla', 'kitne', 'sahi', 'galat', 'meri', 'mera', 'mere',
+    'kholo', 'khatam', 'wapas', 'jao', 'chalo', 'dikhao', 'hai', 'hain', 'tha', 'the',
+    'parinaam', 'kaun', 'kon', 'chahiye', 'karo', 'kar', 'kripya', 'shuru', 'bataiye'
+  ];
+  const words = query.toLowerCase().split(/[\s,.-]+/);
+  return words.some((w) => hindiTokens.includes(w));
+}

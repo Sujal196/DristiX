@@ -163,17 +163,75 @@ aiRouter.post(
     form.append('model', model);
     form.append('response_format', 'json');
     form.append('temperature', '0');
+<<<<<<< HEAD
     form.append(
       'prompt',
       'DristiX accessible online examination system. Voice commands: next question, previous question, select option 1, option 2, option 3, option 4, read question, clear option, check timer, submit exam.'
     );
+=======
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
 
-    const upstream = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}` },
-      body: form,
-      signal: AbortSignal.timeout(30000),
-    });
+    // Dynamic prompt injection & language conditioning
+    const reqBody = (req.body || {}) as Record<string, unknown>;
+    const clientPrompt = typeof reqBody.prompt === 'string' ? reqBody.prompt.trim() : '';
+    const clientLang = typeof reqBody.language === 'string' ? reqBody.language.trim().toLowerCase() : '';
+
+    if (clientLang && ['hi', 'en'].includes(clientLang)) {
+      form.append('language', clientLang);
+    }
+
+    const isHindi = clientLang === 'hi';
+    const basePrompt = isHindi
+      ? 'DristiX ऑनलाइन परीक्षा वॉयस असिस्टेंट। परीक्षार्थी हिन्दी या हिंग्लिश में बोल रहे हैं: अगला सवाल, पिछला सवाल, सवाल पढ़ो, विकल्प एक, विकल्प दो, विकल्प तीन, विकल्प चार, विकल्प हटाओ, मार्क करो, सबमिट करो, समय बताओ।'
+      : 'DristiX online examination voice assistant. Candidate speaks Hindi or English commands: ' +
+        'Next question, previous question, read question, option 1, option 2, option 3, option 4, ' +
+        'clear option, mark for review, submit test, time left, ' +
+        'agla sawal, pichla sawal, sawal padho, pehla option, dusra option, teesra option, chautha option, ' +
+        'hata do, mark karo, samay batao.';
+    const finalPrompt = clientPrompt ? `${basePrompt} Active context: ${clientPrompt}`.slice(0, 800) : basePrompt;
+    form.append('prompt', finalPrompt);
+
+    let upstream: Response | null = null;
+    let lastNetworkErr: unknown = null;
+
+    // Retry once on transient network glitch (e.g. TCP reset or connect timeout)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        upstream = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}` },
+          body: form,
+          signal: AbortSignal.timeout(15000),
+        });
+        break;
+      } catch (err: any) {
+        lastNetworkErr = err;
+        const isNetworkOrTimeout =
+          err?.name === 'TimeoutError' ||
+          err?.name === 'AbortError' ||
+          err?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+          err?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+          err?.cause?.code === 'ECONNRESET' ||
+          (typeof err?.message === 'string' && err.message.includes('fetch failed'));
+
+        if (attempt < 2 && isNetworkOrTimeout) {
+          console.warn(`[dristix] Groq transcription attempt ${attempt} network glitch, retrying in 300ms...`);
+          await new Promise((r) => setTimeout(r, 300));
+          continue;
+        }
+      }
+    }
+
+    if (!upstream) {
+      console.warn('[dristix] Groq transcription network unreachable / timed out:', (lastNetworkErr as Error)?.message || lastNetworkErr);
+      // Graceful return: client falls back to browser recognizer without crashing or throwing a 500 error
+      res.json({
+        text: '',
+        provider: 'groq',
+        model,
+      } satisfies TranscribeResult);
+      return;
+    }
 
     if (!upstream.ok) {
       const detail = await upstream.text();
@@ -182,6 +240,7 @@ aiRouter.post(
     }
 
     const data = (await upstream.json()) as { text?: string };
+<<<<<<< HEAD
     const rawText = (data.text ?? '').trim();
     const cleanText = isWhisperHallucination(rawText) ? '' : rawText;
 
@@ -191,6 +250,24 @@ aiRouter.post(
 
     res.json({
       text: cleanText,
+=======
+    let rawText = (data.text ?? '').trim();
+
+    // Guard against Whisper hallucinations on ambient noise/silence:
+    // Whisper often hallucinates Korean, Chinese, Japanese, or Cyrillic on near-silent mic audio.
+    // DristiX only accepts Hindi (Devanagari / Hinglish) and English.
+    const hasForbiddenForeignScript =
+      /[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u4e00-\u9fff\u3040-\u30ff\u0400-\u04ff\u0e00-\u0e7f]/.test(
+        rawText
+      );
+    if (hasForbiddenForeignScript) {
+      console.warn('[dristix] Discarded Whisper foreign language hallucination on ambient noise:', rawText);
+      rawText = '';
+    }
+
+    res.json({
+      text: rawText,
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
       provider: 'groq',
       model,
     } satisfies TranscribeResult);
@@ -204,10 +281,31 @@ aiRouter.post(
 
     try {
       if (body.provider === 'groq') {
-        res.json(await callGroq(body));
-        return;
+        try {
+          res.json(await callGroq(body));
+          return;
+        } catch (groqErr) {
+          // If Groq had a connection timeout or 502/503 and Gemini is available, fail over smoothly
+          if (env.GEMINI_API_KEY) {
+            console.warn('[dristix] Groq provider failed, falling over to Gemini:', (groqErr as Error)?.message);
+            res.json(await callGemini(body));
+            return;
+          }
+          throw groqErr;
+        }
       }
-      res.json(await callGemini(body));
+
+      try {
+        res.json(await callGemini(body));
+      } catch (geminiErr) {
+        // If Gemini had a connection timeout or 502/503 and Groq is available, fail over smoothly
+        if (env.GROQ_API_KEY) {
+          console.warn('[dristix] Gemini provider failed, falling over to Groq:', (geminiErr as Error)?.message);
+          res.json(await callGroq(body));
+          return;
+        }
+        throw geminiErr;
+      }
     } catch (err) {
       // A retired or inaccessible model is a configuration problem worth
       // naming, not an opaque 502 the caller can do nothing with.
@@ -235,19 +333,26 @@ async function callGroq(
   }
   model ??= await resolveGroqModel();
 
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: body.messages,
-      temperature: body.temperature ?? 0.4,
-      max_tokens: body.maxTokens ?? 1024,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: body.messages,
+        temperature: body.temperature ?? 0.4,
+        max_tokens: body.maxTokens ?? 1024,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (err: any) {
+    console.error('[dristix] groq network error:', err?.message || err);
+    throw new HttpError(502, 'provider_error', `Groq connection failed: ${err?.message || 'Network timeout'}`);
+  }
 
   if (!response.ok) {
     const detail = await response.text();
@@ -283,21 +388,28 @@ async function callGemini(
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents,
-        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-        generationConfig: {
-          temperature: body.temperature ?? 0.4,
-          maxOutputTokens: body.maxTokens ?? 1024,
-        },
-      }),
-    }
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+          generationConfig: {
+            temperature: body.temperature ?? 0.4,
+            maxOutputTokens: body.maxTokens ?? 1024,
+          },
+        }),
+        signal: AbortSignal.timeout(25000),
+      }
+    );
+  } catch (err: any) {
+    console.error('[dristix] gemini network error:', err?.message || err);
+    throw new HttpError(502, 'provider_error', `Gemini connection failed: ${err?.message || 'Network timeout'}`);
+  }
 
   if (!response.ok) {
     const detail = await response.text();

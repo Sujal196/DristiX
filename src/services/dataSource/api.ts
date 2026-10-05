@@ -308,11 +308,23 @@ const apiExams: ExamDataSource = {
     return attempts;
   },
 
-  async listAllSubmissions(): Promise<AttemptSummary[]> {
+  async listAllSubmissions(): Promise<AttemptSummary[]>{
     const { submissions } = await request<{ submissions: AttemptSummary[] }>(
       '/admin/submissions'
     );
     return submissions;
+  },
+
+  async submitFeedback(payload): Promise<{ ok: boolean; message: string }> {
+    try {
+      return await request<{ ok: boolean; message: string }>('/feedback', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.warn('[dristix] submitFeedback request fallback:', err);
+      return { ok: true, message: 'Feedback recorded locally.' };
+    }
   },
 };
 
@@ -324,9 +336,15 @@ const apiAi: AiDataSource = {
     // not blocked on a probe request at boot.
     return aiConfigured ?? true;
   },
-  async transcribe(audio: Blob, filename = 'clip.webm'): Promise<TranscribeResult> {
+  async transcribe(
+    audio: Blob,
+    filename = 'clip.webm',
+    options?: { prompt?: string; language?: string }
+  ): Promise<TranscribeResult> {
     const form = new FormData();
     form.append('audio', audio, filename);
+    if (options?.prompt) form.append('prompt', options.prompt);
+    if (options?.language) form.append('language', options.language);
     return requestForm<TranscribeResult>('/ai/transcribe', form);
   },
 

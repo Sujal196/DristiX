@@ -23,6 +23,7 @@ import { adminRouter } from './routes/admin.routes.js';
 import { attemptRouter } from './routes/attempts.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { examRouter } from './routes/exams.routes.js';
+import { feedbackRouter } from './routes/feedback.routes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 
@@ -88,6 +89,7 @@ app.use('/api/exams', examRouter);
 app.use('/api/attempts', attemptRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/feedback', feedbackRouter);
 
 // ── Optional: serve the built frontend as a single deployable unit ──
 if (env.SERVE_STATIC) {

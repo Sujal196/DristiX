@@ -3,8 +3,9 @@ import { processVoiceCommand, isPhantomNoise } from './voiceCommandProcessor';
 import type { CommandProcessResult } from './voiceCommandProcessor';
 import { speechEngine } from './speechEngine';
 import { useAnnouncerStore } from '../store/useAnnouncerStore';
+import { useExamStore } from '../store/useExamStore';
 import { soundEffects } from './soundEffects';
-import { voiceRecognition } from './voiceRecognition';
+import { voiceRecognition, isHindiPreferred } from './voiceRecognition';
 import { getDataSource } from '../services/dataSource';
 
 export type LiveSessionState = 'idle' | 'listening' | 'user_speaking' | 'processing' | 'assistant_speaking' | 'error';
@@ -12,10 +13,10 @@ export type LiveSessionState = 'idle' | 'listening' | 'user_speaking' | 'process
 /**
  * Longest single audio clip handed to transcription.
  *
- * Long clips cost more, transcribe worse, and are the only way a segment could
- * grow without bound if voice activity is never detected.
+ * Capped at 5 seconds (down from 12s) to prevent the microphone from running
+ * away indefinitely in a noisy room and recording extraneous conversation.
  */
-const MAX_SEGMENT_MS = 12_000;
+const MAX_SEGMENT_MS = 5_000;
 
 export interface LiveSessionCallbacks {
   onStateChange: (state: LiveSessionState) => void;
@@ -40,14 +41,14 @@ export class GeminiLiveVoiceSession {
   private audioChunks: Blob[] = [];
   private animFrameId: number | null = null;
   private silenceTimer: any = null;
+  private finalCommitTimer: any = null;
+  /** Adaptive ambient noise baseline to prevent room hum/fans from falsely triggering speech activity. */
+  private ambientNoiseBaseline: number = 15;
   /**
    * Hard cap on one recording segment.
    *
    * The segment is normally closed by the voice-activity detector once the user
-   * stops talking. But a noisy room can hold the average volume above the
-   * speech threshold permanently, in which case the detector never releases and
-   * the recorder would run unbounded. Capping it also keeps clips inside the
-   * window where transcription is accurate.
+   * stops talking. Capping it keeps clips inside the window where transcription is accurate.
    */
   private segmentTimeout: any = null;
   private hasSpokenInCurrentChunk = false;
@@ -150,7 +151,13 @@ export class GeminiLiveVoiceSession {
       // Recording locally and running Whisper through our backend removes that
       // entire failure mode, and handles Hindi and English in one pass.
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: { ideal: 16000 },
+        },
       });
       this.mediaStream = stream;
       this.isRunning = true;
@@ -180,24 +187,26 @@ export class GeminiLiveVoiceSession {
             }
             this.callbacks.onLiveTranscript?.(transcript.trim(), isFinal);
 
-            // Speech activity is now derived from the transcript, because the
-            // microphone is no longer held open for volume analysis — doing so
-            // starved the recogniser of audio. Any recognised text means the
-            // student is talking.
+            // Speech activity is now derived from the transcript
             this.hasSpokenInCurrentChunk = true;
             if (this.state === 'listening') this.setState('user_speaking');
 
-            // If a final recognition arrives while user spoke, commit promptly after brief settle
+            // If a final recognition arrives while user spoke, commit promptly after brief settle (300ms).
+            // This timer is protected so background noise will not wipe it out and force 12s of recording.
             if (isFinal && this.isRunning) {
               if (this.silenceTimer) {
                 clearTimeout(this.silenceTimer);
                 this.silenceTimer = null;
               }
-              this.silenceTimer = setTimeout(() => {
+              if (this.finalCommitTimer) {
+                clearTimeout(this.finalCommitTimer);
+              }
+              this.finalCommitTimer = setTimeout(() => {
+                this.finalCommitTimer = null;
                 if (this.isRunning && this.hasSpokenInCurrentChunk) {
                   this.commitCurrentUtterance();
                 }
-              }, 250);
+              }, 300);
             }
           }
         },
@@ -367,6 +376,7 @@ export class GeminiLiveVoiceSession {
 
       // Voice Activity Detection (VAD)
       if (this.state === 'listening' || this.state === 'user_speaking') {
+<<<<<<< HEAD
         // Speech threshold adapts dynamically to room noise floor with a sensible baseline
         const SPEECH_THRESHOLD = Math.max(24, Math.round(this.ambientNoiseFloor + 14));
 
@@ -396,6 +406,37 @@ export class GeminiLiveVoiceSession {
                 }
               }, 1500);
             }
+=======
+        // Adaptively calibrate background room noise baseline during quiet periods
+        if (!this.hasSpokenInCurrentChunk) {
+          this.ambientNoiseBaseline = this.ambientNoiseBaseline * 0.95 + normalizedVolume * 0.05;
+        }
+
+        // Dynamic threshold: at least 24, or 12 units above room baseline (capped at 50)
+        const activeSpeechThreshold = Math.max(24, Math.min(50, Math.round(this.ambientNoiseBaseline + 12)));
+
+        if (normalizedVolume > activeSpeechThreshold) {
+          // User is speaking
+          this.hasSpokenInCurrentChunk = true;
+          if (this.state !== 'user_speaking') {
+            this.setState('user_speaking');
+          }
+
+          // Reset silence timer only if finalCommitTimer is not active
+          if (this.silenceTimer && !this.finalCommitTimer) {
+            clearTimeout(this.silenceTimer);
+            this.silenceTimer = null;
+          }
+        } else if (this.hasSpokenInCurrentChunk) {
+          // User was speaking and is now silent: commit after 950ms pause (natural endpointing)
+          if (!this.silenceTimer && !this.finalCommitTimer) {
+            this.silenceTimer = setTimeout(() => {
+              this.silenceTimer = null;
+              if (this.hasSpokenInCurrentChunk && this.isRunning) {
+                this.commitCurrentUtterance();
+              }
+            }, 950);
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
           }
         }
       }
@@ -407,12 +448,22 @@ export class GeminiLiveVoiceSession {
   }
 
   /**
-   * Force commit current utterance immediately (e.g. user taps Send / Orb)
+   * Force commit current utterance immediately (e.g. user taps Send / Orb or speech endpoint reached)
    */
   public commitCurrentUtterance() {
+    if (this.finalCommitTimer) {
+      clearTimeout(this.finalCommitTimer);
+      this.finalCommitTimer = null;
+    }
+
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = null;
+    }
+
+    if (this.segmentTimeout) {
+      clearTimeout(this.segmentTimeout);
+      this.segmentTimeout = null;
     }
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
@@ -442,7 +493,23 @@ export class GeminiLiveVoiceSession {
 
     if (!capturedTranscript && audioBlob && audioBlob.size > 1000) {
       try {
-        const result = await getDataSource().ai.transcribe(audioBlob, 'clip.webm');
+        const examState = useExamStore.getState();
+        const activeQNum = examState.currentIndex + 1;
+        const totalQ = examState.questions?.length || 0;
+        const examTitle = examState.currentExam?.title || '';
+        const inHindi = isHindiPreferred();
+        const dynamicPrompt = inHindi
+          ? (examTitle
+              ? `परीक्षा: ${examTitle}। सक्रिय प्रश्न संख्या ${activeQNum} कुल ${totalQ} में से। विकल्प 1, 2, 3, 4। अगला सवाल, पिछला सवाल, सबमिट करो।`
+              : 'अभ्यर्थी पोर्टल निर्देश: परीक्षा शुरू करो, डैशबोर्ड, एनालिटिक्स, सवाल पढ़ो।')
+          : (examTitle
+              ? `Exam: ${examTitle}. Active Question: ${activeQNum} of ${totalQ}. Options 1, 2, 3, 4.`
+              : 'Candidate portal commands: Start exam, List exams, Practice arena, Analytics.');
+
+        const result = await getDataSource().ai.transcribe(audioBlob, 'clip.webm', {
+          prompt: dynamicPrompt,
+          language: inHindi ? 'hi' : 'en',
+        });
         if (this.currentUtteranceId !== thisUtteranceId || !this.isRunning) return;
         capturedTranscript = result.text.trim();
         console.log('[Live Voice] server transcription:', capturedTranscript);
@@ -486,7 +553,11 @@ export class GeminiLiveVoiceSession {
 
     // If completely silent/noise with no transcript, resume listening smoothly
     if (!capturedTranscript) {
+<<<<<<< HEAD
       console.log('[Live Voice] No speech recognized in audio, resuming listening.');
+=======
+      console.log('[Live Voice] Acoustic activity detected without words, resuming listening.');
+>>>>>>> ae763a96de0f2b12e8e44231a675d0abdac4a038
       this.setState('listening');
       this.startSegmentRecording();
       return;
@@ -575,6 +646,11 @@ export class GeminiLiveVoiceSession {
   public stop() {
     this.isRunning = false;
     soundEffects.playMicStop();
+
+    if (this.finalCommitTimer) {
+      clearTimeout(this.finalCommitTimer);
+      this.finalCommitTimer = null;
+    }
 
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);

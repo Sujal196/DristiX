@@ -7,6 +7,7 @@ import { soundEffects } from '../../utils/soundEffects';
 import { useAnnouncerStore } from '../../store/useAnnouncerStore';
 import { geminiVoiceService } from '../../utils/geminiVoiceService';
 import { earconManager, hapticManager } from '../../accessibility';
+import { isHindiPreferred } from '../../utils/voiceRecognition';
 import { X, Sun, Volume2, Type, Sliders, Bell, Keyboard, Sparkles, Key, Terminal } from 'lucide-react';
 
 export const A11ySettingsModal: React.FC = () => {
@@ -134,16 +135,38 @@ export const A11ySettingsModal: React.FC = () => {
         }
       }, 60);
 
+      const inHindi = isHindiPreferred();
       useAnnouncerStore
         .getState()
         .announce(
-          'Accessibility Preferences modal opened. Use Tab or Arrow keys to navigate between themes, text scaling, speech, and sound settings. Press Escape to close.',
+          inHindi
+            ? 'एक्सेसिबिलिटी प्राथमिकताएँ विंडो खुल गई है। थीम, फ़ॉन्ट आकार और ध्वनि सेटिंग्स बदलने के लिए टैब या एरो कुंजियों का उपयोग करें। बंद करने के लिए Escape दबाएँ।'
+            : 'Accessibility Preferences modal opened. Use Tab or Arrow keys to navigate between themes, text scaling, speech, and sound settings. Press Escape to close.',
           'assertive',
           true,
           true
         );
     }
   }, [isSettingsOpen]);
+
+  // Global Escape key capture listener to guarantee modal closes regardless of which element has focus
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSettingsOpen(false);
+        soundEffects.playSelect();
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown, { capture: true });
+    };
+  }, [isSettingsOpen, setSettingsOpen]);
 
   // Magnification Step Helper (Increases or Decreases scale and announces status)
   const stepFontSize = (direction: 'increase' | 'decrease') => {
@@ -241,6 +264,13 @@ export const A11ySettingsModal: React.FC = () => {
 
   // Arrow Key Navigation for Themes (WCAG Radiogroup pattern + Direct number keys 1-4)
   const handleThemeKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setSettingsOpen(false);
+      soundEffects.playSelect();
+      return;
+    }
     e.stopPropagation();
     const currentIndex = themes.findIndex((t) => t.id === theme);
     let nextIndex = -1;
@@ -274,6 +304,13 @@ export const A11ySettingsModal: React.FC = () => {
 
   // Keyboard Navigation for Text Scaling (Arrows, + / -, Home, End, and Numbers 1-5)
   const handleFontKeyDown = (e: React.KeyboardEvent<HTMLDivElement | HTMLButtonElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setSettingsOpen(false);
+      soundEffects.playSelect();
+      return;
+    }
     e.stopPropagation();
     const currentIndex = fontSizes.indexOf(fontSize);
     let nextIndex = -1;
