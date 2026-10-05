@@ -21,6 +21,7 @@ import { SubmitConfirmModal } from './components/exam/SubmitConfirmModal';
 import { ExamFeedbackModal } from './components/exam/ExamFeedbackModal';
 import { A11yInspector } from './components/a11y/A11yInspector';
 import { StudentAuthScreen } from './components/auth/StudentAuthScreen';
+import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal';
 import { LandingPage } from './components/landing/LandingPage';
 import { AdminLogin } from './components/admin/AdminLogin';
 import { AdminPanel } from './components/admin/AdminPanel';
@@ -49,6 +50,32 @@ export const App: React.FC = () => {
   const bootstrapError = useBootstrapStore((s) => s.error);
   const [currentRoute, setCurrentRoute] = useState<string>(() => window.location.pathname);
   const workerRef = useRef<Worker | null>(null);
+
+  // Check for email reset link parameters: ?resetToken=...&email=...
+  const [resetTokenFromUrl, setResetTokenFromUrl] = useState<string | null>(null);
+  const [resetEmailFromUrl, setResetEmailFromUrl] = useState<string | null>(null);
+  const [resetPortalFromUrl, setResetPortalFromUrl] = useState<'student' | 'admin'>('student');
+  const [isUrlResetModalOpen, setIsUrlResetModalOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const token = searchParams.get('resetToken');
+      const email = searchParams.get('email');
+      const portal = searchParams.get('portal');
+      if (token && email) {
+        setResetTokenFromUrl(token);
+        setResetEmailFromUrl(email);
+        setResetPortalFromUrl(portal === 'admin' ? 'admin' : 'student');
+        setIsUrlResetModalOpen(true);
+        // Clear search parameters from URL so refreshes don't re-trigger
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    } catch {
+      // ignore URL parsing error
+    }
+  }, []);
 
   // Helper to change URL and trigger re-render
   const navigateTo = (path: string) => {
@@ -433,6 +460,20 @@ export const App: React.FC = () => {
     );
   }
 
+  const emailResetModal = (
+    <ForgotPasswordModal
+      isOpen={isUrlResetModalOpen}
+      onClose={() => setIsUrlResetModalOpen(false)}
+      portal={resetPortalFromUrl}
+      initialResetToken={resetTokenFromUrl ?? ''}
+      initialEmail={resetEmailFromUrl ?? ''}
+      onSuccessLogin={() => {
+        setIsUrlResetModalOpen(false);
+        navigateTo(resetPortalFromUrl === 'admin' ? '/admin' : '/login');
+      }}
+    />
+  );
+
   // 1. ADMIN ROUTE: STRICTLY ACCESSIBLE ONLY AT /admin
   if (currentRoute.startsWith('/admin')) {
     return (
@@ -446,6 +487,7 @@ export const App: React.FC = () => {
         )}
         <A11ySettingsModal />
         <A11yInspector />
+        {emailResetModal}
       </div>
     );
   }
@@ -490,6 +532,7 @@ export const App: React.FC = () => {
           </main>
           <A11ySettingsModal />
           <A11yInspector />
+          {emailResetModal}
         </div>
       );
     }
@@ -504,6 +547,7 @@ export const App: React.FC = () => {
         />
         <A11ySettingsModal />
         <A11yInspector />
+        {emailResetModal}
       </div>
     );
   }
@@ -553,6 +597,7 @@ export const App: React.FC = () => {
 
       {/* AI Conversational Voice Assistant */}
       <VoiceAssistantOrb />
+      {emailResetModal}
     </div>
   );
 };

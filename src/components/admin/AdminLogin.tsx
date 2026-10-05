@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { ShieldCheck, Eye, EyeOff, KeyRound, ArrowLeft } from 'lucide-react';
+import { ForgotPasswordModal } from '../auth/ForgotPasswordModal';
 
 interface AdminLoginProps {
   onReturnToStudent: () => void;
@@ -16,6 +17,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,9 +59,24 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
           aria-label="Demo administrator credentials"
           className="mb-6 p-4 rounded-2xl border-2 border-indigo-500/30 bg-indigo-500/10 text-theme-text text-xs space-y-1.5"
         >
-          <div className="flex items-center gap-2 font-bold text-indigo-500 text-sm">
-            <KeyRound className="w-4 h-4" aria-hidden="true" />
-            <span>Default Administrator Credentials:</span>
+          <div className="flex items-center justify-between font-bold text-indigo-500 text-sm">
+            <div className="flex items-center gap-2">
+              <KeyRound className="w-4 h-4" aria-hidden="true" />
+              <span>Default Administrator Credentials:</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setUsername('admin');
+                setPassword('admin123');
+              }}
+              className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-xs"
+            >
+              Fill Credentials
+            </button>
+          </div>
+          <div className="text-xs text-theme-text/80 font-medium">
+            Username: <strong className="font-mono text-indigo-600 dark:text-indigo-400">admin</strong> &nbsp;|&nbsp; Password: <strong className="font-mono text-indigo-600 dark:text-indigo-400">admin123</strong>
           </div>
         </div>
 
@@ -92,12 +109,21 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
           </div>
 
           <div>
-            <label
-              htmlFor="admin-password"
-              className="block text-sm font-bold text-theme-text mb-1.5"
-            >
-              Password <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                htmlFor="admin-password"
+                className="block text-sm font-bold text-theme-text"
+              >
+                Password <span className="text-red-500">*</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsForgotPasswordOpen(true)}
+                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded px-1.5 py-0.5 transition"
+              >
+                Forgot Password?
+              </button>
+            </div>
             <div className="relative">
               <input
                 id="admin-password"
@@ -142,6 +168,17 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onReturnToStudent }) => 
             <span>Return to Student Examination Portal</span>
           </button>
         </div>
+
+        <ForgotPasswordModal
+          isOpen={isForgotPasswordOpen}
+          onClose={() => setIsForgotPasswordOpen(false)}
+          portal="admin"
+          initialIdentifier={username}
+          onSuccessLogin={(id) => {
+            if (id) setUsername(id);
+            setPassword('');
+          }}
+        />
       </div>
     </div>
   );

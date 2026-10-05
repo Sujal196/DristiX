@@ -50,6 +50,25 @@ export interface AuthDataSource {
    */
   listStudents(): Promise<UserProfile[]>;
   deleteStudent(studentId: string): Promise<void>;
+  requestPasswordReset(identifier: string, portal: 'student' | 'admin'): Promise<{
+    ok: boolean;
+    success?: boolean;
+    message: string;
+    maskedEmail?: string;
+    email?: string;
+    devCode?: string;
+  }>;
+  verifyResetCode(email: string, code: string): Promise<{
+    ok: boolean;
+    success?: boolean;
+    resetToken: string;
+    message: string;
+  }>;
+  resetPassword(email: string, resetToken: string, newPassword: string): Promise<{
+    ok: boolean;
+    success?: boolean;
+    message: string;
+  }>;
 }
 
 export interface ExamDataSource {

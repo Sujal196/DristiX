@@ -30,6 +30,15 @@ const schema = z.object({
 
   /** Serve the built frontend from ./dist in production. */
   SERVE_STATIC: z.coerce.boolean().default(false),
+
+  /** Optional SMTP mailer configuration for sending password reset emails. */
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z.coerce.boolean().optional(),
+  EMAIL_FROM: z.string().default('DristiX Security <noreply@dristix.edu>'),
+  CLIENT_URL: z.string().default('http://localhost:5173'),
 });
 
 const parsed = schema.safeParse(process.env);

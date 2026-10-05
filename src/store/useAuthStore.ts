@@ -112,6 +112,37 @@ interface AuthState {
   fetchStudents: () => Promise<void>;
   deleteStudent: (studentId: string) => Promise<boolean>;
 
+  // Password Reset Actions
+  requestPasswordReset: (
+    identifier: string,
+    portal: 'student' | 'admin'
+  ) => Promise<{
+    ok: boolean;
+    success?: boolean;
+    message: string;
+    maskedEmail?: string;
+    email?: string;
+    devCode?: string;
+  }>;
+  verifyResetCode: (
+    email: string,
+    code: string
+  ) => Promise<{
+    ok: boolean;
+    success?: boolean;
+    resetToken: string;
+    message: string;
+  }>;
+  resetPassword: (
+    email: string,
+    resetToken: string,
+    newPassword: string
+  ) => Promise<{
+    ok: boolean;
+    success?: boolean;
+    message: string;
+  }>;
+
   // Submissions Actions
   /**
    * Reloads the submission history from the active data source.
@@ -282,6 +313,22 @@ export const useAuthStore = create<AuthState>((set, get) => {
         useAnnouncerStore.getState().announce('Could not delete student account.', 'assertive', true);
         return false;
       }
+    },
+
+    requestPasswordReset: async (identifier: string, portal: 'student' | 'admin' = 'student') => {
+      return getDataSource().auth.requestPasswordReset(identifier, portal);
+    },
+
+    verifyResetCode: async (email: string, code: string) => {
+      return getDataSource().auth.verifyResetCode(email, code);
+    },
+
+    resetPassword: async (email: string, resetToken: string, newPassword: string) => {
+      const res = await getDataSource().auth.resetPassword(email, resetToken, newPassword);
+      if (res.ok || res.success) {
+        soundEffects.playSuccess();
+      }
+      return res;
     },
 
     syncSubmissions: async () => {

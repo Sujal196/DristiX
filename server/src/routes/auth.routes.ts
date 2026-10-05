@@ -1,7 +1,9 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { env } from '../env.js';
-import { User } from '../models/index.js';
+import { User, PasswordReset } from '../models/index.js';
+import { sendPasswordResetEmail } from '../services/emailService.js';
 import { asyncHandler, HttpError } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
@@ -205,3 +207,217 @@ authRouter.post('/logout', (_req, res) => {
   clearRefreshCookie(res);
   res.json({ ok: true });
 });
+
+function maskEmail(email: string): string {
+  const [name, domain] = email.split('@');
+  if (!domain) return email;
+  const visible = name.length <= 2 ? name[0] : name.slice(0, 2);
+  const hiddenCount = Math.max(3, name.length - visible.length);
+  return `${visible}${'*'.repeat(hiddenCount)}@${domain}`;
+}
+
+/**
+ * POST /api/auth/forgot-password
+ *
+ * Initiates the password reset workflow by looking up the candidate/administrator
+ * and emailing a secure 6-digit OTP code with a 15-minute expiry.
+ */
+authRouter.post(
+  '/forgot-password',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const { identifier, portal } = z
+      .object({
+        identifier: z.string().trim().min(1, 'Identifier (email, roll number, or username) is required.'),
+        portal: z.enum(['student', 'admin']).default('student'),
+      })
+      .parse(req.body);
+
+    const cleanIdent = identifier.toLowerCase();
+
+    // Query user according to portal scope
+    let user = null;
+    if (portal === 'admin') {
+      user = await User.findOne({
+        role: 'ADMIN',
+        $or: [{ email: cleanIdent }, { username: cleanIdent }, { rollNumber: cleanIdent.toUpperCase() }],
+      }).exec();
+    } else {
+      user = await User.findOne({
+        role: 'STUDENT',
+        $or: [{ email: cleanIdent }, { rollNumber: cleanIdent.toUpperCase() }, { rollNumber: cleanIdent }],
+      }).exec();
+    }
+
+    if (!user) {
+      // Neutral message to avoid user enumeration
+      res.json({
+        ok: true,
+        message: 'If an account matches those details, a verification code has been dispatched to the registered email.',
+      });
+      return;
+    }
+
+    // Clean up any pending previous tokens for this email
+    await PasswordReset.deleteMany({ email: user.email }).exec();
+
+    // Generate secure 6-digit verification code and reset token
+    const verificationCode = crypto.randomInt(100000, 999999).toString();
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const codeHash = await hashPassword(verificationCode);
+
+    await PasswordReset.create({
+      email: user.email,
+      codeHash,
+      resetToken,
+      role: user.role,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 mins
+    });
+
+    await sendPasswordResetEmail(user.email, user.name, verificationCode, resetToken, portal);
+
+    res.json({
+      ok: true,
+      message: `A password reset link and 6-digit code have been dispatched to ${maskEmail(user.email)}. Please check your Gmail / Email inbox.`,
+      maskedEmail: maskEmail(user.email),
+      email: user.email,
+    });
+  })
+);
+
+/**
+ * POST /api/auth/validate-reset-token
+ *
+ * Verifies that a resetToken (e.g. from an email link) is valid and unexpired.
+ */
+authRouter.post(
+  '/validate-reset-token',
+  asyncHandler(async (req, res) => {
+    const { email, resetToken } = z
+      .object({
+        email: z.string().trim().email(),
+        resetToken: z.string().min(1),
+      })
+      .parse(req.body);
+
+    const record = await PasswordReset.findOne({
+      email: email.toLowerCase(),
+      resetToken,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    }).exec();
+
+    if (!record) {
+      throw new HttpError(
+        400,
+        'invalid_token',
+        'This password reset link has expired or already been used. Please request a new one.'
+      );
+    }
+
+    res.json({ ok: true, valid: true });
+  })
+);
+
+/**
+ * POST /api/auth/verify-reset-code
+ *
+ * Verifies the 6-digit code against the stored hash and returns a scoped reset token.
+ */
+authRouter.post(
+  '/verify-reset-code',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const { email, code } = z
+      .object({
+        email: z.string().trim().email(),
+        code: z.string().trim().min(6).max(6),
+      })
+      .parse(req.body);
+
+    const record = await PasswordReset.findOne({
+      email: email.toLowerCase(),
+      used: false,
+      expiresAt: { $gt: new Date() },
+    }).exec();
+
+    if (!record) {
+      throw new HttpError(
+        400,
+        'invalid_or_expired_code',
+        'The verification code has expired or is invalid. Please request a new code.'
+      );
+    }
+
+    if (record.attempts >= 5) {
+      await PasswordReset.deleteOne({ _id: record._id }).exec();
+      throw new HttpError(429, 'too_many_attempts', 'Too many invalid attempts. Please request a fresh code.');
+    }
+
+    const ok = await verifyPassword(code, record.codeHash);
+    if (!ok) {
+      record.attempts += 1;
+      await record.save();
+      throw new HttpError(400, 'invalid_code', 'Incorrect verification code. Please check your email and try again.');
+    }
+
+    res.json({
+      ok: true,
+      resetToken: record.resetToken,
+      message: 'Code verified successfully. You may now create your new password.',
+    });
+  })
+);
+
+/**
+ * POST /api/auth/reset-password
+ *
+ * Authenticates with the one-time resetToken and updates the account password.
+ */
+authRouter.post(
+  '/reset-password',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const { email, resetToken, newPassword } = z
+      .object({
+        email: z.string().trim().email(),
+        resetToken: z.string().min(1),
+        newPassword: z.string().min(8, 'New password must be at least 8 characters.').max(200),
+      })
+      .parse(req.body);
+
+    const record = await PasswordReset.findOne({
+      email: email.toLowerCase(),
+      resetToken,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    }).exec();
+
+    if (!record) {
+      throw new HttpError(
+        400,
+        'invalid_session',
+        'Password reset session has expired or is invalid. Please restart the reset process.'
+      );
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() }).exec();
+    if (!user) {
+      throw new HttpError(404, 'user_not_found', 'User account not found.');
+    }
+
+    user.passwordHash = await hashPassword(newPassword);
+    await user.save();
+
+    // Mark reset token as consumed
+    record.used = true;
+    await record.save();
+    await PasswordReset.deleteMany({ email: user.email }).exec();
+
+    res.json({
+      ok: true,
+      message: 'Your password has been successfully updated. You may now sign in with your new password.',
+    });
+  })
+);
+

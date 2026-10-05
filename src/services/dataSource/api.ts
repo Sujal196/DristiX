@@ -152,6 +152,40 @@ const apiAuth: AuthDataSource = {
   async deleteStudent(studentId: string): Promise<void> {
     await request(`/admin/students/${studentId}`, { method: 'DELETE' });
   },
+
+  async requestPasswordReset(identifier: string, portal: 'student' | 'admin') {
+    return request<{
+      ok: boolean;
+      message: string;
+      maskedEmail?: string;
+      email?: string;
+      devCode?: string;
+    }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, portal }),
+    });
+  },
+
+  async verifyResetCode(email: string, code: string) {
+    return request<{
+      ok: boolean;
+      resetToken: string;
+      message: string;
+    }>('/auth/verify-reset-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
+    });
+  },
+
+  async resetPassword(email: string, resetToken: string, newPassword: string) {
+    return request<{
+      ok: boolean;
+      message: string;
+    }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, resetToken, newPassword }),
+    });
+  },
 };
 
 const apiExams: ExamDataSource = {

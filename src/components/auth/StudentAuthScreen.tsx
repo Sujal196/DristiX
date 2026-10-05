@@ -5,6 +5,7 @@ import { soundEffects } from '../../utils/soundEffects';
 import { LogIn, UserPlus, Eye, EyeOff } from 'lucide-react';
 import type { AccessibilityPreference } from '../../../shared/types';
 import { VoiceGuidedLoginCard } from './VoiceGuidedLoginCard';
+import { ForgotPasswordModal } from './ForgotPasswordModal';
 
 interface StudentAuthScreenProps {
   onAuthenticated?: () => void;
@@ -31,6 +32,7 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   // Register form state
   const [regName, setRegName] = useState('');
@@ -262,12 +264,22 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
             </div>
 
             <div>
-              <label
-                htmlFor="student-login-pass"
-                className="block text-xs sm:text-sm font-extrabold text-theme-text mb-1.5"
-              >
-                Password <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="student-login-pass"
+                  className="block text-xs sm:text-sm font-extrabold text-theme-text"
+                >
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsForgotPasswordOpen(true)}
+                  onFocus={() => speakInput('Forgot password button. Press Enter to reset your password.')}
+                  className="text-xs font-bold text-theme-primary hover:underline focus:outline-none focus:ring-2 focus:ring-theme-focus rounded px-1.5 py-0.5 transition"
+                >
+                  Forgot Password?
+                </button>
+              </div>
               <div className="relative">
                 <input
                   id="student-login-pass"
@@ -465,6 +477,17 @@ export const StudentAuthScreen: React.FC<StudentAuthScreenProps> = ({
             </div>
           </form>
         )}
+
+        <ForgotPasswordModal
+          isOpen={isForgotPasswordOpen}
+          onClose={() => setIsForgotPasswordOpen(false)}
+          portal="student"
+          initialIdentifier={loginIdentifier}
+          onSuccessLogin={(id) => {
+            if (id) setLoginIdentifier(id);
+            setLoginPassword('');
+          }}
+        />
       </div>
     </div>
   );
