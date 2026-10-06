@@ -66,6 +66,10 @@ const schema = z.object({
   /** Serve the built frontend from ./dist in production. */
   SERVE_STATIC: envBoolean(false),
 
+  /** Optional HTTPS-based transactional email providers (bypasses cloud SMTP egress firewalls like Render free tier). */
+  BREVO_API_KEY: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
+
   /** Optional SMTP mailer configuration for sending password reset emails. */
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

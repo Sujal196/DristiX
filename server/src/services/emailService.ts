@@ -31,9 +31,9 @@ function getTransporter(): Transporter | null {
       tls: {
         rejectUnauthorized: true,
       },
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 15000,
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000,
     } as any);
     return transporter;
   }
@@ -43,8 +43,11 @@ function getTransporter(): Transporter | null {
 
 /**
  * Sends a password reset email containing a direct one-click link and a 6-digit verification code.
- * If SMTP (e.g. Gmail) is configured in server/.env, dispatches through Google SMTP.
- * If SMTP is not yet configured, provides high-visibility console fallback with instructions.
+ * Delivery order:
+ * 1. Brevo HTTPS API (Port 443) - Bypasses cloud egress firewalls (Render free tier)
+ * 2. Resend HTTPS API (Port 443) - Alternative HTTPS email provider
+ * 3. SMTP (Google Gmail) - Used in local dev or paid cloud tiers where ports 587/465 are unblocked
+ * 4. High-visibility console fallback - Never leaves users stranded
  */
 export async function sendPasswordResetEmail(
   toEmail: string,
@@ -52,7 +55,7 @@ export async function sendPasswordResetEmail(
   verificationCode: string,
   resetToken: string,
   portal: 'student' | 'admin' = 'student'
-): Promise<{ delivered: boolean; mode: 'smtp' | 'console'; error?: string }> {
+): Promise<{ delivered: boolean; mode: 'smtp' | 'brevo' | 'resend' | 'console'; error?: string }> {
   const subject = `DristiX Password Reset: Code ${verificationCode}`;
 
   // Intelligently resolve the public application URL
@@ -150,6 +153,72 @@ ${cleanBaseUrl}`;
 </html>
   `.trim();
 
+  // 1. Try Brevo HTTPS REST API (Port 443 — guaranteed to bypass cloud egress SMTP blocks like Render free tier)
+  if (env.BREVO_API_KEY) {
+    try {
+      const fromEmail = env.SMTP_USER || 'sujalsahu196@gmail.com';
+      const fromName = 'DristiX Examination Portal';
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': env.BREVO_API_KEY.trim(),
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { name: fromName, email: fromEmail },
+          to: [{ email: toEmail, name: recipientName }],
+          subject,
+          htmlContent: htmlBody,
+          textContent: textBody,
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { messageId?: string };
+        console.log(`[dristix-mail] ✅ Sent password reset email via Brevo HTTPS API to: ${toEmail} (id: ${data.messageId || 'ok'})`);
+        return { delivered: true, mode: 'brevo' };
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.error(`[dristix-mail] ❌ Brevo HTTPS delivery failed for ${toEmail} (${res.status}): ${errText}`);
+      }
+    } catch (err: any) {
+      console.error(`[dristix-mail] ❌ Brevo API request failed:`, err?.message || err);
+    }
+  }
+
+  // 2. Try Resend HTTPS REST API (Port 443)
+  if (env.RESEND_API_KEY) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${env.RESEND_API_KEY.trim()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: env.EMAIL_FROM || 'DristiX <onboarding@resend.dev>',
+          to: [toEmail],
+          subject,
+          html: htmlBody,
+          text: textBody,
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { id?: string };
+        console.log(`[dristix-mail] ✅ Sent password reset email via Resend HTTPS API to: ${toEmail} (id: ${data.id || 'ok'})`);
+        return { delivered: true, mode: 'resend' };
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.error(`[dristix-mail] ❌ Resend HTTPS delivery failed for ${toEmail} (${res.status}): ${errText}`);
+      }
+    } catch (err: any) {
+      console.error(`[dristix-mail] ❌ Resend API request failed:`, err?.message || err);
+    }
+  }
+
+  // 3. Fall back to standard SMTP (works locally and on cloud hosts without SMTP firewalls)
   const client = getTransporter();
 
   if (client) {
@@ -169,7 +238,7 @@ ${cleanBaseUrl}`;
     }
   }
 
-  // Fallback to development console logging
+  // Fallback to high-visibility console logging
   console.log('\n======================================================================');
   console.log('📧 [DRISTIX EMAIL DISPATCHER] PASSWORD RESET INSTRUCTIONS');
   console.log('======================================================================');
@@ -178,8 +247,8 @@ ${cleanBaseUrl}`;
   console.log(`Direct Reset URL:   ${resetLink}`);
   console.log(`Verification OTP:   >>>  ${verificationCode}  <<<`);
   console.log(`Expiry:             15 minutes`);
-  if (!env.SMTP_USER || !env.SMTP_PASS) {
-    console.log('ℹ️  NOTE: Set SMTP_USER and SMTP_PASS (Gmail App Password) in server/.env to send real emails to Gmail.');
+  if (!env.BREVO_API_KEY && !env.RESEND_API_KEY && (!env.SMTP_USER || !env.SMTP_PASS)) {
+    console.log('ℹ️  NOTE: Configure BREVO_API_KEY (recommended on Render) or SMTP in environment variables.');
   }
   console.log('======================================================================\n');
 
