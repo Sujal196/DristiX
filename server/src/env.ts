@@ -15,6 +15,27 @@ try {
   // Ignored in non-file environments
 }
 
+const envBoolean = (defaultValue = false) =>
+  z.preprocess((val) => {
+    if (typeof val === 'string') {
+      const s = val.trim().toLowerCase();
+      if (s === 'true' || s === '1' || s === 'yes') return true;
+      if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+    }
+    return val === undefined ? defaultValue : Boolean(val);
+  }, z.boolean());
+
+const optionalEnvBoolean = () =>
+  z.preprocess((val) => {
+    if (val === undefined || val === '') return undefined;
+    if (typeof val === 'string') {
+      const s = val.trim().toLowerCase();
+      if (s === 'true' || s === '1' || s === 'yes') return true;
+      if (s === 'false' || s === '0' || s === 'no') return false;
+    }
+    return Boolean(val);
+  }, z.boolean().optional());
+
 /**
  * Fails fast on boot if the environment is incomplete. A server that starts
  * with a missing JWT secret is worse than one that refuses to start.
@@ -43,16 +64,16 @@ const schema = z.object({
   GROQ_API_KEY: z.string().optional(),
 
   /** Serve the built frontend from ./dist in production. */
-  SERVE_STATIC: z.coerce.boolean().default(false),
+  SERVE_STATIC: envBoolean(false),
 
   /** Optional SMTP mailer configuration for sending password reset emails. */
   SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  SMTP_SECURE: z.coerce.boolean().optional(),
+  SMTP_SECURE: optionalEnvBoolean(),
   EMAIL_FROM: z.string().default('DristiX Security <noreply@dristix.edu>'),
-  CLIENT_URL: z.string().default('http://localhost:5173'),
+  CLIENT_URL: z.string().default(process.env.RENDER_EXTERNAL_URL || 'http://localhost:5173'),
 });
 
 const parsed = schema.safeParse(process.env);

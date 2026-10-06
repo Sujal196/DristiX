@@ -9,32 +9,32 @@ function getTransporter(): Transporter | null {
   if (env.SMTP_USER && env.SMTP_PASS) {
     const isGmail = !env.SMTP_HOST || env.SMTP_HOST.includes('gmail') || env.SMTP_USER.endsWith('@gmail.com');
     const host = env.SMTP_HOST || (isGmail ? 'smtp.gmail.com' : undefined);
-    const port = env.SMTP_PORT ?? (isGmail ? 465 : (env.SMTP_SECURE ? 465 : 587));
-    const secure = env.SMTP_SECURE ?? (port === 465);
+    const port = env.SMTP_PORT ?? 587;
+    const secure = env.SMTP_SECURE !== undefined ? env.SMTP_SECURE : (port === 465);
 
     // Google App Passwords often contain spaces (e.g. "abcd efgh ijkl mnop"), strip them out:
     const cleanPass = env.SMTP_PASS.replace(/\s+/g, '');
     const cleanUser = env.SMTP_USER.trim();
 
-    if (isGmail) {
-      transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: cleanUser,
-          pass: cleanPass,
-        },
-      });
-    } else {
-      transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: {
-          user: cleanUser,
-          pass: cleanPass,
-        },
-      });
-    }
+    transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      // CRITICAL: Cloud containers (e.g. Render) lack IPv6 outbound routing.
+      // family: 4 forces Node to resolve and connect via IPv4 only,
+      // completely preventing 'connect ENETUNREACH 2404:6800:...' errors.
+      family: 4,
+      auth: {
+        user: cleanUser,
+        pass: cleanPass,
+      },
+      tls: {
+        rejectUnauthorized: true,
+      },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 15000,
+    } as any);
     return transporter;
   }
 
@@ -54,7 +54,16 @@ export async function sendPasswordResetEmail(
   portal: 'student' | 'admin' = 'student'
 ): Promise<{ delivered: boolean; mode: 'smtp' | 'console'; error?: string }> {
   const subject = `DristiX Password Reset: Code ${verificationCode}`;
-  const resetLink = `${env.CLIENT_URL}/?resetToken=${encodeURIComponent(resetToken)}&email=${encodeURIComponent(toEmail)}&portal=${portal}`;
+
+  // Intelligently resolve the public application URL
+  const rawClientUrl = env.CLIENT_URL;
+  const renderUrl = process.env.RENDER_EXTERNAL_URL;
+  const baseUrl = (rawClientUrl && !rawClientUrl.includes('localhost'))
+    ? rawClientUrl
+    : (renderUrl || (process.env.NODE_ENV === 'production' ? 'https://dristix.onrender.com' : rawClientUrl));
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+
+  const resetLink = `${cleanBaseUrl}/?resetToken=${encodeURIComponent(resetToken)}&email=${encodeURIComponent(toEmail)}&portal=${portal}`;
 
   const textBody = `Hello ${recipientName},
 
@@ -72,7 +81,7 @@ If you did not request a password reset, please ignore this email. Your account 
 
 Best regards,
 The DristiX Team
-${env.CLIENT_URL}`;
+${cleanBaseUrl}`;
 
   const htmlBody = `
 <!DOCTYPE html>
