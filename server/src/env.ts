@@ -1,5 +1,19 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+// Load .env from cwd and check relative locations
+dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), 'server/.env') });
+try {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  dotenv.config({ path: path.resolve(here, '../.env') });
+  dotenv.config({ path: path.resolve(here, '../../.env') });
+  dotenv.config({ path: path.resolve(here, '../../../.env') });
+} catch {
+  // Ignored in non-file environments
+}
 
 /**
  * Fails fast on boot if the environment is incomplete. A server that starts

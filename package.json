@@ -9,6 +9,8 @@
     "dev:api": "npm --prefix server run dev",
     "build": "tsc -b && vite build",
     "build:api": "npm --prefix server run build",
+    "build:render": "npm run build && npm --prefix server install && npm --prefix server run build",
+    "start": "node server/dist/server/src/index.js",
     "lint": "oxlint",
     "preview": "vite preview",
     "db:seed": "npm --prefix server run db:seed",

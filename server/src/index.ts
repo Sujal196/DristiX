@@ -1,5 +1,6 @@
 
 import dns from 'node:dns';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -94,7 +95,14 @@ app.use('/api/feedback', feedbackRouter);
 // ── Optional: serve the built frontend as a single deployable unit ──
 if (env.SERVE_STATIC) {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const dist = path.resolve(here, '../../dist');
+  const candidatePaths = [
+    path.resolve(process.cwd(), 'dist'),
+    path.resolve(here, '../../../../dist'),
+    path.resolve(here, '../../dist'),
+    path.resolve(here, '../dist'),
+  ];
+  const dist = candidatePaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || candidatePaths[0];
+  console.log(`[dristix] Serving static client build from: ${dist}`);
   app.use(express.static(dist));
   app.get(/^(?!\/api).*/, (_req, res) => {
     res.sendFile(path.join(dist, 'index.html'));
