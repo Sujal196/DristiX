@@ -155,13 +155,20 @@ ${cleanBaseUrl}`;
 
   // 1. Try Brevo HTTPS REST API (Port 443 — guaranteed to bypass cloud egress SMTP blocks like Render free tier)
   if (env.BREVO_API_KEY) {
+    const rawKey = env.BREVO_API_KEY.trim();
+    if (rawKey.startsWith('xsmtpsib-')) {
+      console.error(
+        '[dristix-mail] ❌ Configuration Warning: The key in BREVO_API_KEY starts with "xsmtpsib-", which is an SMTP password, NOT a REST API Key!\n' +
+        '               To fix: Go to Brevo -> "SMTP & API" -> click the "API Keys" tab -> generate an API key (starts with "xkeysib-").'
+      );
+    }
     try {
       const fromEmail = env.SMTP_USER || 'sujalsahu196@gmail.com';
       const fromName = 'DristiX Examination Portal';
       const res = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
-          'api-key': env.BREVO_API_KEY.trim(),
+          'api-key': rawKey,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
@@ -180,7 +187,7 @@ ${cleanBaseUrl}`;
         return { delivered: true, mode: 'brevo' };
       } else {
         const errText = await res.text().catch(() => '');
-        console.error(`[dristix-mail] ❌ Brevo HTTPS delivery failed for ${toEmail} (${res.status}): ${errText}`);
+        console.error(`[dristix-mail] ❌ Brevo HTTPS delivery failed for ${toEmail} (HTTP ${res.status}): ${errText}`);
       }
     } catch (err: any) {
       console.error(`[dristix-mail] ❌ Brevo API request failed:`, err?.message || err);

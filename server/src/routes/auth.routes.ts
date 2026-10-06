@@ -250,6 +250,7 @@ authRouter.post(
     }
 
     if (!user) {
+      console.log(`[dristix-auth] ⚠️ Password reset requested for: "${cleanIdent}" (${portal} portal) - no matching account in MongoDB database.`);
       // Neutral message to avoid user enumeration
       res.json({
         ok: true,
